@@ -10,6 +10,7 @@ export enum QueryKeys {
   searchEnabled = 'searchEnabled',
   langfuseConnection = 'langfuseConnection',
   user = 'user',
+  passkeys = 'passkeys',
   name = 'name', // user key name
   models = 'models',
   balance = 'balance',
@@ -120,6 +121,10 @@ export enum MutationKeys {
   updateRole = 'updateRole',
   enableTwoFactor = 'enableTwoFactor',
   verifyTwoFactor = 'verifyTwoFactor',
+  registerPasskey = 'registerPasskey',
+  renamePasskey = 'renamePasskey',
+  deletePasskey = 'deletePasskey',
+  passkeyLogin = 'passkeyLogin',
   updateMemoryPreferences = 'updateMemoryPreferences',
   createProject = 'createProject',
   updateProject = 'updateProject',
