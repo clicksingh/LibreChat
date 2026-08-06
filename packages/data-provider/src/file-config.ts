@@ -504,6 +504,9 @@ export const fileConfig = {
   ocr: {
     supportedMimeTypes: defaultOCRMimeTypes,
   },
+  documentParser: {
+    supportedMimeTypes: documentParserMimeTypes,
+  },
   text: {
     supportedMimeTypes: defaultTextMimeTypes,
   },
@@ -554,7 +557,17 @@ export const fileConfigSchema = z.object({
       supportedMimeTypes: supportedMimeTypesSchema.optional(),
     })
     .optional(),
+  documentParser: z
+    .object({
+      supportedMimeTypes: supportedMimeTypesSchema.optional(),
+    })
+    .optional(),
   text: z
+    .object({
+      supportedMimeTypes: supportedMimeTypesSchema.optional(),
+    })
+    .optional(),
+  stt: z
     .object({
       supportedMimeTypes: supportedMimeTypesSchema.optional(),
     })
@@ -998,6 +1011,10 @@ export function mergeFileConfig(dynamic: z.infer<typeof fileConfigSchema> | unde
       ...fileConfig.ocr,
       supportedMimeTypes: fileConfig.ocr?.supportedMimeTypes || [],
     },
+    documentParser: {
+      ...fileConfig.documentParser,
+      supportedMimeTypes: fileConfig.documentParser?.supportedMimeTypes || [],
+    },
     text: {
       ...fileConfig.text,
       supportedMimeTypes: fileConfig.text?.supportedMimeTypes || [],
@@ -1049,6 +1066,18 @@ export function mergeFileConfig(dynamic: z.infer<typeof fileConfigSchema> | unde
     }
   }
 
+  if (dynamic.documentParser !== undefined) {
+    const { supportedMimeTypes: documentParserTypes, ...documentParserRest } =
+      dynamic.documentParser;
+    mergedConfig.documentParser = {
+      ...mergedConfig.documentParser,
+      ...documentParserRest,
+    };
+    if (documentParserTypes) {
+      mergedConfig.documentParser.supportedMimeTypes = convertStringsToRegex(documentParserTypes);
+    }
+  }
+
   if (dynamic.text !== undefined) {
     const { supportedMimeTypes: textMimeTypes, ...textRest } = dynamic.text;
     mergedConfig.text = {
@@ -1057,6 +1086,17 @@ export function mergeFileConfig(dynamic: z.infer<typeof fileConfigSchema> | unde
     };
     if (textMimeTypes) {
       mergedConfig.text.supportedMimeTypes = convertStringsToRegex(textMimeTypes);
+    }
+  }
+
+  if (dynamic.stt !== undefined) {
+    const { supportedMimeTypes: sttMimeTypes, ...sttRest } = dynamic.stt;
+    mergedConfig.stt = {
+      ...mergedConfig.stt,
+      ...sttRest,
+    };
+    if (sttMimeTypes) {
+      mergedConfig.stt.supportedMimeTypes = convertStringsToRegex(sttMimeTypes);
     }
   }
 
