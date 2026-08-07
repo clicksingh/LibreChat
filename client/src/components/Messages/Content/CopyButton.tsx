@@ -1,6 +1,6 @@
 import React from 'react';
-import { Copy, Check } from 'lucide-react';
-import { TooltipAnchor } from '@librechat/client';
+import { Copy, Check } from 'lucide';
+import { MorphIcon, TooltipAnchor } from '@librechat/client';
 import { useLocalize } from '~/hooks';
 import cn from '~/utils/cn';
 
@@ -41,22 +41,7 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
           className,
         )}
       >
-        <span className="relative flex size-[18px] items-center justify-center" aria-hidden="true">
-          <Copy
-            size={18}
-            className={cn(
-              'absolute transition-all duration-300 ease-out',
-              isCopied ? 'rotate-[-90deg] scale-0 opacity-0' : 'rotate-0 scale-100 opacity-100',
-            )}
-          />
-          <Check
-            size={18}
-            className={cn(
-              'transition-all duration-300 ease-out',
-              isCopied ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-0 opacity-0',
-            )}
-          />
-        </span>
+        <MorphIcon icon={isCopied ? Check : Copy} size={18} />
         {!iconOnly && (
           <span className="relative overflow-hidden">
             <span
