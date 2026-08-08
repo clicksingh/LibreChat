@@ -4,7 +4,7 @@ import { getViableUploadOptions, type UploadOptionContext } from '../files';
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-/** context accepts plain text + csv (text), pdf + xlsx (ocr); nothing else */
+/** context accepts plain text + csv (text), pdf + xlsx (ocr), and rtf (document parser). */
 const fileConfig = {
   text: { supportedMimeTypes: [/^text\/(plain|csv)$/] },
   ocr: {
@@ -13,6 +13,7 @@ const fileConfig = {
       /^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$/,
     ],
   },
+  documentParser: { supportedMimeTypes: [/^application\/rtf$/] },
   stt: { supportedMimeTypes: [] },
 } as unknown as FileConfig;
 
@@ -42,6 +43,12 @@ describe('getViableUploadOptions', () => {
   });
 
   describe('Anthropic (PDF/image only for provider attach)', () => {
+    it('routes a document-parser-only type to context', () => {
+      expect(getViableUploadOptions([file('application/rtf', 'notes.rtf')], baseCtx())).toEqual([
+        EToolResources.context,
+      ]);
+    });
+
     it('routes a spreadsheet to code + text, not the provider', () => {
       expect(getViableUploadOptions([file(XLSX, 'report.xlsx')], baseCtx())).toEqual([
         EToolResources.execute_code,
