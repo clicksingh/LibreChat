@@ -300,6 +300,27 @@ describe('Multer Configuration', () => {
       fileFilter(mockReq, zipFile, cb);
     });
 
+    it.each(['application/octet-stream', 'binary/octet-stream'])(
+      'should canonicalize generic MIME type %s before endpoint admission',
+      (genericType) => {
+        const { mergeFileConfig } = require('librechat-data-provider');
+        const fileFilter = createFileFilter(mergeFileConfig());
+        const documentFile = {
+          ...mockFile,
+          originalname: 'report.docx',
+          mimetype: genericType,
+        };
+        const cb = jest.fn();
+
+        fileFilter(mockReq, documentFile, cb);
+
+        expect(cb).toHaveBeenCalledWith(null, true);
+        expect(documentFile.mimetype).toBe(
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+      },
+    );
+
     it('should use real mergeFileConfig function', async () => {
       const { mergeFileConfig, mbToBytes } = require('librechat-data-provider');
 
