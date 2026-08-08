@@ -608,6 +608,7 @@ export const fileConfigSchema = z.object({
   ocr: z
     .object({
       supportedMimeTypes: supportedMimeTypesSchema.optional(),
+      enabled: z.boolean().optional(),
     })
     .optional(),
   documentParser: z
