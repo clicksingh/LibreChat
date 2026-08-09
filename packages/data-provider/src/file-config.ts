@@ -647,6 +647,7 @@ export const fileConfigSchema = z.object({
   text: z
     .object({
       supportedMimeTypes: supportedMimeTypesSchema.optional(),
+      enabled: z.boolean().optional(),
     })
     .optional(),
   stt: z
