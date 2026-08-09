@@ -11,6 +11,7 @@ import {
   mergeFileConfig,
   isAssistantsEndpoint,
   getEndpointFileConfig,
+  defaultAgentCapabilities,
   defaultAssistantsVersion,
 } from 'librechat-data-provider';
 import type { EModelEndpoint, TEndpointsConfig, TError } from 'librechat-data-provider';
@@ -18,7 +19,9 @@ import type { TConversation } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter } from '~/common';
 import { logger, validateFiles, cachePreview, getCachedPreview, removePreviewEntry } from '~/utils';
 import { useGetFileConfig, useUploadFileMutation } from '~/data-provider';
+import useAgentCapabilities from '~/hooks/Agents/useAgentCapabilities';
 import useLocalize, { TranslationKeys } from '~/hooks/useLocalize';
+import useGetAgentsConfig from '~/hooks/Agents/useGetAgentsConfig';
 import { useDelayedUploadToast } from './useDelayedUploadToast';
 import { useChatContext } from '~/Providers/ChatContext';
 import store, { ephemeralAgentByConvoId } from '~/store';
@@ -51,6 +54,8 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
   const [errors, setErrors] = useState<string[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const { startUploadTimer, clearUploadTimer } = useDelayedUploadToast();
+  const { agentsConfig } = useGetAgentsConfig();
+  const capabilities = useAgentCapabilities(agentsConfig?.capabilities ?? defaultAgentCapabilities);
   const { files, setFiles, conversation } = fileState;
   const setFilesLoading = fileState.setFilesLoading ?? noop;
   const setEphemeralAgent = useSetRecoilState(
@@ -304,6 +309,11 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
         fileConfig,
         endpointFileConfig,
         toolResource: _toolResource,
+        /* The same capability the upload options consult. Without it, a document the
+         * deployment routes through OCR is accepted here for an agent that cannot use
+         * OCR, and the server answers with a capability error the client could have
+         * given straight away. */
+        ocrEnabled: capabilities.ocrEnabled,
       });
     } catch (error) {
       console.error('file validation error', error);
