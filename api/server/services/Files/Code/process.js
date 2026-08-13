@@ -1,4 +1,5 @@
 const path = require('path');
+const mongoose = require('mongoose');
 const { v4 } = require('uuid');
 const { logger } = require('@librechat/data-schemas');
 const { getCodeBaseURL } = require('@librechat/agents');
@@ -85,6 +86,66 @@ const createDownloadFallback = ({
  * with `previewError: 'timeout'` and the UI shows download-only.
  */
 const PREVIEW_FINALIZE_TIMEOUT_MS = 60_000;
+
+/**
+ * Best-effort mirror of a finalized preview onto the message
+ * attachment(s) that reference `file_id`.
+ *
+ * The immediate-persist step (`processCodeOutput`) stamps the message
+ * attachment at `status: 'pending'`, and `finalizePreview` updates only
+ * the `files` record. Without this mirror, a conversation that is
+ * re-opened after the deferred render finished (the SSE stream has
+ * already closed, so the `attachment` update event was dropped) keeps
+ * the attachment `pending` forever — the client's file-status hook then
+ * polls `/api/files/:file_id/preview` indefinitely, and its no-guard
+ * cache write loops into React #185 ("Maximum update depth exceeded").
+ *
+ * Fire-and-forget and failure-tolerant: the `files` record is the
+ * source of truth, so a message-sync error is logged and swallowed and
+ * never surfaces to the finalize caller.
+ *
+ * @param {Object} params
+ * @param {string} params.file_id - DB key of the finalized file.
+ * @param {'ready' | 'failed'} params.status - Terminal status to apply.
+ * @param {string | null} [params.text] - Resolved preview text.
+ * @param {string | null} [params.textFormat] - Format hint (`'html'` | `'text'`).
+ * @param {string | null} [params.previewError] - Failure reason when `failed`.
+ */
+const syncMessageAttachment = async ({
+  file_id,
+  status,
+  text,
+  textFormat,
+  previewError,
+}) => {
+  try {
+    const result = await mongoose.connection
+      .collection('messages')
+      .updateMany(
+        { 'attachments.file_id': file_id },
+        {
+          $set: {
+            'attachments.$[a].status': status,
+            'attachments.$[a].text': text ?? null,
+            'attachments.$[a].textFormat': textFormat ?? null,
+            'attachments.$[a].previewError': previewError ?? null,
+          },
+        },
+        { arrayFilters: [{ 'a.file_id': file_id }] },
+      );
+    if (result?.modifiedCount) {
+      logger.debug(
+        `[syncMessageAttachment] ${file_id}: mirrored ${result.modifiedCount} message attachment(s) -> ${status}`,
+      );
+    }
+  } catch (error) {
+    logger.error(
+      `[syncMessageAttachment] ${file_id}: failed to mirror status onto message attachment: ${
+        error?.message ?? error
+      }`,
+    );
+  }
+};
 
 /**
  * Render the inline HTML preview for a code-execution file (or plain
@@ -181,6 +242,19 @@ const finalizePreview = async ({
       logger.debug(
         `[finalizePreview] ${file_id}: stale render skipped — newer emit has superseded revision ${previewRevision}`,
       );
+    }
+    /* Mirror the resolved status onto the message attachment(s) so a
+     * re-opened conversation never keeps `status: 'pending'` (see
+     * `syncMessageAttachment`). Only on a committed update — a
+     * revision-guard rejection means a newer emit superseded this one. */
+    if (updated) {
+      void syncMessageAttachment({
+        file_id,
+        status,
+        text,
+        textFormat,
+        previewError: failed ? previewError : null,
+      });
     }
     return updated;
   } catch (error) {

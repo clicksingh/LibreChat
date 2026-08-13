@@ -174,13 +174,32 @@ export default function useAttachmentPreviewSync(
         previewError: polled.previewError,
       };
       if (existingIndex >= 0) {
-        const existing = messageAttachments[existingIndex] as Partial<TFile> & TAttachment;
+        const current = messageAttachments[existingIndex] as Partial<TFile> & TAttachment;
+        const resolvedText = polled.text ?? current.text ?? null;
+        const resolvedTextFormat = polled.textFormat ?? current.textFormat ?? null;
+        /* No-op guard: if the entry already carries the resolved
+         * terminal state, return the SAME `prevMap` reference. Recoil
+         * skips notifying subscribers when the reference is unchanged,
+         * which is what breaks the effect → write → re-render loop
+         * (React #185 "Maximum update depth exceeded"): a parent that
+         * re-derives the `attachment` prop from this atom gets a fresh
+         * object on every write, re-firing this effect via the
+         * `attachment` dep. Without the guard, each poll returning the
+         * same terminal data writes a new map reference and loops. */
+        if (
+          current.status === polled.status &&
+          current.text === resolvedText &&
+          current.textFormat === resolvedTextFormat &&
+          current.previewError === polled.previewError
+        ) {
+          return prevMap;
+        }
         const merged = [...messageAttachments];
         merged[existingIndex] = {
-          ...existing,
+          ...current,
           ...resolvedFields,
-          text: polled.text ?? existing.text ?? null,
-          textFormat: polled.textFormat ?? existing.textFormat ?? null,
+          text: resolvedText,
+          textFormat: resolvedTextFormat,
         } as TAttachment;
         return { ...prevMap, [messageId]: merged };
       }

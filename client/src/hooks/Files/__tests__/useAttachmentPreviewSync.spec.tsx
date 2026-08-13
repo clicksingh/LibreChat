@@ -297,6 +297,54 @@ describe('useAttachmentPreviewSync', () => {
     expect(ctx.result.current.previewError).toBe('parser-error');
   });
 
+  it('does NOT re-write messageAttachmentsMap when the terminal status is already applied (breaks the React #185 loop)', () => {
+    const preview: TFilePreview = {
+      file_id: fileId,
+      status: 'ready',
+      text: '<table>final</table>',
+      textFormat: 'html',
+    };
+    mockUseFilePreview.mockReset();
+    mockUseFilePreview.mockReturnValue({ data: preview, isFetching: false });
+    const mapRef: { current: Record<string, TAttachment[] | undefined> } = { current: {} };
+    const Probe = () => {
+      mapRef.current = useRecoilValue(store.messageAttachmentsMap);
+      return null;
+    };
+    const { rerender } = renderHook(
+      ({ attachment }: { attachment: TAttachment }) => useAttachmentPreviewSync(attachment),
+      {
+        initialProps: { attachment: makeAttachment({ status: 'pending' }) },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <RecoilRoot
+            initializeState={(snap) =>
+              snap.set(store.messageAttachmentsMap, {
+                [messageId]: [makeAttachment({ status: 'pending' })],
+              })
+            }
+          >
+            <Probe />
+            {children}
+          </RecoilRoot>
+        ),
+      },
+    );
+
+    /* First commit resolves the seeded pending entry to ready. */
+    const firstMap = mapRef.current;
+    expect((firstMap[messageId]?.[0] as AttachmentFixture).status).toBe('ready');
+
+    /* Re-render with a NEW attachment object — the exact loop trigger: a
+     * parent that re-derives `attachment` from the atom hands the hook a
+     * fresh prop reference on every write, re-firing the upsert effect.
+     * The no-op guard must return the SAME map reference so Recoil
+     * notifies nobody; without it, write → new prop → write → … →
+     * React #185 (Maximum update depth exceeded). */
+    rerender({ attachment: makeAttachment({ status: 'pending' }) });
+    expect(mapRef.current).toBe(firstMap);
+    expect((mapRef.current[messageId]?.[0] as AttachmentFixture).status).toBe('ready');
+  });
+
   it('does NOT upsert while the polled status is still pending', () => {
     const ctx = setup({
       attachment: makeAttachment({ status: 'pending' }),
