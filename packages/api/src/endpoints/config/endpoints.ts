@@ -4,6 +4,7 @@ import {
   isAgentsEndpoint,
   orderEndpointsConfig,
   defaultAgentCapabilities,
+  normalizeEndpointName,
 } from 'librechat-data-provider';
 import type { AgentCapabilities, TEndpointsConfig, TConfig } from 'librechat-data-provider';
 import type { AppConfig } from '@librechat/data-schemas';
@@ -122,6 +123,28 @@ export function createEndpointsConfigService(deps: EndpointsConfigDeps): {
         userProvideSessionToken: process.env.BEDROCK_AWS_SESSION_TOKEN === AuthType.USER_PROVIDED,
         userProvideBearerToken: process.env.BEDROCK_AWS_BEARER_TOKEN === AuthType.USER_PROVIDED,
       };
+    }
+
+    /**
+     * Admin-configured default endpoint: a custom endpoint whose config
+     * carries `default: true` is elevated to the first (default) position
+     * of the order the client uses to pick an endpoint when none is stored
+     * (`mapEndpoints` sorts by `order` ascending). The explicit `order` is
+     * applied here because `orderEndpointsConfig` gives the explicit value
+     * precedence over the computed default index.
+     */
+    const customEndpoints = appConfig.endpoints?.[EModelEndpoint.custom];
+    if (Array.isArray(customEndpoints)) {
+      for (const customEndpoint of customEndpoints) {
+        if (customEndpoint?.name != null && customEndpoint.default === true) {
+          const key = normalizeEndpointName(customEndpoint.name);
+          const existing = mergedConfig[key];
+          mergedConfig[key] = {
+            ...(existing && typeof existing === 'object' ? existing : {}),
+            order: -1,
+          };
+        }
+      }
     }
 
     return orderEndpointsConfig(mergedConfig as TEndpointsConfig);

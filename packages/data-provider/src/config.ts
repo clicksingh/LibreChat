@@ -862,6 +862,14 @@ export const endpointSchema = baseEndpointSchema.merge(
       .strict()
       .optional(),
     directEndpoint: z.boolean().optional(),
+    /**
+     * Marks this custom endpoint as the platform's default endpoint: the
+     * client selects it (and its `models.default[0]`) for brand-new
+     * conversations when no explicit conversation model or user preference
+     * is stored. Mirrored server-side by the `validateAgentModel` resolver,
+     * which falls back to this model when a request arrives without one.
+     */
+    default: z.boolean().optional(),
     titleMessageRole: z.enum(['system', 'user', 'assistant']).optional(),
     /** Static per-model token config: context window and per-million-token rates */
     tokenConfig: z

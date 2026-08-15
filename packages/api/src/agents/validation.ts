@@ -1,14 +1,19 @@
+import { logger } from '@librechat/data-schemas';
+import type { AppConfig } from '@librechat/data-schemas';
 import { z } from 'zod';
 import { MAX_SUBAGENTS, ViolationTypes, ErrorTypes } from 'librechat-data-provider';
 import type { Agent, TModelsConfig } from 'librechat-data-provider';
 import type { Request, Response } from 'express';
+import { getCustomEndpointConfig } from '~/app/config';
 
 /**
  * Permissive Request alias used by {@link validateAgentModel}. Accepts either
  * the default Express `Request` or the project-specific `ServerRequest`
  * (see `~/types/http`), whose `params` type is widened to `unknown`.
+ * `config` is optional so bare Express `Request` callers remain valid; the
+ * admin-default resolver below only engages when it is present.
  */
-type LooseRequest = Request<unknown, unknown, unknown>;
+type LooseRequest = Request<unknown, unknown, unknown> & { config?: AppConfig };
 
 /** Avatar schema shared between create and update */
 export const agentAvatarSchema: z.ZodObject<
@@ -1385,6 +1390,63 @@ interface ValidateAgentModelResult {
   };
 }
 
+type ResolvedDefaultModel =
+  | { model: string; source: 'configured' }
+  | { model: string; source: 'fallback' }
+  | undefined;
+
+/**
+ * Resolves a usable model for a request that arrived without one.
+ *
+ * Precedence:
+ * 1. The admin-configured default (`models.default[0]`) of the custom
+ *    endpoint config, when it is present in the caller's loaded catalog
+ *    (i.e. enabled and entitled — `modelsConfig` is already filtered for
+ *    the requesting user).
+ * 2. A deterministic permitted fallback: the first model in that catalog.
+ *
+ * Returns `undefined` only when there is no usable model at all (no
+ * `req.config`, endpoint is not custom, or the catalog is empty/unloaded).
+ * Never returns a model the user is not entitled to.
+ */
+function resolveDefaultModel({
+  req,
+  endpoint,
+  modelsConfig,
+}: {
+  req: LooseRequest;
+  endpoint: string;
+  modelsConfig?: TModelsConfig;
+}): ResolvedDefaultModel {
+  if (!req.config) {
+    return undefined;
+  }
+
+  let configuredDefault: string | undefined;
+  try {
+    const defaultItem = getCustomEndpointConfig({
+      endpoint,
+      appConfig: req.config,
+    })?.models?.default?.[0];
+    configuredDefault =
+      typeof defaultItem === 'string' ? defaultItem : (defaultItem?.name ?? undefined);
+  } catch {
+    // Non-custom endpoint (or unreadable config) — no admin default exists.
+    configuredDefault = undefined;
+  }
+
+  const availableModels = modelsConfig?.[endpoint];
+  if (!Array.isArray(availableModels) || availableModels.length === 0) {
+    return undefined;
+  }
+
+  if (configuredDefault != null && availableModels.includes(configuredDefault)) {
+    return { model: configuredDefault, source: 'configured' };
+  }
+
+  return { model: availableModels[0], source: 'fallback' };
+}
+
 /**
  * Validates an agent's model against the available models configuration.
  * This is a non-middleware version of validateModel that can be used
@@ -1400,6 +1462,46 @@ export async function validateAgentModel(
   const { model, provider: endpoint } = agent;
 
   if (!model) {
+    const resolved = resolveDefaultModel({ req, endpoint, modelsConfig });
+
+    if (resolved) {
+      // Apply the resolved model so the downstream provider call uses it.
+      agent.model = resolved.model;
+      if (resolved.source === 'fallback') {
+        logger.warn(
+          `[validateAgentModel] No model on request for endpoint "${endpoint}" and the configured ` +
+            `default is unavailable; using permitted fallback "${resolved.model}".`,
+        );
+      } else {
+        logger.debug(
+          `[validateAgentModel] No model on request for endpoint "${endpoint}"; ` +
+            `resolved admin default "${resolved.model}".`,
+        );
+      }
+      return { isValid: true };
+    }
+
+    // No usable default. Distinguish clear configuration errors from the
+    // generic missing-model case so the client surfaces actionable guidance.
+    if (!modelsConfig) {
+      return {
+        isValid: false,
+        error: {
+          message: `{ "type": "${ErrorTypes.MODELS_NOT_LOADED}" }`,
+        },
+      };
+    }
+
+    const availableModels = modelsConfig[endpoint];
+    if (!availableModels || availableModels.length === 0) {
+      return {
+        isValid: false,
+        error: {
+          message: `{ "type": "${ErrorTypes.ENDPOINT_MODELS_NOT_LOADED}", "info": "${endpoint}" }`,
+        },
+      };
+    }
+
     return {
       isValid: false,
       error: {
