@@ -27,6 +27,7 @@ export enum Tools {
   skill = 'skill',
   read_file = 'read_file',
   bash_tool = 'bash_tool',
+  document_visual_qa = 'document_visual_qa',
 }
 
 export enum EToolResources {
