@@ -77,14 +77,33 @@ describe('cleanCodeToolOutput', () => {
     expect(output).toMatch(/- \/mnt\/data\/test_folder\/\.dirkeep/);
   });
 
-  it('preserves the compact session-file summary', () => {
+  it('preserves the compact session-file summary (rewriting the Cloud /mnt/data path)', () => {
     const summary =
       'Session files: 4 persisted file(s) are available in /mnt/data, including 1 image(s). ' +
       'Use known /mnt/data paths directly in later code-tool calls. ' +
       'The app displays files/images automatically; do not invent download links or wrap generated images in Markdown.';
     const input = ['stdout:', 'Report generated', '', 'Generated files:', summary].join('\n');
     const output = cleanCodeToolOutput(input);
-    expect(output).toBe(input);
+    expect(output).toContain('available in your sandbox working directory, including 1 image(s)');
+    expect(output).toContain('Use known relative paths directly in later code-tool calls.');
+    expect(output).toContain('The app displays files/images automatically; do not invent download links');
+    expect(output).not.toContain('/mnt/data');
+    // Everything other than the rewritten path phrases is preserved verbatim.
+    expect(output.startsWith('stdout:\nReport generated\n\nGenerated files:')).toBe(true);
+  });
+
+  it('rewrites the /tmp-scratch reminder away from the non-existent /mnt/data', () => {
+    const input = [
+      'stdout:',
+      'did a thing',
+      '',
+      'Note: /tmp files are same-call scratch only and were not persisted; use /mnt/data for files needed later.',
+    ].join('\n');
+    const output = cleanCodeToolOutput(input);
+    expect(output).toContain(
+      'use your sandbox working directory for files needed later',
+    );
+    expect(output).not.toContain('/mnt/data');
   });
 
   it('passes through output that contains no boilerplate (no false positives)', () => {

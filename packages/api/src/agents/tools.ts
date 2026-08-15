@@ -135,7 +135,7 @@ const READ_FILE_DEF: LCTool = Object.freeze({
 
 const CODE_READ_FILE_DESCRIPTION = `Read a known text file from the code-execution sandbox. Returns line-numbered text; large files may be truncated around 256KB.
 
-Use for text, CSV, JSON, Markdown, logs, and small source files at paths returned by tool output, just written, or under /mnt/data/. Do not run ls/find just to rediscover known paths. Use bash_tool for binary files, large files, transforms, metadata, or true filesystem discovery. /tmp is per-call scratch and unavailable later.`;
+Use for text, CSV, JSON, Markdown, logs, and small source files at paths returned by tool output or just written. Paths are relative to your sandbox working directory (the persistent workspace — the current directory of bash_tool / code executions). Do not run ls/find just to rediscover known paths. Use bash_tool for binary files, large files, transforms, metadata, or true filesystem discovery. /tmp is per-call scratch and unavailable later.`;
 
 const CODE_READ_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
   type: 'object',
@@ -143,7 +143,7 @@ const CODE_READ_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     file_path: {
       type: 'string',
       description:
-        'Path to a file from code execution output, such as "/mnt/data/result.csv" or another path returned by the execution tool.',
+        'Path to a file in your sandbox working directory, such as "result.csv" or another path returned by the execution tool.',
     },
   },
   required: ['file_path'],
@@ -162,7 +162,7 @@ const SKILL_CREATE_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     file_path: {
       type: 'string',
       description:
-        'Path to write. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "/mnt/data/result.txt" when code execution is enabled. For SKILL.md, the YAML frontmatter name must match {skillName}.',
+        'Path to write. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "result.txt" (relative to your sandbox working directory) when code execution is enabled. For SKILL.md, the YAML frontmatter name must match {skillName}.',
     },
     content: {
       type: 'string',
@@ -183,7 +183,7 @@ const CODE_CREATE_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     file_path: {
       type: 'string',
       description:
-        'Path to write in the code-execution sandbox, such as "/mnt/data/result.txt". Prefer /mnt/data/{file} for files that should remain available to later sandbox calls.',
+        'Path to write in the code-execution sandbox, relative to your working directory (e.g. "result.txt" or "data/report.json"). Files written there persist across later sandbox calls and are automatically delivered as downloads.',
     },
     content: {
       type: 'string',
@@ -204,7 +204,7 @@ const SKILL_EDIT_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     file_path: {
       type: 'string',
       description:
-        'Path to edit. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "/mnt/data/result.txt" when code execution is enabled. edit_file cannot rename skills; keep SKILL.md frontmatter name equal to {skillName}.',
+        'Path to edit. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "result.txt" (relative to your sandbox working directory) when code execution is enabled. edit_file cannot rename skills; keep SKILL.md frontmatter name equal to {skillName}.',
     },
     old_text: {
       type: 'string',
@@ -235,7 +235,7 @@ const CODE_EDIT_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
   properties: {
     file_path: {
       type: 'string',
-      description: 'Path to edit in the code-execution sandbox, such as "/mnt/data/result.txt".',
+      description: 'Path to edit in the code-execution sandbox, relative to your working directory (e.g. "result.txt").',
     },
     old_text: {
       type: 'string',
@@ -272,15 +272,15 @@ Paths starting with "skills/" write skill files:
 - skills/{skillName}/assets/{file} - static assets.
 - skills/{skillName}/templates/{file} - reusable output templates.
 
-For SKILL.md, frontmatter name must match {skillName}; create skills/{newName}/SKILL.md to rename. Put large runnable artifacts in bundled files such as references/template.html, and have SKILL.md tell the agent when to read or reuse them.
+For SKILL.md, frontmatter name must match {skillName}; create skills/{newName}/SKILL.md to rename. Keep large artifacts in bundled files (references/template.html) and have SKILL.md point to them.
 
-Non-skills paths target the code-execution sandbox when enabled. Prefer /mnt/data/{file}.`;
+Non-skills paths target the code-execution sandbox when enabled; use paths relative to your working directory (files persist and are delivered as downloads).`;
 
 const CODE_CREATE_FILE_DESCRIPTION = `Create a new file, or overwrite an existing file with explicit intent.
 
 Use for new files and full rewrites where the change is larger than half the file. Requires overwrite: true to replace existing files. Refuses otherwise.
 
-Targets code-execution sandbox paths. Prefer /mnt/data/{file} for files that should remain available to later sandbox calls.`;
+Targets code-execution sandbox paths, relative to your working directory. Files written there persist across later sandbox calls and are delivered as downloads.`;
 
 const SKILL_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an existing file.
 
@@ -294,7 +294,7 @@ const CODE_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an exist
 
 Use for small, precise changes. Each old_text must match exactly one location. Tries exact match first; falls back to whitespace-tolerant matching if needed. Reports which matching strategy was used. Returns a unified diff.
 
-Targets code-execution sandbox paths, such as /mnt/data/result.txt.`;
+Targets code-execution sandbox paths, such as result.txt (relative to your working directory).`;
 
 const SKILL_CREATE_FILE_DEF: LCTool = Object.freeze({
   name: CREATE_FILE_TOOL_NAME,
@@ -367,6 +367,51 @@ export function isFileAuthoringToolDefinition(def: LCTool | undefined): boolean 
 }
 
 /**
+ * 8S3B S7 — the published `@librechat/agents` bash/code tool descriptions
+ * are written for LibreChat Cloud's sandbox layout (`/mnt/data`). Our
+ * codeapi sandbox has no `/mnt/data`: the current working directory of
+ * every execution IS the persistent per-session workspace, and files
+ * written there persist across calls and are auto-delivered as downloads.
+ * Rewrite the two published phrases so the model never tries a
+ * non-existent `/mnt/data` path (the `/mnt` mount is root-owned, so even
+ * `mkdir` fails) and never sees a host path. Done at registration — not by
+ * patching node_modules — so the fix survives `npm ci` on rebuild.
+ */
+function normalizeSandboxPathGuidance(text: string): string {
+  return text
+    .replace(
+      'Persist handoff artifacts in `/mnt/data`',
+      'Persist handoff artifacts in your sandbox working directory',
+    )
+    .replace(
+      'Prior /mnt/data files are available and can be modified in place.',
+      'Files you wrote to the sandbox working directory in earlier calls are available and can be modified in place.',
+    );
+}
+
+/**
+ * Clones the published `bash_tool` schema with its `command.description`
+ * normalized by `normalizeSandboxPathGuidance`. The schema object from the
+ * SDK is shared/frozen — never mutate it in place.
+ */
+function normalizeBashSchema(schema: unknown): unknown {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+  const source = schema as { properties?: { command?: { description?: string } } };
+  const cloned = { ...schema } as Record<string, unknown>;
+  const properties = source.properties ? { ...source.properties } : {};
+  if (properties.command && typeof properties.command.description === 'string') {
+    properties.command = {
+      ...properties.command,
+      description: normalizeSandboxPathGuidance(properties.command.description),
+    };
+  }
+  cloned.properties = properties;
+  return cloned;
+}
+
+/**
  * The `bash_tool` description varies along exactly one axis — whether
  * the LLM-facing `{{tool<idx>turn<turn>}}` reference syntax guide is
  * appended — so two frozen module-level singletons cover every call
@@ -380,8 +425,12 @@ export function isFileAuthoringToolDefinition(def: LCTool | undefined): boolean 
 function createBashToolDef(enableToolOutputReferences: boolean): LCTool {
   return Object.freeze({
     name: BashExecutionToolDefinition.name,
-    description: buildBashExecutionToolDescription({ enableToolOutputReferences }),
-    parameters: BashExecutionToolDefinition.schema as unknown as LCTool['parameters'],
+    description: normalizeSandboxPathGuidance(
+      buildBashExecutionToolDescription({ enableToolOutputReferences }),
+    ),
+    parameters: normalizeBashSchema(
+      BashExecutionToolDefinition.schema,
+    ) as unknown as LCTool['parameters'],
   }) as LCTool;
 }
 

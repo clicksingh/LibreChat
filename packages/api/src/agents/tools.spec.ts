@@ -23,11 +23,23 @@ jest.mock('@librechat/agents', () => ({
   BashExecutionToolDefinition: {
     name: 'bash_tool',
     description: 'bash',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description:
+            'The bash command or script to execute. The environment is stateless; variables and state do not persist between executions. Prior /mnt/data files are available and can be modified in place.',
+        },
+      },
+      required: ['command'],
+    },
   },
   /**
    * Deterministic stub mirroring the SDK's `buildBashExecutionToolDescription`:
-   * appends an LLM-facing reference-syntax marker only when
+   * carries the same Cloud `/mnt/data` guidance phrases the published package
+   * embeds (so the S7 normalization actually has something to rewrite), and
+   * appends the LLM-facing reference-syntax marker only when
    * `enableToolOutputReferences` is true.
    */
   buildBashExecutionToolDescription: ({
@@ -35,7 +47,16 @@ jest.mock('@librechat/agents', () => ({
   }: {
     enableToolOutputReferences?: boolean;
   } = {}): string =>
-    enableToolOutputReferences === true ? 'bash {{tool<idx>turn<turn>}}' : 'bash',
+    [
+      'Runs bash commands and returns stdout/stderr output from a stateless execution environment.',
+      '',
+      'Usage:',
+      '- No network access available.',
+      '- Generated files are automatically delivered; **DO NOT** provide download links.',
+      '- Persist handoff artifacts in `/mnt/data`.',
+      '- Prior /mnt/data files are available and can be modified in place.',
+      ...(enableToolOutputReferences === true ? ['{{tool<idx>turn<turn>}}'] : []),
+    ].join('\n'),
 }));
 
 import { CODE_EXECUTION_TOOLS } from '@librechat/agents';
@@ -211,6 +232,34 @@ describe('registerCodeExecutionTools', () => {
       expect(toolRegistry.has('bash_tool')).toBe(true);
     });
 
+    it('normalizes the published bash_tool /mnt/data guidance to the workspace contract', () => {
+      const toolRegistry = makeRegistry();
+      const result = registerCodeExecutionTools({
+        toolRegistry,
+        toolDefinitions: [],
+        includeBash: true,
+        enableToolOutputReferences: true,
+      });
+
+      const bashTool = result.toolDefinitions.find((d) => d.name === 'bash_tool');
+      expect(bashTool).toBeDefined();
+      const description = String(bashTool?.description);
+      expect(description).toContain('sandbox working directory');
+      expect(description).toContain('stateless execution environment');
+      expect(description).toContain('No network access available.');
+      expect(description).toContain('{{tool<idx>turn<turn>}}');
+      expect(description).not.toContain('/mnt/data');
+      expect(description).not.toContain('/mnt/');
+
+      // The published schema's command description embeds the same Cloud
+      // guidance — it must be normalized too.
+      const command = (bashTool?.parameters as {
+        properties?: { command?: { description?: string } };
+      })?.properties?.command;
+      expect(command?.description).toContain('sandbox working directory');
+      expect(command?.description).not.toContain('/mnt/data');
+    });
+
     it('registers read_file only when includeBash=false', () => {
       const toolRegistry = makeRegistry();
       const result = registerCodeExecutionTools({
@@ -236,7 +285,8 @@ describe('registerCodeExecutionTools', () => {
 
       const readFile = result.toolDefinitions.find((d) => d.name === 'read_file');
       expect(readFile?.description).toContain('code-execution sandbox');
-      expect(readFile?.description).toContain('/mnt/data/');
+      expect(readFile?.description).toContain('sandbox working directory');
+      expect(readFile?.description).not.toContain('/mnt/data');
       expect(readFile?.description).toContain('Do not run ls/find');
       expect(readFile?.description).toContain('/tmp is per-call scratch');
       expect(readFile?.description).toContain('truncated around 256KB');
@@ -527,10 +577,12 @@ describe('registerFileAuthoringTools', () => {
     const createFile = result.toolDefinitions.find((d) => d.name === 'create_file');
     const editFile = result.toolDefinitions.find((d) => d.name === 'edit_file');
     expect(createFile?.description).toContain('code-execution sandbox');
-    expect(createFile?.description).toContain('/mnt/data/');
+    expect(createFile?.description).toContain('relative to your working directory');
+    expect(createFile?.description).not.toContain('/mnt/data');
     expect(createFile?.description).not.toContain('skills/');
     expect(editFile?.description).toContain('code-execution sandbox');
-    expect(editFile?.description).toContain('/mnt/data/');
+    expect(editFile?.description).toContain('relative to your working directory');
+    expect(editFile?.description).not.toContain('/mnt/data');
     expect(editFile?.description).not.toContain('skills/');
     expect(filePathDescription(createFile)).toContain('code-execution sandbox');
     expect(filePathDescription(createFile)).not.toContain('skills/');

@@ -1543,7 +1543,8 @@ describe('initializeAgent — execute_code capability expansion', () => {
     expect(readFile?.description).not.toContain('SKILL.md');
     const createFile = result.toolDefinitions?.find((d) => d.name === 'create_file');
     expect(createFile?.description).toContain('code-execution sandbox');
-    expect(createFile?.description).toContain('/mnt/data/');
+    expect(createFile?.description).toContain('relative to your working directory');
+    expect(createFile?.description).not.toContain('/mnt/data');
     expect(createFile?.description).not.toContain('skills/');
     expect(result.skillAuthoringAvailable).toBe(false);
     expect(result.fileAuthoringToolNames).toEqual(new Set(['create_file', 'edit_file']));

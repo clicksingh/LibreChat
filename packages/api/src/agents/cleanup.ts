@@ -82,8 +82,54 @@ const TRAILING_NOTES_PATTERN =
   /\n\s*\n\s*Note:\s*(?:Files from previous executions|Files in "Available files")[\s\S]*$/;
 
 /**
- * Returns `content` with the bash-executor boilerplate removed. Safe
- * to call on any tool output — non-matching text is returned unchanged.
+ * 8S3B S7 — the current `@librechat/agents` executor still appends two
+ * Cloud-layout strings the model reads:
+ *
+ * 1. `appendTmpScratchReminder` ("use /mnt/data for files needed later")
+ *    when the executed command referenced `/tmp`, and
+ * 2. `appendCodeSessionFileSummary` ("N persisted file(s) are available
+ *    in /mnt/data ... Use known /mnt/data paths directly in later
+ *    code-tool calls") on every run that produced files.
+ *
+ * Our sandbox has no `/mnt/data` — the execution cwd IS the persistent
+ * workspace and codeapi returns only workspace-relative file names — so
+ * both are rewritten to the real contract. Anchored to the exact
+ * published phrases so user stdout is never mutated. The `- /mnt/data/...`
+ * per-file listing is a legacy (pre-3.2.35) executor format; the compact
+ * summary above is what the current version emits.
+ */
+const MNT_DATA_REWRITES: ReadonlyArray<[RegExp, string]> = [
+  [
+    /use \/mnt\/data for files needed later/g,
+    'use your sandbox working directory for files needed later',
+  ],
+  [
+    /available in \/mnt\/data, including/g,
+    'available in your sandbox working directory, including',
+  ],
+  [
+    /Use known \/mnt\/data paths directly in later code-tool calls\./g,
+    'Use known relative paths directly in later code-tool calls.',
+  ],
+];
+
+/**
+ * Returns `content` with the two Cloud-specific `/mnt/data` runtime
+ * phrases rewritten to this sandbox's workspace contract. Non-matching
+ * text is returned unchanged.
+ */
+function rewriteSandboxPathGuidance(content: string): string {
+  let out = content;
+  for (const [pattern, replacement] of MNT_DATA_REWRITES) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
+/**
+ * Returns `content` with the bash-executor boilerplate removed and the
+ * Cloud-specific `/mnt/data` guidance rewritten. Safe to call on any tool
+ * output — non-matching text is returned unchanged.
  *
  * Annotation stripping is scoped: only the contents of `Generated
  * files:` / `Available files (...):` blocks are mutated. Stdout that
@@ -101,5 +147,5 @@ export function cleanCodeToolOutput(content: string): string {
       header + files.replace(PER_FILE_ANNOTATION_PATTERN, ''),
   );
   const noTrailingNotes = noAnnotations.replace(TRAILING_NOTES_PATTERN, '');
-  return noTrailingNotes.trimEnd();
+  return rewriteSandboxPathGuidance(noTrailingNotes).trimEnd();
 }

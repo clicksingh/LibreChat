@@ -2525,9 +2525,12 @@ async function handleReadFileCall(
   let accessibleIds = (mergedConfigurable?.accessibleSkillIds as Types.ObjectId[]) ?? [];
 
   /**
-   * Short-circuit absolute code-env paths: the path can never be a skill
-   * reference (skill paths are relative `{skillName}/...`), and consulting
-   * `getSkillByName` would just burn a DB round-trip on a guaranteed miss.
+   * Short-circuit legacy absolute code-env paths (`/mnt/data/...`). S7
+   * tool descriptions now direct the model to relative workspace paths
+   * (e.g. `report.csv`), which fall through to the sandbox below via the
+   * no-slash / unknown-skill branches; this branch only serves
+   * pre-S7 conversations that still emit the Cloud path. Consulting
+   * `getSkillByName` on it would burn a DB round-trip on a guaranteed miss.
    */
   if (args.file_path.startsWith('/mnt/data/')) {
     if (codeEnvAvailable) {
@@ -2794,7 +2797,7 @@ async function handleReadFileCall(
       return {
         toolCallId: tc.id,
         status: 'success',
-        content: `Binary file (${file.mimeType}, ${file.bytes} bytes). Use bash to process: /mnt/data/${args.file_path}`,
+        content: `Binary file (${file.mimeType}, ${file.bytes} bytes). Use bash to process: ${args.file_path} (relative to your sandbox working directory)`,
       };
     }
   }
@@ -2814,14 +2817,14 @@ async function handleReadFileCall(
     return {
       toolCallId: tc.id,
       status: 'success',
-      content: `File "${args.file_path}" is too large to read directly (${file.bytes} bytes, limit: ${MAX_READABLE_BYTES}). Invoke the skill first, then use bash to read it at /mnt/data/${args.file_path}.`,
+      content: `File "${args.file_path}" is too large to read directly (${file.bytes} bytes, limit: ${MAX_READABLE_BYTES}). Invoke the skill first, then use bash to read it at ${args.file_path} (relative to your sandbox working directory).`,
     };
   }
   if (isImage && file.bytes > MAX_BINARY_BYTES) {
     return {
       toolCallId: tc.id,
       status: 'success',
-      content: `File too large (${file.bytes} bytes, limit: ${MAX_BINARY_BYTES}). Use bash to process: /mnt/data/${args.file_path}`,
+      content: `File too large (${file.bytes} bytes, limit: ${MAX_BINARY_BYTES}). Use bash to process: ${args.file_path} (relative to your sandbox working directory)`,
     };
   }
 
@@ -2865,7 +2868,7 @@ async function handleReadFileCall(
         return {
           toolCallId: tc.id,
           status: 'success',
-          content: `File "${args.file_path}" exceeded streaming limit (${streamLimit} bytes). Invoke the skill first, then use bash to read it at /mnt/data/${args.file_path}.`,
+          content: `File "${args.file_path}" exceeded streaming limit (${streamLimit} bytes). Invoke the skill first, then use bash to read it at ${args.file_path} (relative to your sandbox working directory).`,
         };
       }
       chunks.push(chunk);
@@ -2919,7 +2922,7 @@ async function handleReadFileCall(
       return {
         toolCallId: tc.id,
         status: 'success',
-        content: `Binary file (${file.mimeType}, ${buffer.length} bytes). Use bash to process: /mnt/data/${args.file_path}`,
+        content: `Binary file (${file.mimeType}, ${buffer.length} bytes). Use bash to process: ${args.file_path} (relative to your sandbox working directory)`,
       };
     }
 
@@ -2941,7 +2944,7 @@ async function handleReadFileCall(
       return {
         toolCallId: tc.id,
         status: 'success',
-        content: `File too large (${buffer.length} bytes, limit: ${MAX_READABLE_BYTES}). Use bash: cat /mnt/data/${args.file_path}`,
+        content: `File too large (${buffer.length} bytes, limit: ${MAX_READABLE_BYTES}). Use bash: cat ${args.file_path}`,
       };
     }
 

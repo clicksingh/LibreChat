@@ -347,9 +347,9 @@ export interface InjectSkillCatalogResult {
    * Names of skills the runtime can resolve, mirroring `activeSkillIds`.
    * Surfaced so host-side handlers (e.g. `read_file`) can decide whether a
    * `{firstSegment}/...` path is a real skill reference vs. a code-env path
-   * (`/mnt/data/...`) that should be routed to the bash fallback — without
-   * issuing an extra `getSkillByName` round-trip just to discover the name
-   * doesn't resolve.
+   * (relative workspace paths like `report.csv`, or legacy `/mnt/data/...`)
+   * that should be routed to the bash fallback — without issuing an extra
+   * `getSkillByName` round-trip just to discover the name doesn't resolve.
    */
   activeSkillNames: Set<string>;
 }
