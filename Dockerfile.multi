@@ -123,6 +123,12 @@ ARG BUILD_DATE
 ENV BUILD_COMMIT=${BUILD_COMMIT}
 ENV BUILD_BRANCH=${BUILD_BRANCH}
 ENV BUILD_DATE=${BUILD_DATE}
+# OCI provenance labels (8S3C review fix): baked so image SHA == OCI revision
+# == git HEAD without relying on a `docker build --label` invocation.
+LABEL org.opencontainers.image.title="LibreChat (CBHR fork)" \
+      org.opencontainers.image.source="https://github.com/clicksingh/LibreChat" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 WORKDIR /app/api
 EXPOSE 3080
 ENV HOST=0.0.0.0

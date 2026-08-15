@@ -410,6 +410,24 @@ describe('documentVisualQA runtime tool (stubbed transports)', () => {
     expect(result).toContain('QA VERDICT: ISSUES_FOUND');
   });
 
+  it('fails closed with a coded VQA_OVERALL_TIMEOUT past the wall-clock deadline', async () => {
+    // A stub deadline of 0ms forces the second batch past the budget; the
+    // first batch still completes, proving the deadline is checked per batch
+    // and never suppresses a finished batch's verdict work.
+    const downloadPage = jest.fn().mockResolvedValue(pngBuffer);
+    const callAIBridge = jest.fn().mockResolvedValue(PASS_JSON);
+
+    await expect(
+      runDocumentVisualQA({
+        req: {},
+        session_id: 'sess-1',
+        file_ids: ['f1', 'f2', 'f3'],
+        maxPages: 2,
+        deps: { downloadPage, callAIBridge, resolveAIBridgeAuth: () => 'Bearer test', overallDeadlineMs: 0 },
+      }),
+    ).rejects.toMatchObject({ code: 'VQA_OVERALL_TIMEOUT' });
+  });
+
   it('resolves file_names to codeapi ids via the files collection', async () => {
     mockGetFiles.mockResolvedValue([
       {

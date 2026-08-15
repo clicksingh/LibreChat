@@ -563,7 +563,7 @@ const DOCUMENT_VISUAL_QA_PARAMETERS: LCTool['parameters'] = Object.freeze({
       type: 'array',
       items: { type: 'string' },
       description:
-        'Relative sandbox workspace paths of the rendered PNG pages, e.g. "render-out/pages/report-001.png" as listed in the render manifest outputs[].path. Used when only the names are known; the tool resolves them to codeapi file ids for the given session.',
+        'Workspace-relative sandbox names of the rendered PNG pages as returned by the render/exec step artifact list, e.g. "render-out/pages/report-001.png" (not the manifest outputs[].path, which is outdir-relative). Used when only the names are known; the tool resolves them to codeapi file ids for the given session.',
     },
     focus: {
       type: 'string',
@@ -576,7 +576,7 @@ const DOCUMENT_VISUAL_QA_PARAMETERS: LCTool['parameters'] = Object.freeze({
       maximum: 8,
       default: 4,
       description:
-        "Maximum pages to inspect per vision pass. Pages are sent to the vision model in batches of at most this size (hard cap 8, default 4). Documents with more pages than this should be QA'd in multiple calls.",
+        "Maximum pages to inspect per vision pass (default 4, hard cap 8; absolute cap 24 pages per tool call across batches). Pages are sent to the vision model in batches of at most this size. Documents longer than 24 pages must be QA'd in multiple calls.",
     },
   },
   required: ['session_id'],
@@ -589,7 +589,7 @@ Input keys (exact):
 - file_ids (optional): codeapi file ids of the PNG pages to QA.
 - file_names (optional): sandbox paths of the PNG pages, e.g. "render-out/pages/report-001.png". Use exactly one of the two.
 - focus (optional): comma-separated: clipping, overlap, hierarchy, charts, legibility, layout.
-- maxPages (optional, default 4, hard cap 8): pages per vision pass.
+- maxPages (default 4, hard cap 8; absolute cap 24/call): pages per pass.
 
 Checks: clipping, overlap, visual hierarchy, unreadable charts/tables, malformed layouts, legibility.
 

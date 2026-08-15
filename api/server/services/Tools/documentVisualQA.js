@@ -140,7 +140,9 @@ async function downscalePage(buffer, budget) {
 /**
  * POSTs a vision payload to the EXISTING aibridge proxy
  * (`POST {AIBRIDGE_BASE_URL}/v1/chat/completions`). Returns the raw
- * completion text. Timeout is kept well under aibridge VISION_TIMEOUT_MS.
+ * completion text. The transport timeout is set ABOVE aibridge's
+ * VISION_TIMEOUT_MS (120s) so aibridge's coded timeout surfaces instead of a
+ * generic transport failure.
  */
 async function callAIBridge({ authHeader, payload }) {
   try {
@@ -278,8 +280,16 @@ async function runDocumentVisualQA({ req, session_id, file_ids, file_names, focu
   );
 
   const batches = contract.batchRefs(refs, batchSize);
+  const overallDeadlineMs = deps.overallDeadlineMs ?? contract.QA_OVERALL_DEADLINE_MS;
+  const deadline = Date.now() + overallDeadlineMs;
   const verdicts = [];
   for (const batch of batches) {
+    if (Date.now() > deadline) {
+      throw new contract.DocumentVisualQAError(
+        contract.ERR.VQA_OVERALL_TIMEOUT,
+        `QA wall-clock budget of ${Math.round(overallDeadlineMs / 1000)}s exceeded`,
+      );
+    }
     const pages = [];
     for (const ref of batch) {
       // Defensive wrapping at the tool boundary: a transport that leaks a raw

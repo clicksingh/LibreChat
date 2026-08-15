@@ -34,11 +34,20 @@ const AIBRIDGE_BASE_URL = process.env.AIBRIDGE_BASE_URL || 'http://aibridge:4103
 const MAX_BODY_BYTES = 32 << 20; // 32 MiB
 
 /**
- * Per-batch upstream timeout, kept well under aibridge VISION_TIMEOUT_MS
- * (120s) so a hung vision call fails inside the tool's own budget instead of
- * tripping an outer step timeout.
+ * Per-batch upstream vision transport timeout. Set ABOVE aibridge's
+ * VISION_TIMEOUT_MS (120s) so a hung vision call surfaces aibridge's coded
+ * timeout instead of a generic transport failure. The overall wall-clock
+ * budget (QA_OVERALL_DEADLINE_MS) bounds the full multi-batch call.
  */
-const AIBRIDGE_TIMEOUT_MS = 90_000;
+const AIBRIDGE_TIMEOUT_MS = 130_000;
+
+/**
+ * Total wall-clock budget for one document_visual_qa tool call across all
+ * batches (page fetches + vision passes). Bounds the pathological multi-batch
+ * worst case so a stuck turn fails cleanly with a coded error instead of
+ * running toward the step-count budget.
+ */
+const QA_OVERALL_DEADLINE_MS = 300_000;
 
 /** Page batching defaults/caps (see TOOL_PARAMETERS). */
 const DEFAULT_MAX_PAGES = 4;
@@ -97,6 +106,10 @@ const ERR = Object.freeze({
     code: 'VQA_PARSE_FAILED',
     message: 'vision model verdict could not be parsed',
   },
+  VQA_OVERALL_TIMEOUT: {
+    code: 'VQA_OVERALL_TIMEOUT',
+    message: 'overall QA wall-clock budget exceeded',
+  },
 });
 
 class DocumentVisualQAError extends Error {
@@ -131,7 +144,7 @@ const TOOL_PARAMETERS = Object.freeze({
       type: 'array',
       items: { type: 'string' },
       description:
-        'Relative sandbox workspace paths of the rendered PNG pages, e.g. "render-out/pages/report-001.png" as listed in the render manifest outputs[].path. Used when only the names are known; the tool resolves them to codeapi file ids for the given session.',
+        'Workspace-relative sandbox names of the rendered PNG pages as returned by the render/exec step artifact list, e.g. "render-out/pages/report-001.png" (not the manifest outputs[].path, which is outdir-relative). Used when only the names are known; the tool resolves them to codeapi file ids for the given session.',
     },
     focus: {
       type: 'string',
@@ -144,7 +157,7 @@ const TOOL_PARAMETERS = Object.freeze({
       maximum: 8,
       default: 4,
       description:
-        'Maximum pages to inspect per vision pass. Pages are sent to the vision model in batches of at most this size (hard cap 8, default 4). Documents with more pages than this should be QA\'d in multiple calls.',
+        'Maximum pages to inspect per vision pass (default 4, hard cap 8; absolute cap 24 pages per tool call across batches). Pages are sent to the vision model in batches of at most this size. Documents longer than 24 pages must be QA\'d in multiple calls.',
     },
   },
   required: ['session_id'],
@@ -423,6 +436,7 @@ module.exports = {
   AIBRIDGE_BASE_URL,
   MAX_BODY_BYTES,
   AIBRIDGE_TIMEOUT_MS,
+  QA_OVERALL_DEADLINE_MS,
   DEFAULT_MAX_PAGES,
   MAX_PAGES_CAP,
   MAX_TOTAL_PAGES,
