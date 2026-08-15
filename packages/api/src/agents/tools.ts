@@ -407,7 +407,15 @@ function normalizeBashSchema(schema: unknown): unknown {
   if (properties.command && typeof properties.command.description === 'string') {
     properties.command = {
       ...properties.command,
-      description: normalizeSandboxPathGuidance(properties.command.description),
+      description: normalizeSandboxPathGuidance(properties.command.description)
+        // The live 2026-08-15 regression proved a model can misremember the
+        // property name as `cmd`/`code`/`script` (contaminated by codeapi's
+        // internal {lang, code} HTTP contract) and emit a body that fails the
+        // `required: ['command']` check with "Received tool input did not match
+        // expected schema". State the exact wire key so the schema self-documents.
+        .concat(
+          '\n- The property name is exactly `command` (a string). Do NOT use `cmd`, `code`, or `script`, and do NOT pass `{lang, code}`.',
+        ),
     };
   }
   cloned.properties = properties;

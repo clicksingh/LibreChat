@@ -264,6 +264,16 @@ describe('registerCodeExecutionTools', () => {
       expect(command?.description).toContain('sandbox working directory');
       expect(command?.description).toContain('returned file list');
       expect(command?.description).not.toContain('/mnt/data');
+
+      // RUN-CODE REGRESSION (incident 2026-08-15): the schema must state the
+      // exact wire key. A model contaminated by codeapi's internal {lang, code}
+      // HTTP contract emitted {"cmd": ...}, failing required:['command'] with
+      // "Received tool input did not match expected schema". The description
+      // self-documents the property name so this class of misuse is primed out.
+      expect(command?.description).toContain('property name is exactly `command`');
+      expect(command?.description).toContain('Do NOT use `cmd`, `code`, or `script`');
+      expect(command?.description).toContain('do NOT pass `{lang, code}`');
+      expect(command?.description).toContain('The property name is exactly `command` (a string). Do NOT use `cmd`, `code`, or `script`, and do NOT pass `{lang, code}`.');
     });
 
     it('registers read_file only when includeBash=false', () => {
