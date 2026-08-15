@@ -67,6 +67,9 @@ export async function loadEphemeralAgent(
   if (ephemeralAgent?.execute_code === true || modelSpec?.executeCode === true) {
     tools.push(Tools.execute_code);
   }
+  if (ephemeralAgent?.document_visual_qa === true || modelSpec?.documentVisualQA === true) {
+    tools.push(Tools.document_visual_qa);
+  }
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
     tools.push(Tools.file_search);
   }

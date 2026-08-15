@@ -533,6 +533,113 @@ export function registerCodeExecutionTools(
   };
 }
 
+/**
+ * 8S3C R3 — `document_visual_qa` (issue #8).
+ *
+ * Model-facing definition for the Vision QA tool. The runtime instance is
+ * created in `api/server/services/ToolService.js` (api workspace); this
+ * definition only teaches the LLM the tool exists and its exact input keys.
+ * The parameter schema MUST stay in sync with
+ * `api/server/services/Tools/documentVisualQAContract.js` `TOOL_PARAMETERS`
+ * (see `docs/r3-vision-qa.md`).
+ */
+const DOCUMENT_VISUAL_QA_TOOL_NAME = 'document_visual_qa' as const;
+
+const DOCUMENT_VISUAL_QA_PARAMETERS: LCTool['parameters'] = Object.freeze({
+  type: 'object',
+  properties: {
+    session_id: {
+      type: 'string',
+      description:
+        'CodeAPI execution session id returned by the render/exec step whose sandbox workspace contains the rendered PNG pages. Do not invent this value; take it verbatim from the render step output.',
+    },
+    file_ids: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'CodeAPI file ids of the rendered PNG pages to QA (the .png entries in the render/exec step artifact refs). Provide exactly one of file_ids or file_names.',
+    },
+    file_names: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Relative sandbox workspace paths of the rendered PNG pages, e.g. "render-out/pages/report-001.png" as listed in the render manifest outputs[].path. Used when only the names are known; the tool resolves them to codeapi file ids for the given session.',
+    },
+    focus: {
+      type: 'string',
+      description:
+        'Optional comma-separated QA focus areas. Supported: clipping, overlap, hierarchy, charts, legibility, layout. Defaults to all six.',
+    },
+    maxPages: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 8,
+      default: 4,
+      description:
+        "Maximum pages to inspect per vision pass. Pages are sent to the vision model in batches of at most this size (hard cap 8, default 4). Documents with more pages than this should be QA'd in multiple calls.",
+    },
+  },
+  required: ['session_id'],
+}) as LCTool['parameters'];
+
+const DOCUMENT_VISUAL_QA_DESCRIPTION = `Inspect rendered document page PNGs (render-out/pages/*.png from a prior render/exec step) for layout defects and return a strict pass/issues verdict.
+
+Input keys (exact):
+- session_id (required): codeapi session id of the render step holding the PNG pages.
+- file_ids (optional): codeapi file ids of the PNG pages to QA.
+- file_names (optional): sandbox paths of the PNG pages, e.g. "render-out/pages/report-001.png". Use exactly one of the two.
+- focus (optional): comma-separated: clipping, overlap, hierarchy, charts, legibility, layout.
+- maxPages (optional, default 4, hard cap 8): pages per vision pass.
+
+Checks: clipping, overlap, visual hierarchy, unreadable charts/tables, malformed layouts, legibility.
+
+Return ONE strict JSON object:
+{"verdict":"PASS"|"ISSUES_FOUND","issues":[{"artifact":"<png name>","page":<1-based page>,"severity":"low|medium|high","description":"...","suggestion":"..."}],"summary":"..."}
+On ISSUES_FOUND, list the offending artifact/pages. Only rendered bitmaps reach vision.`;
+
+const DOCUMENT_VISUAL_QA_DEF: LCTool = Object.freeze({
+  name: DOCUMENT_VISUAL_QA_TOOL_NAME,
+  description: DOCUMENT_VISUAL_QA_DESCRIPTION,
+  parameters: DOCUMENT_VISUAL_QA_PARAMETERS,
+  responseFormat: 'content',
+}) as LCTool;
+
+export interface RegisterDocumentVisualQAToolParams {
+  toolRegistry: LCToolRegistry | undefined;
+  toolDefinitions: LCTool[] | undefined;
+}
+
+export interface RegisterDocumentVisualQAToolResult {
+  toolDefinitions: LCTool[];
+  /** Tool names newly registered (skipped if already present). */
+  registered: string[];
+}
+
+/**
+ * Idempotently registers the `document_visual_qa` LCTool definition into the
+ * run's tool registry and tool-definition list. The runtime tool instance is
+ * created separately by ToolService (`loadToolsForExecution`) when the agent
+ * requests the tool; this def is what the LLM plans against.
+ */
+export function registerDocumentVisualQATool(
+  params: RegisterDocumentVisualQAToolParams,
+): RegisterDocumentVisualQAToolResult {
+  const { toolRegistry, toolDefinitions } = params;
+  const inputDefinitions = toolDefinitions ?? [];
+  const existingIndex = inputDefinitions.findIndex(
+    (d) => d.name === DOCUMENT_VISUAL_QA_TOOL_NAME,
+  );
+  const inRegistry = toolRegistry?.has(DOCUMENT_VISUAL_QA_TOOL_NAME) === true;
+  if (existingIndex >= 0 || inRegistry) {
+    return { toolDefinitions: inputDefinitions, registered: [] };
+  }
+  toolRegistry?.set(DOCUMENT_VISUAL_QA_TOOL_NAME, DOCUMENT_VISUAL_QA_DEF);
+  return {
+    toolDefinitions: [...inputDefinitions, DOCUMENT_VISUAL_QA_DEF],
+    registered: [DOCUMENT_VISUAL_QA_TOOL_NAME],
+  };
+}
+
 export function registerFileAuthoringTools(
   params: RegisterFileAuthoringToolsParams,
 ): RegisterFileAuthoringToolsResult {

@@ -66,6 +66,7 @@ import {
   BuildToolSetConfig,
   registerCodeExecutionTools,
   registerFileAuthoringTools,
+  registerDocumentVisualQATool,
   FILE_AUTHORING_TOOL_NAMES,
   isFileAuthoringToolDefinition,
   isCodeSessionToolName,
@@ -686,5 +687,84 @@ describe('registerFileAuthoringTools', () => {
         parameters: { type: 'object', properties: {} } as LCTool['parameters'],
       }),
     ).toBe(false);
+  });
+});
+
+describe('registerDocumentVisualQATool', () => {
+  const makeRegistry = (): LCToolRegistry => new Map() as unknown as LCToolRegistry;
+
+  it('registers document_visual_qa with the exact self-documenting input schema', () => {
+    const toolRegistry = makeRegistry();
+    const result = registerDocumentVisualQATool({
+      toolRegistry,
+      toolDefinitions: [],
+    });
+
+    expect(result.registered).toEqual(['document_visual_qa']);
+    expect(result.toolDefinitions.map((d) => d.name)).toEqual(['document_visual_qa']);
+    expect(toolRegistry.has('document_visual_qa')).toBe(true);
+
+    const def = result.toolDefinitions[0];
+    expect(def.name).toBe('document_visual_qa');
+    expect(def.responseFormat).toBe('content');
+
+    const properties = (
+      def.parameters as { type: 'object'; properties: Record<string, { type?: string }> }
+    ).properties;
+    expect(Object.keys(properties).sort()).toEqual([
+      'file_ids',
+      'file_names',
+      'focus',
+      'maxPages',
+      'session_id',
+    ]);
+    expect((def.parameters as { required?: string[] }).required).toContain('session_id');
+    expect(properties.session_id?.type).toBe('string');
+    expect((properties.maxPages as { maximum?: number }).maximum).toBe(8);
+    expect((properties.maxPages as { default?: number }).default).toBe(4);
+  });
+
+  it('documents the checks and verdict schema in the description', () => {
+    const result = registerDocumentVisualQATool({
+      toolRegistry: makeRegistry(),
+      toolDefinitions: [],
+    });
+    const description = result.toolDefinitions[0].description;
+    expect(description).toContain('clipping');
+    expect(description).toContain('visual hierarchy');
+    expect(description).toContain('legibility');
+    expect(description).toContain('"verdict":"PASS"|"ISSUES_FOUND"');
+    expect(description).toContain('session_id (required)');
+  });
+
+  it('is idempotent across repeated registration calls', () => {
+    const toolRegistry = makeRegistry();
+    const first = registerDocumentVisualQATool({ toolRegistry, toolDefinitions: [] });
+    const second = registerDocumentVisualQATool({
+      toolRegistry,
+      toolDefinitions: first.toolDefinitions,
+    });
+
+    expect(second.registered).toEqual([]);
+    expect(second.toolDefinitions).toHaveLength(1);
+  });
+
+  it('skips when the tool is already present in the registry', () => {
+    const toolRegistry = makeRegistry();
+    registerDocumentVisualQATool({ toolRegistry, toolDefinitions: [] });
+    const result = registerDocumentVisualQATool({ toolRegistry, toolDefinitions: [] });
+
+    expect(result.registered).toEqual([]);
+    expect(result.toolDefinitions).toEqual([]);
+  });
+
+  it('keeps the description within provider advisory limits', () => {
+    const result = registerDocumentVisualQATool({
+      toolRegistry: makeRegistry(),
+      toolDefinitions: [],
+    });
+    expect(
+      maxToolDescriptionLength([...result.toolDefinitions]),
+    ).toBeLessThanOrEqual(TOOL_DESCRIPTION_ADVISORY_MAX_LENGTH);
   });
 });
