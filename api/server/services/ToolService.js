@@ -68,6 +68,7 @@ const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/pro
 const { manifestToolMap, toolkits } = require('~/app/clients/tools/manifest');
 const { createOnSearchResults } = require('~/server/services/Tools/search');
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
+const { createDocumentVisualQATool } = require('~/server/services/Tools/documentVisualQA');
 const { createMCPPermissionContext, resolveConfigServers } = require('~/server/services/MCP');
 const { getMCPRequestContext } = require('~/server/services/MCPRequestContext');
 const { recordUsage } = require('~/server/services/Threads');
@@ -1511,6 +1512,16 @@ async function loadToolsForExecution({
     }
   }
 
+  const isDocumentVisualQATool = toolNames.includes(Tools.document_visual_qa);
+  if (isDocumentVisualQATool) {
+    try {
+      const documentVisualQATool = createDocumentVisualQATool({ req });
+      allLoadedTools.push(documentVisualQATool);
+    } catch (error) {
+      logger.error('[loadToolsForExecution] Failed to create document_visual_qa tool', error);
+    }
+  }
+
   const fileAuthoringToolNames = new Set(
     toolRegistry
       ? Array.from(toolRegistry.values())
@@ -1525,6 +1536,7 @@ async function loadToolsForExecution({
     AgentConstants.BASH_TOOL,
     AgentConstants.SKILL_TOOL,
     AgentConstants.READ_FILE,
+    Tools.document_visual_qa,
     ...fileAuthoringToolNames,
   ]);
 
