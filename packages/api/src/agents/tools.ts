@@ -367,15 +367,18 @@ export function isFileAuthoringToolDefinition(def: LCTool | undefined): boolean 
 }
 
 /**
- * 8S3B S7 — the published `@librechat/agents` bash/code tool descriptions
+ * 8S3B S7/S9 — the published `@librechat/agents` bash/code tool descriptions
  * are written for LibreChat Cloud's sandbox layout (`/mnt/data`). Our
  * codeapi sandbox has no `/mnt/data`: the current working directory of
  * every execution IS the persistent per-session workspace, and files
  * written there persist across calls and are auto-delivered as downloads.
- * Rewrite the two published phrases so the model never tries a
- * non-existent `/mnt/data` path (the `/mnt` mount is root-owned, so even
- * `mkdir` fails) and never sees a host path. Done at registration — not by
- * patching node_modules — so the fix survives `npm ci` on rebuild.
+ * Rewrite the published phrases so the model never tries a non-existent
+ * `/mnt/data` path (the `/mnt` mount is root-owned, so even `mkdir` fails)
+ * and never sees a host path. S9 adds the artifact-delivery-verification
+ * clause: the model must check the run's returned file list before claiming
+ * a deliverable is ready (failed executions register no files). Done at
+ * registration — not by patching node_modules — so the fix survives
+ * `npm ci` on rebuild.
  */
 function normalizeSandboxPathGuidance(text: string): string {
   return text
@@ -385,7 +388,7 @@ function normalizeSandboxPathGuidance(text: string): string {
     )
     .replace(
       'Prior /mnt/data files are available and can be modified in place.',
-      'Files you wrote to the sandbox working directory in earlier calls are available and can be modified in place.',
+      'Files you wrote to the sandbox working directory in earlier calls are available and can be modified in place. Files written this call appear in the returned file list — verify the file is listed before telling the user it is ready.',
     );
 }
 

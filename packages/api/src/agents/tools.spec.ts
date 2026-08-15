@@ -251,12 +251,18 @@ describe('registerCodeExecutionTools', () => {
       expect(description).not.toContain('/mnt/data');
       expect(description).not.toContain('/mnt/');
 
+      // 8S3B S9 — the model must verify a deliverable is registered in the
+      // run's returned file list before claiming it is ready.
+      expect(description).toContain('returned file list');
+      expect(description).toContain('verify the file is listed before telling the user it is ready');
+
       // The published schema's command description embeds the same Cloud
       // guidance — it must be normalized too.
       const command = (bashTool?.parameters as {
         properties?: { command?: { description?: string } };
       })?.properties?.command;
       expect(command?.description).toContain('sandbox working directory');
+      expect(command?.description).toContain('returned file list');
       expect(command?.description).not.toContain('/mnt/data');
     });
 
