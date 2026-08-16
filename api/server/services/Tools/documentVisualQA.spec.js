@@ -561,6 +561,16 @@ describe('documentVisualQA runtime tool (stubbed transports)', () => {
     });
   });
 
+  it('rejects a non-PNG raster (JPEG) at the PNG magic gate (defense-in-depth)', async () => {
+    const { downscalePage } = require('./documentVisualQA');
+    // A JPEG sharp COULD decode and re-encode — the explicit signature gate must
+    // still refuse it so only genuine rendered PNGs ever reach vision.
+    const jpegBytes = Buffer.from('ffd8ffe000104a46494600010100000100010000', 'hex');
+    await expect(downscalePage(jpegBytes, 1 << 20)).rejects.toMatchObject({
+      code: 'VQA_PAGE_DOWNSCALE_FAILED',
+    });
+  });
+
   it('exposes a tool instance whose schema self-documents the exact input keys', () => {
     const tool = createDocumentVisualQATool({ req: {}, deps: {} });
     expect(tool.name).toBe(contract.TOOL_NAME);

@@ -39,6 +39,9 @@ const contract = require('./documentVisualQAContract');
 
 const axios = createAxiosInstance();
 
+/** PNG signature bytes — the bitmap gate (see contract.PNG_MAGIC). */
+const PNG_MAGIC_BYTES = Buffer.from(contract.PNG_MAGIC, 'hex');
+
 const TOOL_DESCRIPTION = `Inspect rendered document page PNGs (render-out/pages/*.png from a prior render/exec step) for layout defects and return a strict pass/issues verdict.
 
 Input keys (exact):
@@ -114,6 +117,21 @@ async function downloadCodePage(req, sessionId, fileId) {
  * data URL is under budget (or the 256px floor is reached).
  */
 async function downscalePage(buffer, budget) {
+  // Defense-in-depth (security review finding #3): only genuine PNG bitmaps are
+  // ever forwarded to the vision model. sharp already fails closed on office
+  // formats, but the explicit signature check makes the guarantee fail-fast and
+  // independent of the codec, so raw source documents and non-PNG rasters never
+  // reach vision.
+  if (
+    !Buffer.isBuffer(buffer) ||
+    buffer.length < PNG_MAGIC_BYTES.length ||
+    !buffer.subarray(0, PNG_MAGIC_BYTES.length).equals(PNG_MAGIC_BYTES)
+  ) {
+    throw new contract.DocumentVisualQAError(
+      contract.ERR.VQA_PAGE_DOWNSCALE_FAILED,
+      'page is not a PNG bitmap (only rendered PNG pages reach vision)',
+    );
+  }
   try {
     let dim = contract.PAGE_MAX_DIM;
     for (;;) {

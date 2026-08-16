@@ -62,6 +62,14 @@ const PAGE_MAX_DIM = 1024;
 const DATA_URL_PREFIX = 'data:image/png;base64,';
 
 /**
+ * PNG file signature (magic bytes), hex-encoded. The tool only ever forwards
+ * genuine PNG bitmaps to the vision model — the signature is checked before any
+ * decoding, so a non-bitmap (or a non-PNG raster) that user code placed in the
+ * workspace fails fast instead of being silently re-encoded.
+ */
+const PNG_MAGIC = '89504e470d0a1a0a';
+
+/**
  * Fraction of the per-batch body budget reserved for JSON framing overhead
  * (prompt text, message envelope, multi-byte chars in base64) so a batch
  * never drifts past MAX_BODY_BYTES.
@@ -442,6 +450,7 @@ module.exports = {
   MAX_TOTAL_PAGES,
   PAGE_MAX_DIM,
   DATA_URL_PREFIX,
+  PNG_MAGIC,
   BODY_BUDGET_SAFETY,
   ERR,
   DocumentVisualQAError,
