@@ -410,6 +410,36 @@ export function applyModelSpecEphemeralAgent({
 }
 
 /**
+ * 8S3C.1 task B — request-time coupling of `document_visual_qa` to
+ * `execute_code`.
+ *
+ * `document_visual_qa` (render-then-describe vision QA) is only meaningful when
+ * code execution is available: it renders the user's documents in the code
+ * environment and inspects the rendered outputs. The UI has a single "Run Code"
+ * toggle and deliberately no second visual-QA toggle (a second toggle would
+ * create a second, shadow capability contract). So when the user has Run Code
+ * enabled, the normal chat request requests `document_visual_qa` automatically.
+ *
+ * This is an intent coupling at request build time, NOT an authorization
+ * mechanism. The server keeps the final exposure gate: the tool is only
+ * registered when `codeEnvAvailable` is true AND the agent explicitly requests
+ * it (`packages/api/src/agents/initialize.ts`). A bare client flag is never
+ * trusted on its own.
+ *
+ * @param agent the ephemeral agent state stored for the conversation
+ * @returns the same agent (identity when code execution is off), with
+ *          `document_visual_qa` added when `execute_code` is enabled
+ */
+export function applyVisualQaToRequest(
+  agent: t.TEphemeralAgent | null | undefined,
+): t.TEphemeralAgent | null | undefined {
+  if (!agent || agent.execute_code !== true) {
+    return agent;
+  }
+  return { ...agent, document_visual_qa: true };
+}
+
+/**
  * Gets default model spec from config and user preferences.
  * Priority: hard admin default → prior user selection → soft default.
  * The soft default yields only to selections the user actually made — its

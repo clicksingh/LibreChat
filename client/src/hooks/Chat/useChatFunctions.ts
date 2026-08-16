@@ -31,6 +31,7 @@ import {
   hasStreamStartFailed,
   createDualMessageContent,
   getRouteChatProjectId,
+  applyVisualQaToRequest,
 } from '~/utils';
 import useFocusRegeneratedResponse from '~/hooks/Chat/useFocusRegeneratedResponse';
 import useSetFilesToDelete from '~/hooks/Files/useSetFilesToDelete';
@@ -295,7 +296,13 @@ export default function useChatFunctions({
       return false;
     }
 
-    const ephemeralAgent = getEphemeralAgent(conversationId ?? Constants.NEW_CONVO);
+    const storedEphemeralAgent = getEphemeralAgent(conversationId ?? Constants.NEW_CONVO);
+    /**
+     * 8S3C.1 task B — when Run Code is enabled the request also requests
+     * `document_visual_qa` (see applyVisualQaToRequest). Intent coupling only;
+     * the server (`codeEnvAvailable` + explicit agent request) stays the gate.
+     */
+    const ephemeralAgent = applyVisualQaToRequest(storedEphemeralAgent);
     /**
      * Manual skill selection resolution:
      *  - Explicit `overrideManualSkills` wins (regenerate / save-and-submit
