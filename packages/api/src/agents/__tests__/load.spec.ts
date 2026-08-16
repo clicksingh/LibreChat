@@ -587,6 +587,87 @@ describe('loadAgent', () => {
     expect(result?.subagents).toEqual(subagents);
   });
 
+  test('should include document_visual_qa in added agent tools when request requests it', async () => {
+    const result = await loadAddedAgent(
+      {
+        req: {
+          user: { id: 'user123' },
+          config: {
+            config: {},
+            fileStrategy: FileSources.local,
+            imageOutputType: 'png',
+          },
+        },
+        conversation: {
+          endpoint: 'openai',
+          model: 'gpt-4',
+          ephemeralAgent: { execute_code: true, document_visual_qa: true },
+        } as unknown as TConversation,
+      },
+      deps,
+    );
+
+    expect(result?.tools).toContain('execute_code');
+    expect(result?.tools).toContain('document_visual_qa');
+  });
+
+  test('should include document_visual_qa in added agent tools when model spec declares it', async () => {
+    const result = await loadAddedAgent(
+      {
+        req: {
+          user: { id: 'user123' },
+          config: {
+            config: {},
+            fileStrategy: FileSources.local,
+            imageOutputType: 'png',
+            modelSpecs: {
+              list: [
+                {
+                  name: 'added-vqa-spec',
+                  label: 'Added VQA Spec',
+                  preset: { endpoint: 'openai', model: 'gpt-4' },
+                  documentVisualQA: true,
+                },
+              ],
+            },
+          },
+        },
+        conversation: {
+          endpoint: 'openai',
+          model: 'gpt-4',
+          spec: 'added-vqa-spec',
+        } as unknown as TConversation,
+      },
+      deps,
+    );
+
+    expect(result?.tools).toContain('document_visual_qa');
+  });
+
+  test('should not include document_visual_qa in added agent tools when neither request nor spec asks for it', async () => {
+    const result = await loadAddedAgent(
+      {
+        req: {
+          user: { id: 'user123' },
+          config: {
+            config: {},
+            fileStrategy: FileSources.local,
+            imageOutputType: 'png',
+          },
+        },
+        conversation: {
+          endpoint: 'openai',
+          model: 'gpt-4',
+          ephemeralAgent: { execute_code: true },
+        } as unknown as TConversation,
+      },
+      deps,
+    );
+
+    expect(result?.tools).toContain('execute_code');
+    expect(result?.tools).not.toContain('document_visual_qa');
+  });
+
   test('should apply model spec skills when added agent mirrors ephemeral primary tools', async () => {
     const { EPHEMERAL_AGENT_ID } = Constants;
     const subagents = { enabled: true, allowSelf: true, agent_ids: [] };
