@@ -129,6 +129,14 @@ LABEL org.opencontainers.image.title="LibreChat (CBHR fork)" \
       org.opencontainers.image.source="https://github.com/clicksingh/LibreChat" \
       org.opencontainers.image.revision="${BUILD_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}"
+# Runtime ownership (8S3C deploy fix): the api container runs as uid:gid from
+# compose (default 1000:1000). /app must belong to node so the winston logger
+# can create /app/api/logs and the app can write any other runtime state.
+# Restores the `chown + USER node` behavior the pre-8S3C upstream build had —
+# without it /app/api/logs stays root-owned (775) and the unprivileged runtime
+# user hits EACCES before the server binds.
+RUN chown -R node:node /app
+USER node
 WORKDIR /app/api
 EXPOSE 3080
 ENV HOST=0.0.0.0
