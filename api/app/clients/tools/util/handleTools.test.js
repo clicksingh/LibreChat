@@ -10,8 +10,13 @@ const mockGetMCPServerTools = jest.fn();
 const mockCreateMCPTool = jest.fn();
 const mockCreateMCPTools = jest.fn();
 const mockGetServerConfig = jest.fn();
+const mockGetRoleByName = jest.fn();
 
 jest.mock('~/server/services/PluginService', () => mockPluginService);
+
+jest.mock('~/models', () => ({
+  getRoleByName: (...args) => mockGetRoleByName(...args),
+}));
 
 jest.mock('~/server/services/Config', () => ({
   getAppConfig: jest.fn().mockResolvedValue({
@@ -51,7 +56,7 @@ jest.mock('~/config', () => ({
 }));
 
 const { Calculator } = require('@librechat/agents');
-const { Constants } = require('librechat-data-provider');
+const { Constants, Tools, PermissionTypes, Permissions } = require('librechat-data-provider');
 
 const { User } = require('~/db/models');
 const PluginService = require('~/server/services/PluginService');
@@ -449,6 +454,67 @@ describe('Tool Handlers', () => {
           toolKey: secondToolKey,
         }),
       );
+    });
+
+    describe('RUN_CODE.USE authorization ceiling (8S3C.2 Blocker 1 regressions)', () => {
+      beforeEach(() => {
+        mockGetRoleByName.mockReset();
+      });
+
+      function makeReq() {
+        return {
+          req: {
+            user: { id: fakeUser._id.toString(), role: 'USER' },
+            body: {},
+          },
+        };
+      }
+
+      it('does NOT register an execute_code tool for a user whose role LACKS RUN_CODE.USE', async () => {
+        mockGetRoleByName.mockResolvedValue({ permissions: {} });
+
+        const result = await loadTools({
+          user: fakeUser._id.toString(),
+          tools: [Tools.execute_code],
+          returnMap: true,
+          useSpecs: true,
+          options: makeReq(),
+        });
+
+        expect(result[Tools.execute_code]).toBeUndefined();
+      });
+
+      it('DOES register an execute_code tool for an RUN_CODE-allowed user (positive control)', async () => {
+        mockGetRoleByName.mockResolvedValue({
+          permissions: { [PermissionTypes.RUN_CODE]: { [Permissions.USE]: true } },
+        });
+
+        const result = await loadTools({
+          user: fakeUser._id.toString(),
+          tools: [Tools.execute_code],
+          returnMap: true,
+          useSpecs: true,
+          options: makeReq(),
+        });
+
+        expect(typeof result[Tools.execute_code]).toBe('function');
+      });
+
+      it('does NOT register execute_code when the request carries no role (fail-closed)', async () => {
+        mockGetRoleByName.mockResolvedValue({
+          permissions: { [PermissionTypes.RUN_CODE]: { [Permissions.USE]: true } },
+        });
+
+        const result = await loadTools({
+          user: fakeUser._id.toString(),
+          tools: [Tools.execute_code],
+          returnMap: true,
+          useSpecs: true,
+          options: { req: { user: { id: fakeUser._id.toString() }, body: {} } },
+        });
+
+        expect(result[Tools.execute_code]).toBeUndefined();
+      });
     });
   });
 });

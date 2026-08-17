@@ -23,6 +23,15 @@ jest.mock('~/server/services/Config', () => ({
 
 const mockLoadToolDefinitions = jest.fn();
 const mockGetUserMCPAuthMap = jest.fn();
+const mockCreateBashExecutionTool = jest.fn(() => ({ name: 'bash_tool' }));
+const mockCreateDocumentVisualQATool = jest.fn(() => ({ name: 'document_visual_qa' }));
+jest.mock('@librechat/agents', () => ({
+  ...jest.requireActual('@librechat/agents'),
+  createBashExecutionTool: (...args) => mockCreateBashExecutionTool(...args),
+}));
+jest.mock('~/server/services/Tools/documentVisualQA', () => ({
+  createDocumentVisualQATool: (...args) => mockCreateDocumentVisualQATool(...args),
+}));
 jest.mock('@librechat/api', () => ({
   ...jest.requireActual('@librechat/api'),
   loadToolDefinitions: (...args) => mockLoadToolDefinitions(...args),
@@ -1648,6 +1657,110 @@ describe('ToolService - Action Capability Gating', () => {
       expect(callsByName.has(rawNameB)).toBe(true);
       expect(callsByName.get(rawNameA).requestBuilder.path).toBe('/echo');
       expect(callsByName.get(rawNameB).requestBuilder.path).toBe('/items');
+    });
+  });
+
+  describe('RUN_CODE.USE authorization ceiling (8S3C.2 Blocker 1 regressions)', () => {
+    const { Constants: AgentConstants } = require('@librechat/agents');
+
+    /** Role WITHOUT any RUN_CODE permission — the "denied user". */
+    function createRunCodeDeniedRole() {
+      return { permissions: {} };
+    }
+
+    /** A req whose user is authorized for NOTHING code-related, no matter what
+     *  the global capability set contains. */
+    function createDeniedReq(capabilities) {
+      mockGetRoleByName.mockResolvedValue(createRunCodeDeniedRole());
+      return {
+        user: { id: 'user_123', role: 'USER' },
+        config: {
+          endpoints: {
+            [EModelEndpoint.agents]: { capabilities },
+          },
+        },
+      };
+    }
+
+    it('resolveAgentCapabilities strips execute_code for a denied user', async () => {
+      const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+      mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+      const req = createDeniedReq(capabilities);
+
+      const result = await resolveAgentCapabilities(req, req.config, 'agent_123');
+
+      expect(result.has(AgentCapabilities.execute_code)).toBe(false);
+      expect(result.has(AgentCapabilities.tools)).toBe(true);
+    });
+
+    it('loadToolsForExecution does NOT create bash_tool for a denied user even when bash_tool is requested', async () => {
+      const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+      mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+      const req = createDeniedReq(capabilities);
+
+      const result = await loadToolsForExecution({
+        req,
+        res: {},
+        agent: { id: 'agent_1', tools: [Tools.execute_code] },
+        toolNames: [AgentConstants.BASH_TOOL],
+        toolRegistry: new Map(),
+        actionsEnabled: false,
+      });
+
+      expect(mockCreateBashExecutionTool).not.toHaveBeenCalled();
+      expect(result.loadedTools.map((tool) => tool.name)).not.toContain(AgentConstants.BASH_TOOL);
+    });
+
+    it('loadToolsForExecution does NOT create document_visual_qa for a denied user even when it is requested', async () => {
+      const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+      mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+      const req = createDeniedReq(capabilities);
+
+      const result = await loadToolsForExecution({
+        req,
+        res: {},
+        agent: { id: 'agent_1', tools: [Tools.execute_code] },
+        toolNames: [Tools.document_visual_qa],
+        toolRegistry: new Map(),
+        actionsEnabled: false,
+      });
+
+      expect(mockCreateDocumentVisualQATool).not.toHaveBeenCalled();
+      expect(result.loadedTools.map((tool) => tool.name)).not.toContain(Tools.document_visual_qa);
+    });
+
+    it('loadToolsForExecution DOES create bash_tool for an allowed user (positive control)', async () => {
+      const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+      mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+      const req = createMockReq(capabilities); // default = RUN_CODE-allowed user
+
+      await loadToolsForExecution({
+        req,
+        res: {},
+        agent: { id: 'agent_1', tools: [Tools.execute_code] },
+        toolNames: [AgentConstants.BASH_TOOL],
+        toolRegistry: new Map(),
+        actionsEnabled: false,
+      });
+
+      expect(mockCreateBashExecutionTool).toHaveBeenCalledTimes(1);
+    });
+
+    it('loadToolsForExecution DOES create document_visual_qa for an allowed user (positive control)', async () => {
+      const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+      mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+      const req = createMockReq(capabilities); // default = RUN_CODE-allowed user
+
+      await loadToolsForExecution({
+        req,
+        res: {},
+        agent: { id: 'agent_1', tools: [Tools.execute_code] },
+        toolNames: [Tools.document_visual_qa],
+        toolRegistry: new Map(),
+        actionsEnabled: false,
+      });
+
+      expect(mockCreateDocumentVisualQATool).toHaveBeenCalledTimes(1);
     });
   });
 });
