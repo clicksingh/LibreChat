@@ -77,6 +77,7 @@ const { redactMessage } = require('~/config/parsers');
 const { findPluginAuthsByKeys } = require('~/models');
 const { getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { getLogStores } = require('~/cache');
+const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
 
 const domainSeparatorRegex = new RegExp(actionDomainSeparator, 'g');
 
@@ -172,6 +173,13 @@ async function resolveAgentCapabilities(req, appConfig, agentId) {
     capabilities = new Set(
       appConfig.endpoints?.[EModelEndpoint.agents]?.capabilities ?? defaultAgentCapabilities,
     );
+  }
+  /* 8S3C.2 — RUN_CODE authorization gate. The GLOBAL capability alone must not
+   * grant code execution: strip `execute_code` when the requesting user lacks
+   * RUN_CODE.USE. Every downstream checkCapability / codeExecutionEnabled /
+   * isPTC read in this module then naturally denies the code environment. */
+  if (capabilities.has(AgentCapabilities.execute_code) && !(await isRunCodeUseAllowed(req))) {
+    capabilities.delete(AgentCapabilities.execute_code);
   }
   return capabilities;
 }
@@ -1455,7 +1463,14 @@ async function loadToolsForExecution({
   const isPTCRequested = ptcToolNames.length > 0;
 
   let enabledCapabilities;
-  if (actionsEnabled === undefined || isPTCRequested) {
+  const codeToolRequested =
+    toolNames.includes(AgentConstants.BASH_TOOL) ||
+    toolNames.includes(Tools.document_visual_qa);
+  if (actionsEnabled === undefined || isPTCRequested || codeToolRequested) {
+    /* Resolve capabilities whenever a code-environment tool is requested so
+     * the bash_tool / document_visual_qa creation below is gated on the
+     * user-authorized `execute_code` capability (resolveAgentCapabilities
+     * strips it for users lacking RUN_CODE.USE). */
     enabledCapabilities = await resolveAgentCapabilities(req, appConfig, agent?.id);
   }
   if (actionsEnabled === undefined) {
@@ -1500,8 +1515,18 @@ async function loadToolsForExecution({
     }
   }
 
+  /* 8S3C.2 — RUN_CODE authorization gate. bash_tool and document_visual_qa are
+   * only materialized for users with the (user-authorized) `execute_code`
+   * capability. resolveAgentCapabilities strips `execute_code` for users
+   * lacking RUN_CODE.USE, so a forged `ephemeralAgent.execute_code` /
+   * `document_visual_qa` flag can never create a runnable code-environment
+   * tool. */
+  const codeExecutionEnabledForRun =
+    enabledCapabilities != null &&
+    enabledCapabilities.has(AgentCapabilities.execute_code) === true;
+
   const isBashTool = toolNames.includes(AgentConstants.BASH_TOOL);
-  if (isBashTool) {
+  if (isBashTool && codeExecutionEnabledForRun) {
     try {
       const bashTool = createBashExecutionTool({
         authHeaders: () => getCodeApiAuthHeaders(req),
@@ -1513,7 +1538,7 @@ async function loadToolsForExecution({
   }
 
   const isDocumentVisualQATool = toolNames.includes(Tools.document_visual_qa);
-  if (isDocumentVisualQATool) {
+  if (isDocumentVisualQATool && codeExecutionEnabledForRun) {
     try {
       const documentVisualQATool = createDocumentVisualQATool({ req });
       allLoadedTools.push(documentVisualQATool);

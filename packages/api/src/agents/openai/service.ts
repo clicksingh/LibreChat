@@ -19,7 +19,13 @@
  * ```
  */
 import { nanoid } from 'nanoid';
-import { AgentCapabilities } from 'librechat-data-provider';
+import {
+  AgentCapabilities,
+  PermissionTypes,
+  Permissions,
+} from 'librechat-data-provider';
+import { checkAccess } from '../../middleware/access';
+import type { IRole } from '@librechat/data-schemas';
 import type { Response as ServerResponse, Request } from 'express';
 import type {
   ChatCompletionResponse,
@@ -82,6 +88,15 @@ export interface ChatCompletionDependencies {
   appConfig?: AppConfig;
   /** Tool execute options for event-driven tool execution */
   toolExecuteOptions?: ToolExecuteOptions;
+  /**
+   * Role resolver used for the RUN_CODE authorization gate (8S3C.2). Pass the
+   * host app's `db.getRoleByName` to enforce the requesting user's
+   * RUN_CODE.USE permission as the ceiling for `execute_code` capability.
+   * When omitted, the service cannot verify the user's permission and the
+   * global capability alone is used — SDK consumers SHOULD always pass this
+   * when running with authenticated users.
+   */
+  getRoleByName?: (roleName: string, fieldsToSelect?: string | string[]) => Promise<IRole | null>;
 }
 
 /**
@@ -434,12 +449,27 @@ export async function createAgentChatCompletion(
      * use.
      */
     const agentsConfig = (deps.appConfig?.endpoints as Record<string, unknown> | undefined)?.agents;
-    const codeEnvAvailable =
+    const globalCodeEnvAvailable =
       agentsConfig != null && typeof agentsConfig === 'object'
         ? ((agentsConfig as { capabilities?: string[] }).capabilities ?? []).includes(
             AgentCapabilities.execute_code,
           )
         : undefined;
+
+    /* 8S3C.2 — RUN_CODE authorization gate: when the host app supplies a role
+     * resolver, AND the requesting user's RUN_CODE.USE into the global
+     * capability (canonical checkAccess semantics, fail-closed). The client
+     * flag is never treated as authorization. */
+    let codeEnvAvailable = globalCodeEnvAvailable;
+    const reqUser = (req as unknown as { user?: { id?: string; role?: string } }).user;
+    if (globalCodeEnvAvailable === true && deps.getRoleByName && reqUser?.id && reqUser?.role) {
+      codeEnvAvailable = await checkAccess({
+        user: reqUser as unknown as import('@librechat/data-schemas').IUser,
+        permissionType: PermissionTypes.RUN_CODE,
+        permissions: [Permissions.USE],
+        getRoleByName: deps.getRoleByName,
+      });
+    }
 
     // Initialize the agent first to check for disableStreaming
     const initializedAgent = await deps.initializeAgent({

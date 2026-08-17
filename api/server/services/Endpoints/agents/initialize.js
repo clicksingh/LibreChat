@@ -31,6 +31,7 @@ const {
 } = require('~/server/controllers/agents/callbacks');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+const { resolveEffectiveCodeEnv } = require('./authorization');
 const {
   getSkillToolDeps,
   getSkillDbMethods,
@@ -144,7 +145,14 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
    *      allowlist with the toggle on = full accessible catalog. */
   const enabledCapabilities = new Set(appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities);
   const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
-  const codeEnvAvailable = enabledCapabilities.has(AgentCapabilities.execute_code);
+  /* 8S3C.2 — RUN_CODE authorization gate. The GLOBAL capability alone must not
+   * grant code execution: AND in the requesting user's RUN_CODE.USE
+   * permission (request-scoped, canonical checkAccess semantics). Flows to
+   * the primary agent, handoff/subagents, and added conversations below. */
+  const codeEnvAvailable = await resolveEffectiveCodeEnv(
+    req,
+    enabledCapabilities.has(AgentCapabilities.execute_code),
+  );
   const ephemeralSkillsToggle = req.body?.ephemeralAgent?.skills === true;
   const skillDbMethods = getSkillDbMethods();
 

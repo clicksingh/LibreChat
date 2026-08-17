@@ -37,6 +37,7 @@ const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { getFileStrategy } = require('~/server/utils/getFileStrategy');
 const { checkCapability } = require('~/server/services/Config');
+const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
 const { LB_QueueAsyncCall } = require('~/server/utils/queue');
 const { getRetentionExpiry, getAgentFileRetentionExpiry } = require('./retention');
 const { getStrategyFunctions } = require('./strategies');
@@ -687,7 +688,11 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
   const basePath = mime.getType(file.originalname)?.startsWith('image') ? 'images' : 'uploads';
   if (tool_resource === EToolResources.execute_code) {
     const isCodeEnabled = await checkCapability(req, AgentCapabilities.execute_code);
-    if (!isCodeEnabled) {
+    /* 8S3C.2 — RUN_CODE authorization gate: the GLOBAL capability plus the
+     * requesting user's RUN_CODE.USE. A denied user cannot provision code
+     * sandbox workspace resources even through a forged tool_resource. */
+    const runCodeAllowed = await isRunCodeUseAllowed(req);
+    if (!isCodeEnabled || !runCodeAllowed) {
       throw new Error('Code execution is not enabled for Agents');
     }
     const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(FileSources.execute_code);

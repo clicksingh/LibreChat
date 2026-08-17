@@ -105,6 +105,7 @@ jest.mock('@librechat/api', () => ({
   createErrorResponse: jest.fn(),
   getTransactionsConfig: mockGetTransactionsConfig,
   recordCollectedUsage: mockRecordCollectedUsage,
+  checkAccessWithRequestCache: jest.fn().mockResolvedValue(true),
   createSubagentUsageSink: jest.fn().mockReturnValue(jest.fn()),
   extractManualSkills: jest.fn().mockReturnValue(undefined),
   injectSkillPrimes: jest.fn().mockReturnValue({
@@ -219,6 +220,11 @@ jest.mock('~/models', () => ({
   getCacheMultiplier: mockGetCacheMultiplier,
   getConvoFiles: jest.fn().mockResolvedValue([]),
   getConvo: jest.fn().mockResolvedValue(null),
+  getRoleByName: jest
+    .fn()
+    .mockResolvedValue({
+      permissions: { RUN_CODE: { USE: true } },
+    }),
 }));
 
 describe('OpenAIChatCompletionController', () => {
@@ -237,7 +243,7 @@ describe('OpenAIChatCompletionController', () => {
         messages: [{ role: 'user', content: 'Hello' }],
         stream: false,
       },
-      user: { id: 'user-123' },
+      user: { id: 'user-123', role: 'USER' },
       config: {
         endpoints: {
           agents: { allowedProviders: ['openAI'] },

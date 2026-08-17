@@ -6,6 +6,8 @@ const {
   actionDelimiter,
   AgentCapabilities,
   defaultAgentCapabilities,
+  PermissionTypes,
+  Permissions,
 } = require('librechat-data-provider');
 
 const mockGetEndpointsConfig = jest.fn();
@@ -74,8 +76,10 @@ jest.mock('../ActionService', () => ({
 jest.mock('~/server/services/Threads', () => ({
   recordUsage: jest.fn(),
 }));
+const mockGetRoleByName = jest.fn();
 jest.mock('~/models', () => ({
   findPluginAuthsByKeys: jest.fn(),
+  getRoleByName: (...args) => mockGetRoleByName(...args),
 }));
 jest.mock('~/config', () => ({
   getFlowStateManager: jest.fn(() => mockFlowManager),
@@ -103,9 +107,24 @@ const {
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { PENDING_STALE_MS } = require('@librechat/api');
 
-function createMockReq(capabilities) {
+/** Role granting RUN_CODE.USE — the "allowed user" baseline for the
+ *  post-8S3C.2 authority model (effectiveCodeEnv = global && user RUN_CODE). */
+function createRunCodeAllowedRole() {
   return {
-    user: { id: 'user_123' },
+    permissions: {
+      [PermissionTypes.RUN_CODE]: { [Permissions.USE]: true },
+    },
+  };
+}
+
+function createMockReq(capabilities) {
+  /* Default the role resolver to an RUN_CODE-allowed user so existing
+   * capability-positive expectations hold under the 8S3C.2 authorization
+   * gate; individual tests that model a DENIED user stub the resolver to
+   * return a role without RUN_CODE.USE. */
+  mockGetRoleByName.mockResolvedValue(createRunCodeAllowedRole());
+  return {
+    user: { id: 'user_123', role: 'USER' },
     config: {
       endpoints: {
         [EModelEndpoint.agents]: {

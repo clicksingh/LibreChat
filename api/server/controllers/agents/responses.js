@@ -52,6 +52,7 @@ const {
   agentLogHandlerObj,
 } = require('~/server/controllers/agents/callbacks');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
+const { resolveEffectiveCodeEnv } = require('~/server/services/Endpoints/agents/authorization');
 const {
   findAccessibleResources,
   getEffectivePermissions,
@@ -388,6 +389,12 @@ const createResponse = async (req, res) => {
       appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities,
     );
     const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
+    /* 8S3C.2 — RUN_CODE authorization gate: global capability AND user
+     * RUN_CODE.USE for the remote v1/responses path. */
+    const effectiveCodeEnvAvailable = await resolveEffectiveCodeEnv(
+      req,
+      enabledCapabilities.has(AgentCapabilities.execute_code),
+    );
     const ephemeralSkillsToggle = req.body?.ephemeralAgent?.skills === true;
     const accessibleSkillIds = skillsCapabilityEnabled
       ? withDeploymentSkillIds(
@@ -453,7 +460,7 @@ const createResponse = async (req, res) => {
           skillsCapabilityEnabled,
           ephemeralSkillsToggle,
         }),
-        codeEnvAvailable: enabledCapabilities.has(AgentCapabilities.execute_code),
+        codeEnvAvailable: effectiveCodeEnvAvailable,
         skillStates,
         defaultActiveOnShare,
         manualSkills,
@@ -530,7 +537,7 @@ const createResponse = async (req, res) => {
           skillStates,
           defaultActiveOnShare,
           /** @see DiscoverConnectedAgentsParams.codeEnvAvailable */
-          codeEnvAvailable: enabledCapabilities.has(AgentCapabilities.execute_code),
+          codeEnvAvailable: effectiveCodeEnvAvailable,
         },
         {
           getAgent: db.getAgent,

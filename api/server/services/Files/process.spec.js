@@ -57,6 +57,7 @@ jest.mock('@librechat/api', () => {
     }),
     sweepExpiredFiles: jest.fn().mockResolvedValue({ scanned: 0, deleted: 0, failed: 0 }),
     startExpiredFileSweep: jest.fn().mockReturnValue('sweep-interval'),
+    checkAccessWithRequestCache: jest.fn().mockResolvedValue(true),
   };
 });
 
@@ -89,6 +90,9 @@ jest.mock('~/models', () => ({
   addAgentResourceFile: jest.fn().mockResolvedValue({}),
   removeAgentResourceFiles: jest.fn(),
   removeAgentResourceFilesFromAllAgents: jest.fn(),
+  getRoleByName: jest.fn().mockResolvedValue({
+    permissions: { RUN_CODE: { USE: true } },
+  }),
 }));
 
 jest.mock('~/server/utils/getFileStrategy', () => ({
@@ -161,7 +165,7 @@ const ODP_MIME = 'application/vnd.oasis.opendocument.presentation';
 const ODG_MIME = 'application/vnd.oasis.opendocument.graphics';
 
 const makeReq = ({ mimetype = PDF_MIME, ocrConfig = null, interfaceConfig, body } = {}) => ({
-  user: { id: 'user-123', tenantId: 'tenant-a' },
+  user: { id: 'user-123', role: 'USER', tenantId: 'tenant-a' },
   file: {
     path: '/tmp/upload.bin',
     originalname: 'upload.bin',

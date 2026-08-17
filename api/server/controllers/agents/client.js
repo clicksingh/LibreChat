@@ -72,6 +72,7 @@ const {
   DEFAULT_MEMORY_MAX_INPUT_TOKENS,
 } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+const { resolveEffectiveCodeEnv } = require('~/server/services/Endpoints/agents/authorization');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
 const { resolveConfigServers } = require('~/server/services/MCP');
@@ -647,6 +648,12 @@ class AgentClient extends BaseClient {
      *  tool registered unconditionally; without this passthrough the
      *  memory path would silently lose code-execution tooling). */
     const memoryCapabilities = new Set(appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities);
+    /* 8S3C.2 — RUN_CODE authorization gate for the memory-agent path: global
+     * capability AND user RUN_CODE.USE. */
+    const memoryCodeEnvAvailable = await resolveEffectiveCodeEnv(
+      this.options.req,
+      memoryCapabilities.has(AgentCapabilities.execute_code),
+    );
     const agent = await initializeAgent(
       {
         req: this.options.req,
@@ -658,7 +665,7 @@ class AgentClient extends BaseClient {
             ? EModelEndpoint.agents
             : memoryConfig.agent?.provider,
         },
-        codeEnvAvailable: memoryCapabilities.has(AgentCapabilities.execute_code),
+        codeEnvAvailable: memoryCodeEnvAvailable,
       },
       {
         getFiles: db.getFiles,

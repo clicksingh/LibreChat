@@ -107,6 +107,7 @@ jest.mock('@librechat/api', () => ({
   getBalanceConfig: mockGetBalanceConfig,
   getTransactionsConfig: mockGetTransactionsConfig,
   recordCollectedUsage: mockRecordCollectedUsage,
+  checkAccessWithRequestCache: jest.fn().mockResolvedValue(true),
   createSubagentUsageSink: jest.fn().mockReturnValue(jest.fn()),
   extractManualSkills: jest.fn().mockReturnValue(undefined),
   injectSkillPrimes: jest.fn().mockReturnValue({
@@ -251,6 +252,11 @@ jest.mock('~/models', () => ({
   getConvoFiles: jest.fn().mockResolvedValue([]),
   saveConvo: jest.fn().mockResolvedValue({}),
   getConvo: jest.fn().mockResolvedValue(null),
+  getRoleByName: jest
+    .fn()
+    .mockResolvedValue({
+      permissions: { RUN_CODE: { USE: true } },
+    }),
 }));
 
 describe('createResponse controller', () => {
@@ -269,7 +275,7 @@ describe('createResponse controller', () => {
         input: 'Hello',
         stream: false,
       },
-      user: { id: 'user-123' },
+      user: { id: 'user-123', role: 'USER' },
       config: {
         endpoints: {
           agents: { allowedProviders: ['anthropic'] },
