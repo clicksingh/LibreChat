@@ -24,6 +24,7 @@ export function parseStream(raw: string): ParsedStream {
     conversationId: null,
     bytes: raw.length,
   };
+  let deltaText = '';
   for (const chunk of raw.split('\n')) {
     if (!chunk.startsWith('data:')) continue;
     let d: any;
@@ -46,6 +47,10 @@ export function parseStream(raw: string): ParsedStream {
           if (t?.name && !out.toolCalls.includes(t.name)) out.toolCalls.push(t.name);
         }
       }
+    } else if (ev === 'on_message_delta') {
+      for (const p of d.data?.delta?.content || []) {
+        if (p?.type === 'text' && typeof p.text === 'string') deltaText += p.text;
+      }
     } else if (ev === 'final') {
       out.finalText = d.responseMessage?.text || out.finalText;
       out.conversationId =
@@ -54,5 +59,9 @@ export function parseStream(raw: string): ParsedStream {
       out.conversationId = d.message?.conversationId || out.conversationId;
     }
   }
+  // Prefer the aggregated streamed delta text (mirrors the accepted
+  // verify-doc-workstation-e2e.js parser) — the `final` event's
+  // responseMessage.text is not always populated.
+  if (deltaText) out.finalText = deltaText;
   return out;
 }
