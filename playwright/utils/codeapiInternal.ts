@@ -10,6 +10,8 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { MongoClient } from 'mongodb';
+import { MONGO_URI } from './auth';
 
 const CODEAPI_BASE = process.env.CODEAPI_BASE ?? 'http://127.0.0.1:4101';
 const PRIVATE_KEY_PATH = process.env.CODEAPI_JWT_PRIVATE_KEY_PATH ?? '/opt/cbhr-ai/secrets/codeapi-jwt-private.pem';
@@ -64,4 +66,29 @@ export async function setQuotaDirect(
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   throw lastErr;
+}
+
+/**
+ * Set a project-scope QuotaPolicy override directly in Mongo — the same
+ * document a real admin's quota-policy UI would write. Required alongside
+ * setQuotaDirect: syncProjectQuotaFireAndForget re-applies the *resolved
+ * policy* value to the helper on every subsequent project-context message
+ * (by design — it's how an admin's later policy change eventually reaches
+ * the kernel-level limit), so a bare setQuotaDirect poke with no matching
+ * policy document gets silently overwritten back to the platform default
+ * the moment the overflow-write message is sent.
+ */
+export async function setQuotaPolicyDirect(workspaceId: string, quotaBytes: number): Promise<void> {
+  const client = new MongoClient(MONGO_URI);
+  await client.connect();
+  try {
+    const db = client.db('LibreChat');
+    await db.collection('quotapolicies').updateOne(
+      { scope: 'project', scopeId: workspaceId },
+      { $set: { scope: 'project', scopeId: workspaceId, quotaBytes, updatedAt: new Date() } },
+      { upsert: true },
+    );
+  } finally {
+    await client.close();
+  }
 }

@@ -12,7 +12,7 @@ import { test, expect } from '@playwright/test';
 import { loginAs } from '../utils/browser';
 import { USERS } from '../utils/constants';
 import { createWorkspace } from '../utils/workspaceApi';
-import { setQuotaDirect } from '../utils/codeapiInternal';
+import { setQuotaDirect, setQuotaPolicyDirect } from '../utils/codeapiInternal';
 
 const TINY_QUOTA_BYTES = 64 * 1024 * 1024; // the helper's own MIN_QUOTA_BYTES floor
 
@@ -56,6 +56,12 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
       await expect(page.getByText(/good\.txt/i).first()).toBeVisible({ timeout: 120_000 });
 
       // ---- step 2: shrink the now-provisioned workspace to the 64MiB floor --
+      // Both the live helper limit AND the policy document that
+      // syncProjectQuotaFireAndForget re-applies on every subsequent
+      // project-context message — a bare helper poke with no matching
+      // policy gets silently overwritten back to the platform default the
+      // moment the next chat message (the overflow write) is sent.
+      await setQuotaPolicyDirect(workspaceId, TINY_QUOTA_BYTES);
       await setQuotaDirect(workspaceId, 'project', TINY_QUOTA_BYTES);
 
       // ---- step 3: real code execution intentionally exceeds the limit ------
@@ -83,6 +89,7 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
 
       // ---- step 6: recovery via a quota bump (equivalent to an
       // admin/operator raising the limit) — subsequent write succeeds. --------
+      await setQuotaPolicyDirect(workspaceId, TINY_QUOTA_BYTES * 4);
       await setQuotaDirect(workspaceId, 'project', TINY_QUOTA_BYTES * 4);
       await composer.click();
       await composer.fill('Run python code that writes a small file after_recovery.txt containing "ok2". Confirm.');
