@@ -107,7 +107,7 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
       await setQuotaDirect(workspaceId, 'project', TINY_QUOTA_BYTES * 4);
       await composer.click();
       await composer.fill('Run python code that writes a small file after_recovery.txt containing "ok2". Confirm.');
-      await composer.press('Enter');
+      await page.locator('button[data-testid="send-button"], button[aria-label*="Send" i]').first().click();
       await expect(page.getByText(/after_recovery\.txt/i).first()).toBeVisible({ timeout: 120_000 });
     } finally {
       await session.cleanup();
