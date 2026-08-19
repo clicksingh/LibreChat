@@ -23,7 +23,10 @@ router.get('/', async (_req, res) => {
   res.json(await db.listQuotaPolicies());
 });
 
-router.put('/:scope/:scopeId?', async (req, res) => {
+// Express 5 (path-to-regexp v6+) dropped the `:param?` optional-segment
+// suffix — two explicit routes sharing one handler, rather than relying on
+// an optional-param syntax that no longer behaves the same way.
+async function putHandler(req, res) {
   const { scope, scopeId } = req.params;
   const quotaBytes = Number(req.body?.quotaBytes);
   if (!VALID_SCOPES.includes(scope)) {
@@ -52,9 +55,11 @@ router.put('/:scope/:scopeId?', async (req, res) => {
   // triggering an unbounded burst of helper calls.
 
   res.json(policy);
-});
+}
+router.put('/:scope', putHandler);
+router.put('/:scope/:scopeId', putHandler);
 
-router.delete('/:scope/:scopeId?', async (req, res) => {
+async function deleteHandler(req, res) {
   const { scope, scopeId } = req.params;
   if (!VALID_SCOPES.includes(scope)) {
     return res.status(400).json({ error: `invalid scope: ${scope}` });
@@ -63,6 +68,8 @@ router.delete('/:scope/:scopeId?', async (req, res) => {
     scope === 'platformPersonal' || scope === 'platformProject' ? null : scopeId || null;
   const deleted = await db.deleteQuotaPolicy(scope, normalizedScopeId);
   res.json({ deleted });
-});
+}
+router.delete('/:scope', deleteHandler);
+router.delete('/:scope/:scopeId', deleteHandler);
 
 module.exports = router;
