@@ -1,4 +1,4 @@
-import { formatBytes } from '~/utils';
+import { formatWorkspaceBytes } from './formatBytes';
 import type { TWorkspaceUsage } from 'librechat-data-provider';
 
 const STATE_COLOR: Record<TWorkspaceUsage['state'], string> = {
@@ -24,7 +24,7 @@ export default function QuotaBar({ usage }: { usage?: TWorkspaceUsage }) {
     <div className="mb-2 w-full px-1">
       <div className="mb-1 flex items-center justify-between text-xs text-text-secondary">
         <span>
-          {formatBytes(usage.used_bytes)} / {formatBytes(usage.quota_bytes)}
+          {formatWorkspaceBytes(usage.used_bytes)} / {formatWorkspaceBytes(usage.quota_bytes)}
         </span>
         <span>{pct}%</span>
       </div>

@@ -1,5 +1,6 @@
 import { Button } from '@librechat/client';
-import { formatBytes, formatDate } from '~/utils';
+import { formatDate } from '~/utils';
+import { formatWorkspaceBytes } from './formatBytes';
 import PurgeConfirmDialog from './PurgeConfirmDialog';
 import type { TWorkspaceTrashEntry } from 'librechat-data-provider';
 
@@ -45,7 +46,7 @@ export default function TrashTable({
                 {item.name}
               </td>
               <td className="py-1.5 text-right text-xs text-text-secondary">
-                {formatBytes(item.size)}
+                {formatWorkspaceBytes(item.size)}
               </td>
               <td className="py-1.5 text-right text-xs text-text-secondary">
                 {formatDate(item.trashedAt)}

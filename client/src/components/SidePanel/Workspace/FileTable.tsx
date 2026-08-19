@@ -1,5 +1,6 @@
 import { Button, TrashIcon } from '@librechat/client';
-import { formatBytes, formatDate } from '~/utils';
+import { formatDate } from '~/utils';
+import { formatWorkspaceBytes } from './formatBytes';
 import type { TWorkspaceFileEntry } from 'librechat-data-provider';
 
 /**
@@ -41,7 +42,7 @@ export default function FileTable({
                 {item.name}
               </td>
               <td className="py-1.5 text-right text-xs text-text-secondary">
-                {formatBytes(item.size)}
+                {formatWorkspaceBytes(item.size)}
               </td>
               <td className="py-1.5 text-right text-xs text-text-secondary">
                 {formatDate(item.modified)}
