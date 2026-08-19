@@ -49,7 +49,7 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
 
       // ---- step 1: a small real write ensures the workspace (provisions
       // its XFS project quota at CodeAPI's own default) ----------------------
-      const composer = page.getByRole('textbox').first();
+      const composer = page.locator('textarea[data-testid="message-input"], textarea').first();
       await composer.click();
       await composer.fill('Run python code that writes a small file good.txt containing "ok". Confirm.');
       await composer.press('Enter');

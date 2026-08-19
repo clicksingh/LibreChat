@@ -50,7 +50,7 @@ test.describe('J9 — project workspace ACL isolation', () => {
       await ownerPage.keyboard.press('Escape').catch(() => {});
 
       const marker = `j9-${Date.now()}`;
-      const composer = ownerPage.getByRole('textbox').first();
+      const composer = ownerPage.locator('textarea[data-testid="message-input"], textarea').first();
       await composer.click();
       await composer.fill(
         `Run python code that writes a file named j9_shared.txt containing "${marker}". Confirm when done.`,

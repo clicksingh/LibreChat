@@ -35,7 +35,7 @@ test.describe('J8 — trash / restore / purge lifecycle', () => {
       await page.keyboard.press('Escape').catch(() => {});
 
       const marker = `j8-${Date.now()}`;
-      const composer = page.getByRole('textbox').first();
+      const composer = page.locator('textarea[data-testid="message-input"], textarea').first();
       await composer.click();
       await composer.fill(
         `Run python code that writes a 2000-byte file named j8_lifecycle.bin containing repeated bytes, then prints "${marker} done".`,

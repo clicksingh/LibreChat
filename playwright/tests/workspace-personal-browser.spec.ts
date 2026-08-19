@@ -37,7 +37,7 @@ test.describe('J6 — personal workspace file browser', () => {
       await page.keyboard.press('Escape').catch(() => {});
 
       const uniqueMarker = `j6-${Date.now()}`;
-      const composer = page.getByRole('textbox').first();
+      const composer = page.locator('textarea[data-testid="message-input"], textarea').first();
       await composer.click();
       await composer.fill(
         `Run python code that writes a file named j6_proof.txt containing the text "${uniqueMarker}". Then confirm.`,
