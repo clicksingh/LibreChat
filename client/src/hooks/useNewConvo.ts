@@ -325,7 +325,11 @@ const useNewConvo = (index = 0) => {
         isParamEndpoint(_preset?.endpoint ?? '', _preset?.endpointType ?? '');
       const template =
         paramEndpoint === true && templateConvoId && templateConvoId === Constants.NEW_CONVO
-          ? { endpoint: _template.endpoint, chatProjectId: _template.chatProjectId }
+          ? {
+              endpoint: _template.endpoint,
+              chatProjectId: _template.chatProjectId,
+              workspaceId: _template.workspaceId,
+            }
           : _template;
 
       const conversation = {
