@@ -11,9 +11,16 @@
 import { test, expect } from '@playwright/test';
 import { loginAs } from '../utils/browser';
 
-// 65f2a1b2c3d4e5f60708090a: real pre-8S3D migrated user (see
-// docs/8S3D-RETURN.md item 19/CUTOVER ADDENDUM — this exact id's workspace
-// was hash-verified byte-identical across the migration).
+// 65f2a1b2c3d4e5f60708090a: this id is referenced in docs/8S3D-RETURN.md's
+// CUTOVER ADDENDUM as the migration's hash-verification example, but no
+// such user/session was ever actually provisioned on THIS deployment (the
+// doc records an earlier migration run's evidence, not a fixture left
+// behind for future tests). Login against it 404s at /login otherwise.
+// Provisioned once as a real fixture: a User doc, plus a note.txt file
+// (content "persist-1") placed directly on disk under this id's personal
+// workspace root — deliberately NOT created through any 8S3D.1 API/helper
+// path, to genuinely stand in for a file that predates this milestone's
+// code, exactly like a real pre-migration user's workspace would.
 const MIGRATED_USER_ID = '65f2a1b2c3d4e5f60708090a';
 
 test.describe('J10 — pre-8S3D conversation continuity', () => {
