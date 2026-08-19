@@ -39,6 +39,14 @@ export const useProjectWorkspaceUsageQuery = (
 };
 
 /** Personal workspace file browser — cursor-paginated, bounded per page (never a full recursive tree in one response). */
+// Chat-driven code execution writes files server-side outside of any
+// mutation this panel knows about, so a plain fetch-once-on-mount query can
+// permanently miss a file created moments after the panel opened. Polling
+// while the panel is open (react-query pauses this automatically once the
+// observer unmounts) keeps the browser's view converging on server state
+// without requiring a manual refresh.
+const WORKSPACE_LISTING_POLL_MS = 5_000;
+
 export const usePersonalWorkspaceFilesQuery = () => {
   return useInfiniteQuery<TWorkspaceFileListResponse>(
     [QueryKeys.workspaceFiles, 'personal'],
@@ -46,6 +54,7 @@ export const usePersonalWorkspaceFilesQuery = () => {
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
     },
   );
 };
@@ -59,6 +68,7 @@ export const useProjectWorkspaceFilesQuery = (workspaceId: string | undefined) =
       enabled: !!workspaceId,
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
     },
   );
 };
@@ -70,6 +80,7 @@ export const usePersonalWorkspaceTrashQuery = () => {
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
     },
   );
 };
@@ -83,6 +94,7 @@ export const useProjectWorkspaceTrashQuery = (workspaceId: string | undefined) =
       enabled: !!workspaceId,
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
       refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
     },
   );
 };

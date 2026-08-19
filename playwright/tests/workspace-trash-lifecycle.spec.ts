@@ -53,40 +53,51 @@ test.describe('J8 — trash / restore / purge lifecycle', () => {
       const panel = page.getByTestId('workspace-panel');
       await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
       await page.getByRole('button', { name: 'Files', exact: true }).click();
-      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 20_000 });
+      // This real test user has ~50 accumulated files from earlier accepted
+      // Playwright suites (8S3C.2) sharing the same fixture identity — the
+      // new row can land below the panel's fixed-height scroll fold.
+      // scrollIntoViewIfNeeded first so visibility isn't gated on scroll
+      // position (attach() below finds it in the DOM even before scroll).
+      const newFileCell = panel.getByText('j8_lifecycle.bin').first();
+      await newFileCell.scrollIntoViewIfNeeded({ timeout: 60_000 });
+      await expect(newFileCell).toBeVisible({ timeout: 15_000 });
 
       // ---- trash it ---------------------------------------------------------
-      const fileRow = panel.locator('tr', { hasText: 'j8_lifecycle.bin' });
+      const fileRow = panel.locator('tr', { hasText: 'j8_lifecycle.bin' }).first();
+      await fileRow.scrollIntoViewIfNeeded();
       await fileRow.getByRole('button', { name: /move .* to trash/i }).click();
-      await expect(panel.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j8_lifecycle.bin').first()).not.toBeVisible({ timeout: 15_000 });
 
       // Usage must NOT drop merely from trashing (same quota tree).
       const usageAfterTrash = await getUsage(USERS.enabled.id, 'personal');
       expect(usageAfterTrash.used_bytes).toBeGreaterThanOrEqual(usageBeforeTrash.used_bytes);
 
-      // ---- appears in Trash tab ----------------------------------------------
+      // ---- appears in Trash tab (this test's own trash, not the crowded
+      // 8S3C.2 fixture history — Files list is, Trash isn't) ------------------
       await page.getByRole('button', { name: 'Trash', exact: true }).click();
-      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j8_lifecycle.bin').first()).toBeVisible({ timeout: 15_000 });
 
       // ---- restore ------------------------------------------------------------
-      const trashRow = panel.locator('tr', { hasText: 'j8_lifecycle.bin' });
+      const trashRow = panel.locator('tr', { hasText: 'j8_lifecycle.bin' }).first();
       await trashRow.getByRole('button', { name: 'Restore' }).click();
-      await expect(panel.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 }); // gone from Trash
+      await expect(panel.getByText('j8_lifecycle.bin').first()).not.toBeVisible({ timeout: 15_000 }); // gone from Trash
 
       await page.getByRole('button', { name: 'Files', exact: true }).click();
-      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 }); // back in Files
+      const restoredCell = panel.getByText('j8_lifecycle.bin').first();
+      await restoredCell.scrollIntoViewIfNeeded({ timeout: 60_000 });
+      await expect(restoredCell).toBeVisible({ timeout: 15_000 }); // back in Files
 
       // ---- trash again, then PURGE (explicit confirmation dialog) -----------
-      await panel
-        .locator('tr', { hasText: 'j8_lifecycle.bin' })
-        .getByRole('button', { name: /move .* to trash/i })
-        .click();
+      const fileRow2 = panel.locator('tr', { hasText: 'j8_lifecycle.bin' }).first();
+      await fileRow2.scrollIntoViewIfNeeded();
+      await fileRow2.getByRole('button', { name: /move .* to trash/i }).click();
       await page.getByRole('button', { name: 'Trash', exact: true }).click();
-      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j8_lifecycle.bin').first()).toBeVisible({ timeout: 15_000 });
 
       const purgeTrigger = panel
         .locator('tr', { hasText: 'j8_lifecycle.bin' })
-        .getByRole('button', { name: 'Purge (permanent)' });
+        .first()
+        .getByRole('button', { name: /permanently delete/i });
       await purgeTrigger.click();
 
       // Confirmation dialog must appear before anything is destroyed.
@@ -94,7 +105,7 @@ test.describe('J8 — trash / restore / purge lifecycle', () => {
       await expect(confirmDialog).toBeVisible({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Permanently delete' }).click();
 
-      await expect(panel.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j8_lifecycle.bin').first()).not.toBeVisible({ timeout: 15_000 });
 
       // Usage decreases after purge.
       const usageAfterPurge = await getUsage(USERS.enabled.id, 'personal');

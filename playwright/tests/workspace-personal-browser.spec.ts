@@ -67,10 +67,16 @@ test.describe('J6 — personal workspace file browser', () => {
       // not a separately-issued API call; polling the DOM is more robust
       // here than trying to pin down which network response is "the" one
       // (the query can legitimately fire more than once around mount).
-      await expect(panel.getByText('j6_proof.txt').first()).toBeVisible({ timeout: 30_000 });
+      // This real test user accumulates files from earlier accepted
+      // Playwright suites sharing the same fixture identity — scroll into
+      // view first so visibility isn't gated on the panel's scroll position.
+      const newFileCell = panel.getByText('j6_proof.txt').first();
+      await newFileCell.scrollIntoViewIfNeeded({ timeout: 30_000 });
+      await expect(newFileCell).toBeVisible({ timeout: 15_000 });
 
       // Trash it via the real UI trash button on that row.
       const row = panel.locator('tr', { hasText: 'j6_proof.txt' }).first();
+      await row.scrollIntoViewIfNeeded();
       await row.getByRole('button', { name: /move .* to trash/i }).click();
 
       // It must disappear from the active listing.

@@ -22,9 +22,15 @@ const JWT_REFRESH_SECRET = get('JWT_REFRESH_SECRET');
 if (!JWT_REFRESH_SECRET) {
   throw new Error('[auth] JWT_REFRESH_SECRET not found in LibreChat .env');
 }
+// 8S3D.1: the bridge IP is NOT stable across container recreations (it
+// drifted mid-session). MONGO_HOST_OVERRIDE lets a docker-network-attached
+// test runner skip the substitution entirely (the `mongodb` alias already
+// resolves via Docker DNS in that mode) — set it to the literal string
+// 'mongodb' (or 'mongo') to make the .replace() calls below a no-op.
+const MONGO_HOST_OVERRIDE = process.env.MONGO_HOST_OVERRIDE || '172.18.0.2';
 export const MONGO_URI = (get('MONGO_URI') || '')
-  .replace('mongodb://mongodb:', 'mongodb://172.18.0.2:')
-  .replace('mongodb://mongo:', 'mongodb://172.18.0.2:');
+  .replace('mongodb://mongodb:', `mongodb://${MONGO_HOST_OVERRIDE}:`)
+  .replace('mongodb://mongo:', `mongodb://${MONGO_HOST_OVERRIDE}:`);
 
 export interface SessionState {
   refreshToken: string;
