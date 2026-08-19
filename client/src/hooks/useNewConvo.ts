@@ -96,6 +96,17 @@ const useNewConvo = (index = 0) => {
           'chatProjectId',
         );
         const explicitChatProjectId = conversation.chatProjectId;
+        // 8S3D.1: buildDefaultConvo() below rebuilds `conversation` from a
+        // preset/default template and drops any field it doesn't know
+        // about — workspaceId (set via the Workspace panel's "Use for new
+        // chat") would otherwise silently vanish the moment the user picks
+        // a model/endpoint, exactly like chatProjectId does without this
+        // same explicit re-apply.
+        const hasExplicitWorkspaceId = Object.prototype.hasOwnProperty.call(
+          conversation,
+          'workspaceId',
+        );
+        const explicitWorkspaceId = conversation.workspaceId;
         const activePreset =
           // use default preset only when it's defined,
           // preset is not provided,
@@ -211,6 +222,10 @@ const useNewConvo = (index = 0) => {
             conversation.chatProjectId = explicitChatProjectId ?? null;
           } else {
             delete conversation.chatProjectId;
+          }
+
+          if (hasExplicitWorkspaceId) {
+            conversation.workspaceId = explicitWorkspaceId ?? null;
           }
         }
 
