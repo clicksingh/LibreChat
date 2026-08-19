@@ -40,7 +40,6 @@ test.describe('J9 — project workspace ACL isolation', () => {
       const modelSearch = ownerPage.getByRole('combobox').last();
       await modelSearch.waitFor({ state: 'visible', timeout: 10_000 });
       await modelSearch.fill('glm-5-turbo');
-      await modelSearch.press('Enter').catch(() => {});
       await ownerPage.getByRole('option', { name: 'glm-5-turbo' }).first().click({ timeout: 15_000 });
 
       const toolsBtn = ownerPage.locator('#tools-dropdown-button').first();
