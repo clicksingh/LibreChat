@@ -48,36 +48,33 @@ test.describe('J6 — personal workspace file browser', () => {
       await expect(page.getByText(/j6_proof\.txt/i).first()).toBeVisible({ timeout: 120_000 });
 
       // ---- open the Workspace side panel (Personal is the default) --------
-      const workspaceTab = page.getByRole('button', { name: 'Workspace' }).first();
+      const workspaceTab = page.getByRole('button', { name: 'Workspace', exact: true }).first();
       await expect(workspaceTab).toBeVisible({ timeout: 30_000 });
       await workspaceTab.click();
 
+      // Everything from here scopes to the Workspace panel itself, not the
+      // whole page — the chat transcript above still contains the literal
+      // filename text, which would otherwise make these assertions ambiguous.
+      const panel = page.getByTestId('workspace-panel');
+
       // Usage/quota visible.
-      await expect(page.getByText(/\d+(\.\d+)?\s?(B|KB|MB|GB)\s?\/\s?\d+(\.\d+)?\s?(B|KB|MB|GB)/i)).toBeVisible({
+      await expect(panel.getByText(/\d+(\.\d+)?\s?(B|KB|MB|GB)\s?\/\s?\d+(\.\d+)?\s?(B|KB|MB|GB)/i)).toBeVisible({
         timeout: 30_000,
       });
 
-      // Generated file appears with size/modified metadata, via a fresh
-      // fetch of the browser's own workspace file list (its own network
-      // traffic, not a separately-issued API call).
-      const filesResponse = page.waitForResponse(
-        (r) => r.url().includes('/api/workspaces/personal/files') && r.status() === 200,
-      );
-      // Force a refetch by re-clicking the Files tab.
-      await page.getByRole('button', { name: 'Files' }).click();
-      const res = await filesResponse;
-      const body = (await res.json()) as { items: Array<{ name: string; fileId: string; sessionId: string }> };
-      const proof = body.items.find((f) => f.name === 'j6_proof.txt');
-      expect(proof, `j6_proof.txt should be in the browser's own /api/workspaces/personal/files response`).toBeTruthy();
-
-      await expect(page.getByText('j6_proof.txt')).toBeVisible({ timeout: 15_000 });
+      // Generated file appears with size/modified metadata — this IS the
+      // browser's own fetched+rendered data (React Query's own request),
+      // not a separately-issued API call; polling the DOM is more robust
+      // here than trying to pin down which network response is "the" one
+      // (the query can legitimately fire more than once around mount).
+      await expect(panel.getByText('j6_proof.txt').first()).toBeVisible({ timeout: 30_000 });
 
       // Trash it via the real UI trash button on that row.
-      const row = page.locator('tr', { hasText: 'j6_proof.txt' });
+      const row = panel.locator('tr', { hasText: 'j6_proof.txt' }).first();
       await row.getByRole('button', { name: /move .* to trash/i }).click();
 
       // It must disappear from the active listing.
-      await expect(page.getByText('j6_proof.txt')).not.toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j6_proof.txt').first()).not.toBeVisible({ timeout: 15_000 });
     } finally {
       await session.cleanup();
     }

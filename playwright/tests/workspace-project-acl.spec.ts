@@ -29,7 +29,7 @@ test.describe('J9 — project workspace ACL isolation', () => {
       await ownerPage.goto('/c/new');
       await expect(ownerPage).toHaveURL(/\/c\//, { timeout: 60_000 });
 
-      await ownerPage.getByRole('button', { name: 'Workspace' }).first().click();
+      await ownerPage.getByRole('button', { name: 'Workspace', exact: true }).first().click();
       await ownerPage
         .locator('select')
         .selectOption({ label: projectName });
@@ -79,7 +79,7 @@ test.describe('J9 — project workspace ACL isolation', () => {
     try {
       await memberPage.goto('/c/new');
       await expect(memberPage).toHaveURL(/\/c\//, { timeout: 60_000 });
-      await memberPage.getByRole('button', { name: 'Workspace' }).first().click();
+      await memberPage.getByRole('button', { name: 'Workspace', exact: true }).first().click();
 
       const select = memberPage.locator('select');
       await expect(select.locator('option', { hasText: projectName })).toHaveCount(1, { timeout: 20_000 });
@@ -98,7 +98,7 @@ test.describe('J9 — project workspace ACL isolation', () => {
     try {
       await nonmemberPage.goto('/c/new');
       await expect(nonmemberPage).toHaveURL(/\/c\//, { timeout: 60_000 });
-      await nonmemberPage.getByRole('button', { name: 'Workspace' }).first().click();
+      await nonmemberPage.getByRole('button', { name: 'Workspace', exact: true }).first().click();
 
       const select = nonmemberPage.locator('select');
       await expect(select.locator('option', { hasText: projectName })).toHaveCount(0, { timeout: 10_000 });

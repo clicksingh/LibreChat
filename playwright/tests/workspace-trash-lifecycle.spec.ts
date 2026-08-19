@@ -47,40 +47,44 @@ test.describe('J8 — trash / restore / purge lifecycle', () => {
 
       const usageBeforeTrash = await getUsage(USERS.enabled.id, 'personal');
 
-      await page.getByRole('button', { name: 'Workspace' }).first().click();
-      await page.getByRole('button', { name: 'Files' }).click();
-      await expect(page.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 20_000 });
+      // Everything below scopes to the Workspace panel itself, not the whole
+      // page — the chat transcript above still contains the literal
+      // filename text, which would otherwise make these assertions ambiguous.
+      const panel = page.getByTestId('workspace-panel');
+      await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
+      await page.getByRole('button', { name: 'Files', exact: true }).click();
+      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 20_000 });
 
       // ---- trash it ---------------------------------------------------------
-      const fileRow = page.locator('tr', { hasText: 'j8_lifecycle.bin' });
+      const fileRow = panel.locator('tr', { hasText: 'j8_lifecycle.bin' });
       await fileRow.getByRole('button', { name: /move .* to trash/i }).click();
-      await expect(page.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 });
 
       // Usage must NOT drop merely from trashing (same quota tree).
       const usageAfterTrash = await getUsage(USERS.enabled.id, 'personal');
       expect(usageAfterTrash.used_bytes).toBeGreaterThanOrEqual(usageBeforeTrash.used_bytes);
 
       // ---- appears in Trash tab ----------------------------------------------
-      await page.getByRole('button', { name: 'Trash' }).click();
-      await expect(page.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 });
+      await page.getByRole('button', { name: 'Trash', exact: true }).click();
+      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 });
 
       // ---- restore ------------------------------------------------------------
-      const trashRow = page.locator('tr', { hasText: 'j8_lifecycle.bin' });
+      const trashRow = panel.locator('tr', { hasText: 'j8_lifecycle.bin' });
       await trashRow.getByRole('button', { name: 'Restore' }).click();
-      await expect(page.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 }); // gone from Trash
+      await expect(panel.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 }); // gone from Trash
 
-      await page.getByRole('button', { name: 'Files' }).click();
-      await expect(page.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 }); // back in Files
+      await page.getByRole('button', { name: 'Files', exact: true }).click();
+      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 }); // back in Files
 
       // ---- trash again, then PURGE (explicit confirmation dialog) -----------
-      await page
+      await panel
         .locator('tr', { hasText: 'j8_lifecycle.bin' })
         .getByRole('button', { name: /move .* to trash/i })
         .click();
-      await page.getByRole('button', { name: 'Trash' }).click();
-      await expect(page.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 });
+      await page.getByRole('button', { name: 'Trash', exact: true }).click();
+      await expect(panel.getByText('j8_lifecycle.bin')).toBeVisible({ timeout: 15_000 });
 
-      const purgeTrigger = page
+      const purgeTrigger = panel
         .locator('tr', { hasText: 'j8_lifecycle.bin' })
         .getByRole('button', { name: 'Purge (permanent)' });
       await purgeTrigger.click();
@@ -90,7 +94,7 @@ test.describe('J8 — trash / restore / purge lifecycle', () => {
       await expect(confirmDialog).toBeVisible({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Permanently delete' }).click();
 
-      await expect(page.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 });
+      await expect(panel.getByText('j8_lifecycle.bin')).not.toBeVisible({ timeout: 15_000 });
 
       // Usage decreases after purge.
       const usageAfterPurge = await getUsage(USERS.enabled.id, 'personal');

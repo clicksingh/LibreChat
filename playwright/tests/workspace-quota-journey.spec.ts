@@ -30,7 +30,7 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
       await page.goto('/c/new');
       await expect(page).toHaveURL(/\/c\//, { timeout: 60_000 });
 
-      await page.getByRole('button', { name: 'Workspace' }).first().click();
+      await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
       await page.locator('select').selectOption(workspaceId);
       await page.getByRole('button', { name: 'Use for new chat' }).click();
 
@@ -71,14 +71,15 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
         .catch(() => null);
 
       // ---- step 4: Workspace panel shows a non-NORMAL state ------------------
-      await page.getByRole('button', { name: 'Workspace' }).first().click();
-      await expect(page.getByText(/CRITICAL|FULL|Warning|Critical|Full/i)).toBeVisible({
+      const panel = page.getByTestId('workspace-panel');
+      await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
+      await expect(panel.getByText(/CRITICAL|FULL|Warning|Critical|Full/i)).toBeVisible({
         timeout: 30_000,
       });
 
       // ---- step 5: the prior valid file survives intact ----------------------
-      await page.getByRole('button', { name: 'Files' }).click();
-      await expect(page.getByText('good.txt')).toBeVisible({ timeout: 20_000 });
+      await page.getByRole('button', { name: 'Files', exact: true }).click();
+      await expect(panel.getByText('good.txt')).toBeVisible({ timeout: 20_000 });
 
       // ---- step 6: recovery via a quota bump (equivalent to an
       // admin/operator raising the limit) — subsequent write succeeds. --------

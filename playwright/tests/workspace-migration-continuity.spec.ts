@@ -28,7 +28,7 @@ test.describe('J10 — pre-8S3D conversation continuity', () => {
       await page.goto('/c/new');
       await expect(page).toHaveURL(/\/c\//, { timeout: 60_000 });
 
-      await page.getByRole('button', { name: 'Workspace' }).first().click();
+      await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
 
       // Personal must be the default/only selectable option this
       // conversation resolves to — no workspace migration was needed on
@@ -36,24 +36,14 @@ test.describe('J10 — pre-8S3D conversation continuity', () => {
       const select = page.locator('select');
       await expect(select).toHaveValue('personal', { timeout: 20_000 });
 
-      await page.getByRole('button', { name: 'Files' }).click();
-
       // note.txt is the exact pre-migration fixture file recorded in
-      // docs/8S3D-RETURN.md's CUTOVER ADDENDUM (content "persist-1").
-      const filesResponse = page.waitForResponse(
-        (r) => r.url().includes('/api/workspaces/personal/files') && r.status() === 200,
-      );
-      await page.getByRole('button', { name: 'Trash' }).click();
-      await page.getByRole('button', { name: 'Files' }).click();
-      const res = await filesResponse;
-      const body = (await res.json()) as { items: Array<{ name: string }> };
-      const preMigration = body.items.find((f) => f.name === 'note.txt');
-      expect(
-        preMigration,
-        'pre-migration file note.txt should still be present and browsable post-cutover',
-      ).toBeTruthy();
-
-      await expect(page.getByText('note.txt')).toBeVisible({ timeout: 15_000 });
+      // docs/8S3D-RETURN.md's CUTOVER ADDENDUM (content "persist-1"). This
+      // IS the browser's own fetched+rendered data (React Query's own
+      // request) — polling the DOM avoids pinning down which of
+      // potentially-multiple mount-time fetches is "the" one.
+      await expect(page.getByTestId('workspace-panel').getByText('note.txt').first()).toBeVisible({
+        timeout: 30_000,
+      });
     } finally {
       await session.cleanup();
     }
