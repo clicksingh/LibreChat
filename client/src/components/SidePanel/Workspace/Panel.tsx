@@ -116,7 +116,7 @@ export default function WorkspacePanel() {
   };
 
   return (
-    <div className="flex h-auto w-full flex-col gap-2 px-3 pb-3 pt-2">
+    <div data-testid="workspace-panel" className="flex h-auto w-full flex-col gap-2 px-3 pb-3 pt-2">
       <div className="flex flex-wrap items-center gap-2">
         <select
           className="rounded-md border border-border-light bg-surface-primary px-2 py-1 text-sm"
