@@ -70,3 +70,15 @@ export interface TWorkspaceMemberGrantRequest {
   principalId: string;
   accessRoleId: 'workspace_viewer' | 'workspace_editor' | 'workspace_owner';
 }
+
+/** 8S3D.1 — admin quota-policy override (issue #16). */
+export type TQuotaPolicyScope = 'platformPersonal' | 'platformProject' | 'group' | 'user' | 'project';
+
+export interface TQuotaPolicy {
+  _id: string;
+  scope: TQuotaPolicyScope;
+  scopeId: string | null;
+  quotaBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}

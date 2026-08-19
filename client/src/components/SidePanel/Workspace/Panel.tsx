@@ -27,6 +27,7 @@ import QuotaBar from './QuotaBar';
 import FileTable from './FileTable';
 import TrashTable from './TrashTable';
 import CreateProjectDialog from './CreateProjectDialog';
+import AdminQuotaPolicies from './AdminQuotaPolicies';
 
 type Selection = { kind: 'personal' } | { kind: 'project'; id: string; name: string };
 type View = 'files' | 'trash';
@@ -194,6 +195,8 @@ export default function WorkspacePanel() {
           isLoadingMore={!!trashQuery.isFetchingNextPage}
         />
       )}
+
+      <AdminQuotaPolicies />
     </div>
   );
 }

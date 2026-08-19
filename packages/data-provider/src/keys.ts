@@ -83,6 +83,7 @@ export enum QueryKeys {
   workspaceUsage = 'workspaceUsage',
   workspaceFiles = 'workspaceFiles',
   workspaceTrash = 'workspaceTrash',
+  quotaPolicies = 'quotaPolicies',
   /* Skill favorites (star a skill in the sidebar) */
   skillFavorites = 'skillFavorites',
   /* Per-user skill active/inactive overrides */

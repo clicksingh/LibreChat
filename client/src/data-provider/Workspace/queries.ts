@@ -6,7 +6,20 @@ import type {
   TWorkspaceUsage,
   TWorkspaceFileListResponse,
   TWorkspaceTrashListResponse,
+  TQuotaPolicy,
 } from 'librechat-data-provider';
+
+/** 8S3D.1 — admin quota policy (issue #16). Server enforces ADMIN role;
+ * this hook is only ever mounted behind a client-side role check too. */
+export const useQuotaPoliciesQuery = (
+  config?: UseQueryOptions<TQuotaPolicy[]>,
+): QueryObserverResult<TQuotaPolicy[]> => {
+  return useQuery<TQuotaPolicy[]>(
+    [QueryKeys.quotaPolicies],
+    () => dataService.listQuotaPolicies(),
+    { refetchOnWindowFocus: false, ...config },
+  );
+};
 
 export const useListWorkspacesQuery = (
   config?: UseQueryOptions<TWorkspaceListResponse>,

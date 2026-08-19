@@ -1434,3 +1434,24 @@ export function restoreProjectWorkspaceFile(
 export function purgeProjectWorkspaceFile(id: string, payload: { trash_id: string }) {
   return request.post(endpoints.projectWorkspacePurge(id), payload);
 }
+
+/* 8S3D.1 — admin quota policy (issue #16, ADMIN role only server-side) */
+
+export function listQuotaPolicies(): Promise<ws.TQuotaPolicy[]> {
+  return request.get(endpoints.adminQuotaPolicies());
+}
+
+export function upsertQuotaPolicy(
+  scope: ws.TQuotaPolicyScope,
+  scopeId: string | null,
+  quotaBytes: number,
+): Promise<ws.TQuotaPolicy> {
+  return request.put(endpoints.adminQuotaPolicy(scope, scopeId), { quotaBytes });
+}
+
+export function deleteQuotaPolicy(
+  scope: ws.TQuotaPolicyScope,
+  scopeId: string | null,
+): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.adminQuotaPolicy(scope, scopeId));
+}

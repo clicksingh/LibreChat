@@ -5,6 +5,8 @@ import type {
   TWorkspace,
   TCreateWorkspaceRequest,
   TWorkspaceMemberGrantRequest,
+  TQuotaPolicy,
+  TQuotaPolicyScope,
 } from 'librechat-data-provider';
 
 export const useCreateWorkspaceMutation = (): UseMutationResult<
@@ -131,5 +133,30 @@ export const usePurgeProjectFileMutation = (
       queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'project', workspaceId]);
       queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'project', workspaceId]);
     },
+  });
+};
+
+/* ---- admin quota policy (8S3D.1, issue #16) ---- */
+
+export const useUpsertQuotaPolicyMutation = (): UseMutationResult<
+  TQuotaPolicy,
+  unknown,
+  { scope: TQuotaPolicyScope; scopeId: string | null; quotaBytes: number }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    ({ scope, scopeId, quotaBytes }) => dataService.upsertQuotaPolicy(scope, scopeId, quotaBytes),
+    { onSuccess: () => queryClient.invalidateQueries([QueryKeys.quotaPolicies]) },
+  );
+};
+
+export const useDeleteQuotaPolicyMutation = (): UseMutationResult<
+  { deleted: boolean },
+  unknown,
+  { scope: TQuotaPolicyScope; scopeId: string | null }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(({ scope, scopeId }) => dataService.deleteQuotaPolicy(scope, scopeId), {
+    onSuccess: () => queryClient.invalidateQueries([QueryKeys.quotaPolicies]),
   });
 };
