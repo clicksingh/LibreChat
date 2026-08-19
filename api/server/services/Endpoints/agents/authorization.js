@@ -139,7 +139,23 @@ async function resolveWorkspaceContext(req) {
   }
 
   req.workspaceContext = { kind: 'project', workspaceId: String(desiredWorkspaceId) };
+  syncProjectQuotaFireAndForget(req.workspaceContext.workspaceId);
   return req.workspaceContext;
+}
+
+/** Fire-and-forget: keep the helper's hard limit in sync with resolved
+ * quota policy on every project-context resolution. Never blocks/fails the
+ * request — if the workspace hasn't been ensure()'d yet (first-ever write
+ * still pending), the sync 404s harmlessly and the eventual first `ensure()`
+ * call falls back to CodeAPI's own project default until the NEXT
+ * resolution succeeds in syncing the real policy number. */
+function syncProjectQuotaFireAndForget(workspaceId) {
+  try {
+    const { syncProjectQuota } = require('~/server/services/Workspace/quotaSync');
+    syncProjectQuota(workspaceId).catch(() => {});
+  } catch {
+    /* never let quota-sync plumbing affect request handling */
+  }
 }
 
 /**
@@ -175,6 +191,7 @@ async function resolveWorkspaceContextExplicit(req, workspaceId) {
     err.status = 403;
     throw err;
   }
+  syncProjectQuotaFireAndForget(String(workspaceId));
   return { kind: 'project', workspaceId: String(workspaceId) };
 }
 

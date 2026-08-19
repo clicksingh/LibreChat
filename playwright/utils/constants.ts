@@ -18,6 +18,10 @@ export const USERS = {
   enabled: { id: '6a812639c7164cdbc39df8a4', email: 'e2e-enabled@kelownarealestate.com', role: 'USER' },
   /** Role E2E_NOCODE — RUN_CODE.USE:false. */
   nocode: { id: '6a812639c7164cdbc39df8a5', email: 'e2e-nocode@kelownarealestate.com', role: 'E2E_NOCODE' },
+  /** 8S3D.1: second RUN_CODE-enabled user, used as project workspace "member B"
+   *  in J9 (cross-user project ACL). Provisioned directly in Mongo (same shape
+   *  as `enabled`/`nocode`), see docs/8S3D.1-RETURN.md. */
+  memberB: { id: '6a812639c7164cdbc39df8a6', email: 'e2e-member-b@kelownarealestate.com', role: 'USER' },
 } as const;
 
 export const CHAT_ENDPOINT = 'CBHR AI';
