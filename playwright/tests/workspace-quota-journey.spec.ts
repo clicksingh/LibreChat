@@ -69,12 +69,22 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
       await composer.fill(
         'Run python code that writes an 80MB file named overflow.bin (write in a loop, e.g. 8MB chunks of b"x"*8_000_000, 10 times), then print "wrote overflow".',
       );
-      await composer.press('Enter');
-      await page
-        .waitForResponse((r) => r.url().includes('/workspace/usage') || r.url().includes('/exec'), {
-          timeout: 60_000,
-        })
-        .catch(() => null);
+      // Enter occasionally lands as a newline instead of a submit here
+      // (stray modifier state after the tools-dropdown Escape earlier in
+      // this same conversation) — the explicit send button doesn't have
+      // that ambiguity.
+      await page.locator('button[data-testid="send-button"], button[aria-label*="Send" i]').first().click();
+      // Wait for the turn to actually finish (success text, quota-exceeded
+      // error, or any other terminal reply) rather than a specific network
+      // response — React Query can legitimately fire more than once around
+      // the panel's own polling, so pinning "the" response is racy (same
+      // lesson as J6/J8). 80MB against a 64MiB hard limit under real disk
+      // I/O plus model generation can take a while.
+      await expect(
+        page
+          .getByText(/wrote overflow|exceeded|permission denied|disk quota|no space/i)
+          .first(),
+      ).toBeVisible({ timeout: 120_000 });
 
       // ---- step 4: Workspace panel shows a non-NORMAL state ------------------
       const panel = page.getByTestId('workspace-panel');

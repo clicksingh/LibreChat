@@ -23,7 +23,16 @@ export const usePersonalWorkspaceUsageQuery = (
   return useQuery<TWorkspaceUsage>(
     [QueryKeys.workspaceUsage, 'personal'],
     () => dataService.getPersonalWorkspaceUsage(),
-    { refetchOnWindowFocus: true, staleTime: 15_000, ...config },
+    {
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      // Same reasoning as the files/trash polling: code execution changes
+      // usage server-side outside any client mutation, so a bar that only
+      // refetches on focus/mount can sit stale (e.g. still "0%") for a full
+      // panel session after a quota-exceeding write.
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
   );
 };
 
@@ -34,7 +43,13 @@ export const useProjectWorkspaceUsageQuery = (
   return useQuery<TWorkspaceUsage>(
     [QueryKeys.workspaceUsage, 'project', workspaceId],
     () => dataService.getProjectWorkspaceUsage(workspaceId as string),
-    { enabled: !!workspaceId, refetchOnWindowFocus: true, staleTime: 15_000, ...config },
+    {
+      enabled: !!workspaceId,
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
   );
 };
 
