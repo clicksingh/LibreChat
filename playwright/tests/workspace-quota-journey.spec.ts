@@ -87,8 +87,12 @@ test.describe('J7 — quota journey (tiny disposable workspace)', () => {
       ).toBeVisible({ timeout: 120_000 });
 
       // ---- step 4: Workspace panel shows a non-NORMAL state ------------------
+      // The Workspace nav-rail button is a toggle — it was already opened in
+      // step 1, so clicking it again here would close it instead.
       const panel = page.getByTestId('workspace-panel');
-      await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
+      if (!(await panel.isVisible().catch(() => false))) {
+        await page.getByRole('button', { name: 'Workspace', exact: true }).first().click();
+      }
       await expect(panel.getByText(/CRITICAL|FULL|Warning|Critical|Full/i)).toBeVisible({
         timeout: 30_000,
       });
