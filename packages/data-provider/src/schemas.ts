@@ -917,6 +917,13 @@ export const tConversationSchema = z.object({
   /* DB */
   tags: z.array(z.string()).optional(),
   chatProjectId: z.string().nullable().optional(),
+  // 8S3D.1: which project WORKSPACE (storage/quota boundary) this
+  // conversation's code execution/file operations are scoped to. null =
+  // personal workspace (default). Set once at creation, immutable
+  // thereafter — see api/server/services/Endpoints/agents/authorization.js
+  // (resolveWorkspaceContext) for why membership is still re-checked on
+  // every request regardless of this stored value.
+  workspaceId: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   /* Files */
@@ -973,6 +980,7 @@ export const tPresetSchema = tConversationSchema
   .omit({
     conversationId: true,
     chatProjectId: true,
+    workspaceId: true,
     createdAt: true,
     updatedAt: true,
     title: true,
@@ -1431,6 +1439,7 @@ export type TBanner = z.infer<typeof tBannerSchema>;
 
 export const compactAgentsBaseSchema = tConversationSchema.pick({
   chatProjectId: true,
+  workspaceId: true,
   spec: true,
   // model: true,
   iconURL: true,

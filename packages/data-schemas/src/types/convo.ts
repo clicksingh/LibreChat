@@ -43,6 +43,8 @@ export interface IConversation extends Document {
   spec?: string;
   tags?: string[];
   chatProjectId?: string | null;
+  /** 8S3D.1: project workspace this conversation is bound to; null = personal. */
+  workspaceId?: string | null;
   tools?: string[];
   maxContextTokens?: number;
   max_tokens?: number;

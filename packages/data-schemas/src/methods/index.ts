@@ -33,6 +33,8 @@ import { createConversationTagMethods, type ConversationTagMethods } from './con
 import { createMessageMethods, type MessageMethods } from './message';
 import { createConversationMethods, type ConversationMethods } from './conversation';
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
+import { createWorkspaceMethods, type WorkspaceMethods } from './workspace';
+import { createQuotaPolicyMethods, type WorkspaceQuotaMethods } from './quotaPolicy';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -128,6 +130,8 @@ export type AllMethods = UserMethods &
   MessageMethods &
   ConversationMethods &
   ChatProjectMethods &
+  WorkspaceMethods &
+  WorkspaceQuotaMethods &
   TxMethods &
   TransactionMethods &
   SpendTokensMethods &
@@ -256,6 +260,8 @@ export function createMethods(
     ...messageMethods,
     ...conversationMethods,
     ...createChatProjectMethods(mongoose),
+    ...createWorkspaceMethods(mongoose),
+    ...createQuotaPolicyMethods(mongoose),
     /* Tier 3 */
     ...txMethods,
     ...transactionMethods,
@@ -297,6 +303,8 @@ export type {
   MessageMethods,
   ConversationMethods,
   ChatProjectMethods,
+  WorkspaceMethods,
+  WorkspaceQuotaMethods,
   TxMethods,
   TransactionMethods,
   SpendTokensMethods,

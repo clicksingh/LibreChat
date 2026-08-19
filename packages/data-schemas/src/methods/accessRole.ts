@@ -243,6 +243,27 @@ export function createAccessRoleMethods(mongoose: typeof import('mongoose')): {
         resourceType: ResourceType.SHARED_LINK,
         permBits: RoleBits.OWNER,
       },
+      {
+        accessRoleId: AccessRoleIds.WORKSPACE_VIEWER,
+        name: 'com_ui_role_viewer',
+        description: 'com_ui_role_viewer_desc',
+        resourceType: ResourceType.WORKSPACE,
+        permBits: RoleBits.VIEWER,
+      },
+      {
+        accessRoleId: AccessRoleIds.WORKSPACE_EDITOR,
+        name: 'com_ui_role_editor',
+        description: 'com_ui_role_editor_desc',
+        resourceType: ResourceType.WORKSPACE,
+        permBits: RoleBits.EDITOR,
+      },
+      {
+        accessRoleId: AccessRoleIds.WORKSPACE_OWNER,
+        name: 'com_ui_role_owner',
+        description: 'com_ui_role_owner_desc',
+        resourceType: ResourceType.WORKSPACE,
+        permBits: RoleBits.OWNER,
+      },
     ];
 
     const result: Record<string, IAccessRole> = {};

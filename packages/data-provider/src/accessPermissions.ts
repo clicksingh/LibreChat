@@ -49,6 +49,8 @@ export enum ResourceType {
   REMOTE_AGENT = 'remoteAgent',
   SKILL = 'skill',
   SHARED_LINK = 'sharedLink',
+  /** 8S3D.1: project workspaces (storage/quota boundary). See adr/003. */
+  WORKSPACE = 'workspace',
 }
 
 /**
@@ -86,6 +88,9 @@ export enum AccessRoleIds {
   SKILL_OWNER = 'skill_owner',
   SHARED_LINK_VIEWER = 'sharedLink_viewer',
   SHARED_LINK_OWNER = 'sharedLink_owner',
+  WORKSPACE_VIEWER = 'workspace_viewer',
+  WORKSPACE_EDITOR = 'workspace_editor',
+  WORKSPACE_OWNER = 'workspace_owner',
 }
 
 // ===== ZOD SCHEMAS =====
@@ -326,12 +331,14 @@ export function accessRoleToPermBits(accessRoleId: string): number {
     case AccessRoleIds.REMOTE_AGENT_VIEWER:
     case AccessRoleIds.SKILL_VIEWER:
     case AccessRoleIds.SHARED_LINK_VIEWER:
+    case AccessRoleIds.WORKSPACE_VIEWER:
       return PermissionBits.VIEW;
     case AccessRoleIds.AGENT_EDITOR:
     case AccessRoleIds.PROMPTGROUP_EDITOR:
     case AccessRoleIds.MCPSERVER_EDITOR:
     case AccessRoleIds.REMOTE_AGENT_EDITOR:
     case AccessRoleIds.SKILL_EDITOR:
+    case AccessRoleIds.WORKSPACE_EDITOR:
       return PermissionBits.VIEW | PermissionBits.EDIT;
     case AccessRoleIds.AGENT_OWNER:
     case AccessRoleIds.PROMPTGROUP_OWNER:
@@ -339,6 +346,7 @@ export function accessRoleToPermBits(accessRoleId: string): number {
     case AccessRoleIds.REMOTE_AGENT_OWNER:
     case AccessRoleIds.SKILL_OWNER:
     case AccessRoleIds.SHARED_LINK_OWNER:
+    case AccessRoleIds.WORKSPACE_OWNER:
       return (
         PermissionBits.VIEW | PermissionBits.EDIT | PermissionBits.DELETE | PermissionBits.SHARE
       );

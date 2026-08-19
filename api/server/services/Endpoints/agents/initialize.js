@@ -31,7 +31,7 @@ const {
 } = require('~/server/controllers/agents/callbacks');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
-const { resolveEffectiveCodeEnv } = require('./authorization');
+const { resolveEffectiveCodeEnv, resolveWorkspaceContext } = require('./authorization');
 const {
   getSkillToolDeps,
   getSkillDbMethods,
@@ -153,6 +153,21 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     req,
     enabledCapabilities.has(AgentCapabilities.execute_code),
   );
+  /* 8S3D.1 — resolve+re-check project workspace membership for this request
+   * (never trust a conversation's stored workspaceId as proof of CURRENT
+   * access). Sets req.workspaceContext, read by getCodeApiAuthHeaders()
+   * later in the SAME request via every downstream tool-call site (they all
+   * share this req object). No workspace selected -> undefined -> callers
+   * fall back to the personal workspace, unchanged default behavior. */
+  await resolveWorkspaceContext(req);
+  // 8S3D.1: keep the helper's hard limit in sync with resolved quota policy
+  // (default/group/user precedence). Fire-and-forget — must never add
+  // latency or a failure path to chat; the helper simply keeps its last
+  // known-good limit if this doesn't complete.
+  if (codeEnvAvailable) {
+    const { syncPersonalQuota } = require('~/server/services/Workspace/quotaSync');
+    syncPersonalQuota(req.user.id, req.user.role).catch(() => {});
+  }
   const ephemeralSkillsToggle = req.body?.ephemeralAgent?.skills === true;
   const skillDbMethods = getSkillDbMethods();
 
@@ -951,6 +966,7 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     spec: endpointOption.spec,
     iconURL: endpointOption.iconURL,
     chatProjectId: endpointOption.chatProjectId,
+    workspaceId: endpointOption.workspaceId,
     attachments: primaryConfig.requestAttachments ?? primaryConfig.attachments,
     agentContextAttachmentsByAgentId,
     endpointType: endpointOption.endpointType,

@@ -39,6 +39,18 @@ const convoSchema: Schema<IConversation> = new Schema(
       default: null,
       index: true,
     },
+    // 8S3D.1: which WORKSPACE (storage/quota boundary) this conversation's
+    // code execution/file operations are scoped to. null = personal
+    // workspace (the default, unchanged behavior). Set once at conversation
+    // creation and treated as immutable thereafter — see
+    // resolveWorkspaceContext() for why membership is still re-checked on
+    // every request regardless of this stored value. Not the same concept
+    // as chatProjectId (a personal conversation-organization folder).
+    workspaceId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     files: {
       type: [String],
     },

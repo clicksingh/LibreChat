@@ -4,6 +4,7 @@ import {
   Bot,
   Brain,
   Bookmark,
+  HardDrive,
   NotebookPen,
   ScrollText,
   ArrowRightToLine,
@@ -32,6 +33,7 @@ import PanelSwitch from '~/components/SidePanel/Builder/PanelSwitch';
 import Parameters from '~/components/SidePanel/Parameters/Panel';
 import { MemoryPanel } from '~/components/SidePanel/Memories';
 import FilesPanel from '~/components/SidePanel/Files/Panel';
+import WorkspacePanel from '~/components/SidePanel/Workspace/Panel';
 import { PromptsAccordion } from '~/components/Prompts';
 import { SkillsAccordion } from '~/components/Skills';
 
@@ -176,6 +178,17 @@ export default function useSideNavLinks({
       icon: AttachmentIcon,
       id: 'files',
       Component: FilesPanel,
+    });
+
+    // 8S3D.1: personal workspace file browser is always available (every
+    // authenticated user has one, implicitly); project workspaces are
+    // reachable from the same panel once the user has access to any.
+    links.push({
+      title: 'com_sidepanel_workspace',
+      label: '',
+      icon: HardDrive,
+      id: 'workspace',
+      Component: WorkspacePanel,
     });
 
     if (

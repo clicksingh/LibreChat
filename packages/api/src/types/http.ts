@@ -27,4 +27,8 @@ export type ServerRequest = Request<unknown, unknown, RequestBody> & {
   resolvedConversation?: Partial<TConversation> | null;
   /** Passport strategy that populated req.user for this request. */
   authStrategy?: string;
+  /** 8S3D.1: resolved+re-checked project workspace for this request's code
+   * execution/file operations (undefined = personal workspace, the default).
+   * Set by resolveWorkspaceContext() — never trust a value set any other way. */
+  workspaceContext?: { kind: 'project'; workspaceId: string };
 };

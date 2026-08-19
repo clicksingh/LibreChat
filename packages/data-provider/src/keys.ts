@@ -78,6 +78,11 @@ export enum QueryKeys {
   /* Skill tree (phase 2 — filesystem-style node view) */
   skillTree = 'skillTree',
   skillNodeContent = 'skillNodeContent',
+  /* 8S3D.1: Workspace OS */
+  workspaces = 'workspaces',
+  workspaceUsage = 'workspaceUsage',
+  workspaceFiles = 'workspaceFiles',
+  workspaceTrash = 'workspaceTrash',
   /* Skill favorites (star a skill in the sidebar) */
   skillFavorites = 'skillFavorites',
   /* Per-user skill active/inactive overrides */

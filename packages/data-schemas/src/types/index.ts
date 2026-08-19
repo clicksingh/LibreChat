@@ -6,6 +6,8 @@ export * from './user';
 export * from './token';
 export * from './convo';
 export * from './chatProject';
+export * from './workspace';
+export * from './quotaPolicy';
 export * from './session';
 export * from './balance';
 export * from './banner';

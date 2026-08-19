@@ -39,6 +39,13 @@ interface CodeApiClaims {
   chc_user_id?: string;
   plan_id?: string;
   auth_context_hash: string;
+  /** 8S3D.1: present only when req.workspaceContext was resolved+re-checked
+   * this request (see resolveWorkspaceContext). CodeAPI trusts this signed
+   * claim exclusively for project workspace access — never a client body. */
+  workspace_kind?: 'project';
+  workspace_id?: string;
+  /** 8S3D.1: internal service-to-service claim only (mintInternalAdminToken). */
+  admin?: true;
 }
 
 interface SigningConfig {
@@ -237,6 +244,7 @@ function canonicalContextHash(input: {
   orgId?: string;
   serviceId?: string;
   chcUserId?: string;
+  workspaceId?: string;
 }): string {
   const canonical = {
     chc_user_id: input.chcUserId ?? '',
@@ -246,6 +254,10 @@ function canonicalContextHash(input: {
     service_id: input.serviceId ?? '',
     sub: input.userId,
     tenant_id: input.tenantId,
+    // 8S3D.1: MUST be part of the context hash, not just the claim body — a
+    // token minted for workspace A must never be reusable (from cache) for
+    // workspace B requests.
+    workspace_id: input.workspaceId ?? '',
   };
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
@@ -264,6 +276,10 @@ function buildClaims(req: ServerRequest, config: SigningConfig, now: number): Co
   const serviceId = stringifyClaimValue(user.serviceId);
   const chcUserId = stringifyClaimValue(user.chcUserId) ?? stringifyClaimValue(user.idOnTheSource);
   const planId = stringifyClaimValue(user.planId) ?? stringifyClaimValue(user.subscription?.planId);
+  // 8S3D.1: only a request-scoped, freshly re-checked workspace context is
+  // ever honored here (see resolveWorkspaceContext) — this function never
+  // resolves membership itself, it only reads what was already validated.
+  const workspaceContext = req.workspaceContext;
   const authContextHash = canonicalContextHash({
     userId,
     tenantId,
@@ -272,6 +288,7 @@ function buildClaims(req: ServerRequest, config: SigningConfig, now: number): Co
     orgId,
     serviceId,
     chcUserId,
+    workspaceId: workspaceContext?.workspaceId,
   });
 
   return {
@@ -289,6 +306,9 @@ function buildClaims(req: ServerRequest, config: SigningConfig, now: number): Co
     ...(serviceId ? { service_id: serviceId } : {}),
     ...(chcUserId ? { chc_user_id: chcUserId } : {}),
     ...(planId ? { plan_id: planId } : {}),
+    ...(workspaceContext
+      ? { workspace_kind: workspaceContext.kind, workspace_id: workspaceContext.workspaceId }
+      : {}),
     auth_context_hash: authContextHash,
   };
 }
@@ -320,6 +340,7 @@ function cacheKey(config: SigningConfig, claims: CodeApiClaims): string {
     claims.service_id ?? '',
     claims.chc_user_id ?? '',
     claims.plan_id ?? '',
+    claims.workspace_id ?? '',
     claims.auth_context_hash,
   ].join(':');
 }
@@ -377,4 +398,35 @@ export async function getCodeApiAuthHeaders(req?: ServerRequest): Promise<Record
   }
   const token = await mintCodeApiToken(req);
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * 8S3D.1 — service-to-service token for CodeAPI's internal quota-sync
+ * endpoint ONLY. Carries `admin: true`, never derived from user input, never
+ * cached alongside per-user tokens. Used exclusively by the server-side
+ * quota-policy resolver to keep the helper's hard limit in sync with policy
+ * (default/group/user/project precedence) — see
+ * api/server/services/Workspace/quotaPolicy.js.
+ */
+export async function mintInternalAdminToken(): Promise<string> {
+  if (!isCodeApiJwtAuthEnabled()) {
+    return '';
+  }
+  const config = getSigningConfig();
+  const now = Math.floor(Date.now() / 1000);
+  const claims: CodeApiClaims = {
+    iss: config.issuer,
+    aud: config.audience,
+    sub: 'librechat-system',
+    iat: now,
+    nbf: now,
+    exp: now + 60,
+    jti: randomUUID(),
+    tenant_id: resolveSingleTenantId(),
+    role: 'SYSTEM',
+    principal_source: 'librechat_jwt',
+    auth_context_hash: createHash('sha256').update('internal-quota-sync').digest('hex'),
+    admin: true,
+  };
+  return signJwt(config, claims);
 }

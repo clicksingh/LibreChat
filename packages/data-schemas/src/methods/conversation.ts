@@ -235,6 +235,29 @@ export function createConversationMethods(
         }
       }
 
+      // 8S3D.1: workspaceId is set ONCE at conversation creation and
+      // immutable thereafter — never silently rebind an existing
+      // conversation's storage/quota boundary (lineage/leak risk). The
+      // actual ACL enforcement for code execution happens per-request via
+      // resolveWorkspaceContext(); this is a correctness guard, not the
+      // security boundary itself.
+      if (Object.prototype.hasOwnProperty.call(update, 'workspaceId')) {
+        const existingWorkspace = await Conversation.findOne(
+          { conversationId, user: userId },
+          'workspaceId',
+        ).lean<{ workspaceId?: string | null } | null>();
+        if (existingWorkspace?.workspaceId) {
+          // Conversation already exists and already has a workspace bound —
+          // ignore any attempt to change it, keep the original.
+          delete update.workspaceId;
+        } else if (
+          update.workspaceId &&
+          !isValidObjectIdString(typeof update.workspaceId === 'string' ? update.workspaceId : '')
+        ) {
+          delete update.workspaceId;
+        }
+      }
+
       const mayChangeProjectMembership =
         Object.prototype.hasOwnProperty.call(update, 'chatProjectId') ||
         Object.prototype.hasOwnProperty.call(unsetFields, 'chatProjectId');

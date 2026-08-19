@@ -74,6 +74,7 @@ function expectedContextHash(input: {
   orgId?: string;
   serviceId?: string;
   chcUserId?: string;
+  workspaceId?: string;
 }): string {
   return createHash('sha256')
     .update(
@@ -85,6 +86,9 @@ function expectedContextHash(input: {
         service_id: input.serviceId ?? '',
         sub: input.userId,
         tenant_id: input.tenantId,
+        // 8S3D.1: part of the canonical context hash so a cached token
+        // minted for one workspace can never be reused for another.
+        workspace_id: input.workspaceId ?? '',
       }),
     )
     .digest('hex');
@@ -266,6 +270,51 @@ describe('Code API JWT minting', () => {
 
     expect(second).toBe(first);
     expect(afterCacheWindow).not.toBe(first);
+  });
+
+  it('8S3D.1: includes workspace_kind/workspace_id ONLY when req.workspaceContext is set', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_778_250_000_000);
+
+    const personalToken = await mintCodeApiToken(baseRequest());
+    const personalClaims = decodeToken(personalToken).claims;
+    expect(personalClaims).not.toHaveProperty('workspace_kind');
+    expect(personalClaims).not.toHaveProperty('workspace_id');
+
+    const projectReq = baseRequest();
+    (projectReq as unknown as { workspaceContext: unknown }).workspaceContext = {
+      kind: 'project',
+      workspaceId: 'ws_1',
+    };
+    const projectToken = await mintCodeApiToken(projectReq);
+    const projectClaims = decodeToken(projectToken).claims;
+    expect(projectClaims.workspace_kind).toBe('project');
+    expect(projectClaims.workspace_id).toBe('ws_1');
+  });
+
+  it('8S3D.1: a token minted for one workspace is NEVER reused (from cache) for another', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_778_250_000_000);
+
+    const reqA = baseRequest();
+    (reqA as unknown as { workspaceContext: unknown }).workspaceContext = {
+      kind: 'project',
+      workspaceId: 'ws_a',
+    };
+    const reqB = baseRequest();
+    (reqB as unknown as { workspaceContext: unknown }).workspaceContext = {
+      kind: 'project',
+      workspaceId: 'ws_b',
+    };
+
+    const tokenA = await mintCodeApiToken(reqA);
+    const tokenB = await mintCodeApiToken(reqB);
+    expect(tokenA).not.toBe(tokenB);
+    expect(decodeToken(tokenA).claims.workspace_id).toBe('ws_a');
+    expect(decodeToken(tokenB).claims.workspace_id).toBe('ws_b');
+
+    // Re-minting for A within the cache window returns A's own cached token,
+    // not B's.
+    const tokenAAgain = await mintCodeApiToken(reqA);
+    expect(tokenAAgain).toBe(tokenA);
   });
 
   it('returns Authorization headers only when a request and managed auth are present', async () => {

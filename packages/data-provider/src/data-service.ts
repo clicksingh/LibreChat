@@ -9,6 +9,7 @@ import * as m from './types/mutations';
 import * as ag from './types/agents';
 import * as q from './types/queries';
 import * as sk from './types/skills';
+import * as ws from './types/workspace';
 import * as f from './types/files';
 import * as config from './config';
 import request from './request';
@@ -1341,3 +1342,95 @@ export interface ActiveJobsResponse {
 export const getActiveJobs = (): Promise<ActiveJobsResponse> => {
   return request.get(endpoints.activeJobs());
 };
+
+/* 8S3D.1 — Workspace OS */
+
+export function listWorkspaces(): Promise<ws.TWorkspaceListResponse> {
+  return request.get(endpoints.workspaces());
+}
+
+export function createWorkspace(payload: ws.TCreateWorkspaceRequest): Promise<ws.TWorkspace> {
+  return request.post(endpoints.workspaces(), payload);
+}
+
+export function renameWorkspace(id: string, name: string): Promise<ws.TWorkspace> {
+  return request.patch(endpoints.workspace(id), { name });
+}
+
+export function archiveWorkspace(id: string): Promise<ws.TWorkspace> {
+  return request.patch(endpoints.workspace(id), { archive: true });
+}
+
+export function addWorkspaceMember(id: string, payload: ws.TWorkspaceMemberGrantRequest) {
+  return request.post(endpoints.workspaceMembers(id), payload);
+}
+
+export function removeWorkspaceMember(id: string, principalType: string, principalId: string) {
+  return request.delete(endpoints.workspaceMember(id, principalType, principalId));
+}
+
+export function getPersonalWorkspaceUsage(): Promise<ws.TWorkspaceUsage> {
+  return request.get(endpoints.personalWorkspaceUsage());
+}
+
+export function listPersonalWorkspaceFiles(params?: {
+  cursor?: string;
+  limit?: number;
+}): Promise<ws.TWorkspaceFileListResponse> {
+  return request.get(endpoints.personalWorkspaceFiles(params));
+}
+
+export function listPersonalWorkspaceTrash(params?: {
+  cursor?: string;
+  limit?: number;
+}): Promise<ws.TWorkspaceTrashListResponse> {
+  return request.get(endpoints.personalWorkspaceTrash(params));
+}
+
+export function trashPersonalWorkspaceFile(payload: { session_id: string; file_id: string }) {
+  return request.post(endpoints.personalWorkspaceTrashCreate(), payload);
+}
+
+export function restorePersonalWorkspaceFile(payload: { trash_id: string; newName?: string }) {
+  return request.post(endpoints.personalWorkspaceRestore(), payload);
+}
+
+export function purgePersonalWorkspaceFile(payload: { trash_id: string }) {
+  return request.post(endpoints.personalWorkspacePurge(), payload);
+}
+
+export function getProjectWorkspaceUsage(id: string): Promise<ws.TWorkspaceUsage> {
+  return request.get(endpoints.projectWorkspaceUsage(id));
+}
+
+export function listProjectWorkspaceFiles(
+  id: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<ws.TWorkspaceFileListResponse> {
+  return request.get(endpoints.projectWorkspaceFiles(id, params));
+}
+
+export function listProjectWorkspaceTrash(
+  id: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<ws.TWorkspaceTrashListResponse> {
+  return request.get(endpoints.projectWorkspaceTrash(id, params));
+}
+
+export function trashProjectWorkspaceFile(
+  id: string,
+  payload: { session_id: string; file_id: string },
+) {
+  return request.post(endpoints.projectWorkspaceTrashCreate(id), payload);
+}
+
+export function restoreProjectWorkspaceFile(
+  id: string,
+  payload: { trash_id: string; newName?: string },
+) {
+  return request.post(endpoints.projectWorkspaceRestore(id), payload);
+}
+
+export function purgeProjectWorkspaceFile(id: string, payload: { trash_id: string }) {
+  return request.post(endpoints.projectWorkspacePurge(id), payload);
+}

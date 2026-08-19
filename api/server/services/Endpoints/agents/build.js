@@ -7,7 +7,7 @@ const db = require('~/models');
 const loadAgent = (params) => loadAgentFn(params, { getAgent: db.getAgent, getMCPServerTools });
 
 const buildOptions = (req, endpoint, parsedBody, endpointType) => {
-  const { spec, iconURL, agent_id, chatProjectId, ...model_parameters } = parsedBody;
+  const { spec, iconURL, agent_id, chatProjectId, workspaceId, ...model_parameters } = parsedBody;
   const agentPromise = loadAgent({
     req,
     spec,
@@ -29,6 +29,12 @@ const buildOptions = (req, endpoint, parsedBody, endpointType) => {
     agent_id,
     endpointType,
     chatProjectId,
+    // 8S3D.1: only ever passed through here on the FIRST save for a new
+    // conversation — saveConvo() enforces immutability once a conversation
+    // already has a workspaceId (see methods/conversation.ts). Never trust
+    // this as an access grant by itself: resolveWorkspaceContext() re-checks
+    // membership per-request before any codeapi claim is minted from it.
+    workspaceId,
     model_parameters,
     agent: agentPromise,
     addedConvo,

@@ -72,6 +72,7 @@ export type TEndpointOption = Pick<
   // System field
   | 'system'
   | 'chatProjectId'
+  | 'workspaceId'
   // Google examples
   | 'examples'
   // Context
