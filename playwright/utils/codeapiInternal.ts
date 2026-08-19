@@ -41,13 +41,27 @@ export async function setQuotaDirect(
   kind: 'personal' | 'project',
   quotaBytes: number,
 ): Promise<void> {
-  const token = mintInternalAdminToken();
-  const r = await fetch(`${CODEAPI_BASE}/internal/workspace/quota`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace_id: workspaceId, kind, quota_bytes: quotaBytes }),
-  });
-  if (!r.ok) {
-    throw new Error(`setQuotaDirect failed: ${r.status} ${await r.text()}`);
+  // The chat write that's supposed to have provisioned this workspace's XFS
+  // project only *triggers* provisioning fire-and-forget (agents/authorization.js
+  // never blocks a chat reply on a round trip to the quota helper) — so the
+  // helper's mapping can still be catching up for a few seconds after the
+  // chat message that caused it visibly completes. Retry, don't widen any
+  // product-side wait.
+  const attempts = 10;
+  let lastErr: Error | undefined;
+  for (let i = 0; i < attempts; i++) {
+    const token = mintInternalAdminToken();
+    const r = await fetch(`${CODEAPI_BASE}/internal/workspace/quota`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspaceId, kind, quota_bytes: quotaBytes }),
+    });
+    if (r.ok) return;
+    if (r.status !== 404) {
+      throw new Error(`setQuotaDirect failed: ${r.status} ${await r.text()}`);
+    }
+    lastErr = new Error(`setQuotaDirect failed: ${r.status} ${await r.text()}`);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
+  throw lastErr;
 }

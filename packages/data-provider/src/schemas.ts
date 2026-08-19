@@ -1340,6 +1340,13 @@ export const agentsSchema = agentsBaseSchema
 
 export const openAIBaseSchema = tConversationSchema.pick({
   chatProjectId: true,
+  // 8S3D.1: the platform's actual chat experience is a custom endpoint
+  // (routed through this schema, not compactAgentsBaseSchema), so
+  // workspace binding must survive here too, or every custom-endpoint
+  // message silently drops workspaceId and code execution/quota always
+  // falls back to the caller's personal workspace regardless of which
+  // project is selected in the UI.
+  workspaceId: true,
   model: true,
   modelLabel: true,
   chatGptLabel: true,
