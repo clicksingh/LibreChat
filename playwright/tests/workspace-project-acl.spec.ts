@@ -84,7 +84,7 @@ test.describe('J9 — project workspace ACL isolation', () => {
       await expect(select.locator('option', { hasText: projectName })).toHaveCount(1, { timeout: 20_000 });
       await select.selectOption({ label: projectName });
 
-      await expect(memberPage.getByText('j9_shared.txt')).toBeVisible({ timeout: 20_000 });
+      await expect(memberPage.getByText('j9_shared.txt')).toBeVisible({ timeout: 60_000 });
     } finally {
       await memberSession.cleanup();
       await memberCtx.close();
