@@ -50,5 +50,9 @@ export interface IAgent extends Omit<Document, 'model'> {
   tool_options?: AgentToolOptions;
   /** Subagent spawning configuration — isolated-context child agents. */
   subagents?: AgentSubagentsConfig;
+  /** 8S5: lifecycle state — see schema/agent.ts for semantics. */
+  lifecycle_state?: 'active' | 'archived';
+  archivedAt?: Date;
+  archivedBy?: Types.ObjectId;
   tenantId?: string;
 }

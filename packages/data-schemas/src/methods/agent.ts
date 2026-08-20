@@ -273,6 +273,18 @@ export function createAgentMethods(
   ) => Promise<IAgent | null>;
   deleteAgent: (searchParameter: FilterQuery<IAgent>) => Promise<IAgent | null>;
   deleteUserAgents: (userId: string) => Promise<void>;
+  archiveAgent: (
+    searchParameter: FilterQuery<IAgent>,
+    updatingUserId: string,
+  ) => Promise<IAgent | null>;
+  restoreAgent: (
+    searchParameter: FilterQuery<IAgent>,
+    updatingUserId: string,
+  ) => Promise<IAgent | null>;
+  diffAgentVersions: (
+    versionA: Record<string, unknown>,
+    versionB: Record<string, unknown>,
+  ) => Array<{ field: string; before: unknown; after: unknown }>;
   revertAgentVersion: (
     searchParameter: FilterQuery<IAgent>,
     versionIndex: number,
@@ -992,10 +1004,100 @@ export function createAgentMethods(
     );
   }
 
+  /**
+   * 8S5 — archive an agent: hides it from new-invocation listing/selection
+   * without touching the document, its version history, its ACL entries,
+   * or any historical conversation that already references it. Distinct
+   * from `deleteAgent` (hard delete), which remains available for direct
+   * owner action. Lifecycle transitions do NOT push a version snapshot
+   * (`skipVersioning: true`) — `lifecycle_state` is not a behavioral field.
+   */
+  async function archiveAgent(
+    searchParameter: FilterQuery<IAgent>,
+    updatingUserId: string,
+  ): Promise<IAgent | null> {
+    return updateAgent(
+      searchParameter,
+      {
+        lifecycle_state: 'archived',
+        archivedAt: new Date(),
+        archivedBy: new mongoose.Types.ObjectId(updatingUserId),
+      },
+      { updatingUserId, skipVersioning: true },
+    );
+  }
+
+  /** 8S5 — restore an archived agent to 'active'. Explicit action only. */
+  async function restoreAgent(
+    searchParameter: FilterQuery<IAgent>,
+    updatingUserId: string,
+  ): Promise<IAgent | null> {
+    return updateAgent(
+      searchParameter,
+      // Plain field values, not `$unset` — updateAgent() mixes whatever
+      // update-operator keys ($push/$pull/$addToSet) it recognizes back
+      // into the same update document as plain fields; MongoDB update
+      // documents cannot mix a raw field key with an unrecognized `$`
+      // operator, so explicit nulls (not $unset) keep this update valid.
+      {
+        lifecycle_state: 'active',
+        archivedAt: null,
+        archivedBy: null,
+      },
+      { updatingUserId, skipVersioning: true },
+    );
+  }
+
+  /**
+   * 8S5 — diff two version snapshots (or a version against current) over
+   * the fixed set of behavior-affecting fields. Returns only fields that
+   * actually differ, never internal/db fields (_id, __v, timestamps,
+   * author references beyond `updatedBy`, actionsHash).
+   */
+  function diffAgentVersions(
+    versionA: Record<string, unknown>,
+    versionB: Record<string, unknown>,
+  ): Array<{ field: string; before: unknown; after: unknown }> {
+    const BEHAVIORAL_FIELDS = [
+      'name',
+      'description',
+      'instructions',
+      'provider',
+      'model',
+      'model_parameters',
+      'tools',
+      'skills',
+      'skills_enabled',
+      'tool_resources',
+      'tool_options',
+      'subagents',
+      'edges',
+      'artifacts',
+      'recursion_limit',
+      'hide_sequential_outputs',
+      'end_after_tools',
+    ] as const;
+
+    const changes: Array<{ field: string; before: unknown; after: unknown }> = [];
+    for (const field of BEHAVIORAL_FIELDS) {
+      const before = versionA?.[field];
+      const after = versionB?.[field];
+      const beforeStr = JSON.stringify(before ?? null);
+      const afterStr = JSON.stringify(after ?? null);
+      if (beforeStr !== afterStr) {
+        changes.push({ field, before: before ?? null, after: after ?? null });
+      }
+    }
+    return changes;
+  }
+
   return {
     getAgent,
     getAgents,
     createAgent,
+    archiveAgent,
+    restoreAgent,
+    diffAgentVersions,
     hasAgentWithMCPServerName,
     getMCPServerNamesByAgentIds,
     updateAgent,

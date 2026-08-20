@@ -28,6 +28,12 @@ export enum Tools {
   read_file = 'read_file',
   bash_tool = 'bash_tool',
   document_visual_qa = 'document_visual_qa',
+  /** 8S5 — conversational Agent management (list/get/create/update/
+   *  versions/diff/archive/restore). Gated by PermissionTypes.AGENTS,
+   *  independently re-derived per action from req.user — never trusts
+   *  model-supplied identity. See api/app/clients/tools/structured/
+   *  AgentManagement.js. */
+  agent_management = 'agent_management',
 }
 
 export enum EToolResources {

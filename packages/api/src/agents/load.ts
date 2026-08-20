@@ -76,6 +76,15 @@ export async function loadEphemeralAgent(
   if (ephemeralAgent?.web_search === true || modelSpec?.webSearch === true) {
     tools.push(Tools.web_search);
   }
+  /* 8S5 — agent_management is offered unconditionally on the base/default
+   * chat (no per-message composer toggle, unlike execute_code/web_search)
+   * so "create me an agent that..." works from plain chat, not only from
+   * within an already-existing custom Agent. Safe unconditionally: the
+   * tool itself independently re-checks PermissionTypes.AGENTS.USE (and
+   * every finer-grained ACL bit per action) both at load time
+   * (ToolService.js) and inside every one of its own action handlers —
+   * this push alone grants nothing. */
+  tools.push(Tools.agent_management);
 
   const addedServers = new Set<string>();
   if (mcpServers.size > 0) {

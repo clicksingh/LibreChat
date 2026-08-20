@@ -148,6 +148,56 @@ router.post(
 );
 
 /**
+ * 8S5 — Archives an agent (lifecycle, not deletion).
+ * @route POST /agents/:id/archive
+ * @param {string} req.params.id - Agent identifier.
+ * @returns {Agent} 200 - success response - application/json
+ */
+router.post(
+  '/:id/archive',
+  checkAgentCreate,
+  canAccessAgentResource({
+    requiredPermission: PermissionBits.EDIT,
+    resourceIdParam: 'id',
+  }),
+  v1.archiveAgent,
+);
+
+/**
+ * 8S5 — Restores an archived agent.
+ * @route POST /agents/:id/restore
+ * @param {string} req.params.id - Agent identifier.
+ * @returns {Agent} 200 - success response - application/json
+ */
+router.post(
+  '/:id/restore',
+  checkAgentCreate,
+  canAccessAgentResource({
+    requiredPermission: PermissionBits.EDIT,
+    resourceIdParam: 'id',
+  }),
+  v1.restoreAgent,
+);
+
+/**
+ * 8S5 — Diff two version snapshots of an agent.
+ * @route GET /agents/:id/versions/:from/diff
+ * @param {string} req.params.id - Agent identifier.
+ * @param {string} req.params.from - Version index to diff from.
+ * @param {string} [req.query.to] - Version index (or "current") to diff to.
+ * @returns {object} 200 - { from, to, changes } - application/json
+ */
+router.get(
+  '/:id/versions/:from/diff',
+  checkAgentAccess,
+  canAccessAgentResource({
+    requiredPermission: PermissionBits.VIEW,
+    resourceIdParam: 'id',
+  }),
+  v1.getAgentVersionDiff,
+);
+
+/**
  * Returns a list of agents.
  * @route GET /agents
  * @param {AgentListParams} req.query - The agent list parameters for pagination and sorting.

@@ -51,6 +51,19 @@ const convoSchema: Schema<IConversation> = new Schema(
       default: null,
       index: true,
     },
+    // 8S5: the Agent version (1-indexed, i.e. `agent.versions.length` at the
+    // moment this conversation first bound to `agent_id`) that governed this
+    // conversation's behavior. Provenance only — later edits to the Agent
+    // (which push new entries onto `agent.versions`) never change what this
+    // conversation is attributed to. Set once at conversation creation and
+    // immutable thereafter (same pattern as workspaceId above). `null`/
+    // absent means either no agent_id, or a legacy pre-8S5 conversation
+    // whose provenance was never recorded — both are handled as "unknown
+    // provenance" by callers, not backfilled.
+    agentVersion: {
+      type: Number,
+      default: null,
+    },
     files: {
       type: [String],
     },

@@ -258,6 +258,22 @@ export function createConversationMethods(
         }
       }
 
+      // 8S5: agentVersion is set ONCE at conversation creation (the same
+      // pattern as workspaceId above) — provenance of which Agent version
+      // governed this conversation must never silently change after the
+      // fact, including when the conversation continues after the Agent
+      // itself is later edited (which pushes a new versions[] entry but
+      // must not rewrite this conversation's own attribution).
+      if (Object.prototype.hasOwnProperty.call(update, 'agentVersion')) {
+        const existingAgentVersion = await Conversation.findOne(
+          { conversationId, user: userId },
+          'agentVersion',
+        ).lean<{ agentVersion?: number | null } | null>();
+        if (existingAgentVersion?.agentVersion != null) {
+          delete update.agentVersion;
+        }
+      }
+
       const mayChangeProjectMembership =
         Object.prototype.hasOwnProperty.call(update, 'chatProjectId') ||
         Object.prototype.hasOwnProperty.call(unsetFields, 'chatProjectId');

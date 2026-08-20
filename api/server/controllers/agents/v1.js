@@ -56,6 +56,7 @@ const systemTools = {
   [Tools.execute_code]: true,
   [Tools.file_search]: true,
   [Tools.web_search]: true,
+  [Tools.agent_management]: true,
 };
 
 const MAX_SEARCH_LEN = 100;
@@ -201,6 +202,13 @@ const isSubagentsCapabilityEnabled = (req) => {
  * @param {Record<string, unknown>} [params.configServers] - Config-source MCP servers resolved from appConfig overrides
  * @returns {Promise<string[]>} Only the authorized subset of tools
  */
+/**
+ * 8S5 — creation/update capability ceiling for RUN_CODE-gated tools.
+ * Shared with the conversational agent_management tool — see
+ * services/Tools/agentCapabilityCeiling.js for the full rationale.
+ */
+const { assertToolCapabilityCeiling } = require('~/server/services/Tools/agentCapabilityCeiling');
+
 const filterAuthorizedTools = async ({
   tools,
   userId,
@@ -422,6 +430,7 @@ const createAgentHandler = async (req, res) => {
       availableTools,
       configServers,
     });
+    await assertToolCapabilityCeiling(agentData.tools, req);
 
     const agent = await db.createAgent(agentData);
 
@@ -459,6 +468,9 @@ const createAgentHandler = async (req, res) => {
     if (error instanceof z.ZodError) {
       logger.error('[/Agents] Validation error', error.errors);
       return res.status(400).json({ error: 'Invalid request data', details: error.errors });
+    }
+    if (error.code === 'AGENT_CAPABILITY_NOT_ALLOWED') {
+      return res.status(error.status || 403).json({ error: error.message, code: error.code });
     }
     logger.error('[/Agents] Error creating agent', error);
     res.status(500).json({ error: error.message });
@@ -556,6 +568,14 @@ const getAgentHandler = async (req, res, expandProperties = false) => {
 const updateAgentHandler = async (req, res) => {
   try {
     const id = req.params.id;
+    // 8S5 — optimistic concurrency: read BEFORE Zod validation strips
+    // unknown keys (agentUpdateSchema doesn't declare this field; kept out
+    // of the shared @librechat/api schema deliberately — lower blast
+    // radius than modifying a schema other callers also parse against).
+    // Optional: omitting it preserves today's last-write-wins behavior for
+    // any caller that doesn't send it (API clients, existing UI flows).
+    const expectedVersion =
+      typeof req.body?.expected_version === 'number' ? req.body.expected_version : undefined;
     const validatedData = agentUpdateSchema.parse(req.body);
     // Preserve explicit null for avatar to allow resetting the avatar
     const { avatar: avatarField, _id, ...rest } = validatedData;
@@ -619,6 +639,23 @@ const updateAgentHandler = async (req, res) => {
 
     if (!existingAgent) {
       return res.status(404).json({ error: 'Agent not found' });
+    }
+
+    // 8S5 — stale-edit protection: a client that loaded the agent, then
+    // saw it change under them (another editor, or their own concurrent
+    // tab), must be told to refresh rather than silently overwrite. Only
+    // enforced when the client actually sends `expected_version` — the
+    // existing 409/error.details response shape below already anticipated
+    // this (see the catch block).
+    const currentVersion = existingAgent.versions ? existingAgent.versions.length : 0;
+    if (expectedVersion !== undefined && expectedVersion !== currentVersion) {
+      const conflict = new Error(
+        'This agent changed since you loaded it. Refresh and reapply your edit.',
+      );
+      conflict.statusCode = 409;
+      conflict.code = 'AGENT_VERSION_CONFLICT';
+      conflict.details = { expectedVersion, currentVersion };
+      throw conflict;
     }
 
     // Convert legacy OCR tool resource to context format in existing agent
@@ -691,6 +728,13 @@ const updateAgentHandler = async (req, res) => {
       }
     }
 
+    // 8S5 — capability ceiling: revalidate the ENTIRE resulting tool set
+    // (not just the changed field), matching the "Agent update authority
+    // ceiling" requirement — a prior edit could have left execute_code in
+    // place from before the editor's RUN_CODE.USE was revoked; every save
+    // re-checks the full effective configuration, not a diff.
+    await assertToolCapabilityCeiling(updateData.tools ?? existingAgent.tools, req);
+
     let updatedAgent =
       Object.keys(updateData).length > 0
         ? await db.updateAgent({ id }, updateData, {
@@ -721,8 +765,13 @@ const updateAgentHandler = async (req, res) => {
     if (error.statusCode === 409) {
       return res.status(409).json({
         error: error.message,
+        code: error.code,
         details: error.details,
       });
+    }
+
+    if (error.code === 'AGENT_CAPABILITY_NOT_ALLOWED') {
+      return res.status(error.status || 403).json({ error: error.message, code: error.code });
     }
 
     res.status(500).json({ error: error.message });
@@ -936,7 +985,7 @@ const deleteAgentHandler = async (req, res) => {
 const getListAgentsHandler = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { category, search, limit = 100, cursor, promoted } = req.query;
+    const { category, search, limit = 100, cursor, promoted, includeArchived } = req.query;
     let requiredPermission = req.query.requiredPermission;
     if (typeof requiredPermission === 'string') {
       requiredPermission = parseInt(requiredPermission, 10);
@@ -953,6 +1002,15 @@ const getListAgentsHandler = async (req, res) => {
     // Handle category filter - only apply if category is defined
     if (category !== undefined && category.trim() !== '') {
       filter.category = category;
+    }
+
+    // 8S5 — archived agents are hidden from listing/new-invocation
+    // selection by default (lifecycle, not deletion — the document, ACL,
+    // and version history are untouched). Existing conversations already
+    // reference the agent by `agent_id`, not by this list, so they are
+    // unaffected. `includeArchived=1` is for an owner's own archive view.
+    if (includeArchived !== '1') {
+      filter.lifecycle_state = { $ne: 'archived' };
     }
 
     // Handle promoted filter - only from query param
@@ -1263,6 +1321,102 @@ const revertAgentVersionHandler = async (req, res) => {
   }
 };
 /**
+ * 8S5 — Archives an agent (lifecycle, not deletion). Hides it from
+ * new-invocation listing; the document, ACL, and version history are
+ * untouched, and every historical conversation that already referenced it
+ * continues to open normally (agent_id is not removed or nulled).
+ * @route POST /Agents/:id/archive
+ */
+const archiveAgentHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existingAgent = await db.getAgent({ id });
+    if (!existingAgent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    // Permissions are enforced via route middleware (ACL EDIT).
+    const updatedAgent = await db.archiveAgent({ id }, req.user.id);
+    if (updatedAgent?.author) {
+      updatedAgent.author = updatedAgent.author.toString();
+    }
+    return res.json(updatedAgent);
+  } catch (error) {
+    logger.error('[/agents/:id/archive] Error archiving Agent', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * 8S5 — Restores an archived agent to 'active'. Explicit action only.
+ * @route POST /Agents/:id/restore
+ */
+const restoreAgentHandler = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existingAgent = await db.getAgent({ id });
+    if (!existingAgent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    // Permissions are enforced via route middleware (ACL EDIT).
+    const updatedAgent = await db.restoreAgent({ id }, req.user.id);
+    if (updatedAgent?.author) {
+      updatedAgent.author = updatedAgent.author.toString();
+    }
+    return res.json(updatedAgent);
+  } catch (error) {
+    logger.error('[/agents/:id/restore] Error restoring Agent', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * 8S5 — Diff two version snapshots of an agent over the fixed set of
+ * behavior-affecting fields (instructions/model/tools/skills/resources/
+ * etc). `to=current` compares against the live top-level document (which
+ * may include unpublished-but-saved drift not yet in `versions`, though in
+ * this platform every save that changes a behavioral field always pushes
+ * a version — see updateAgent's `shouldCreateVersion`).
+ * @route GET /Agents/:id/versions/:from/diff?to=<index|current>
+ */
+const getAgentVersionDiffHandler = async (req, res) => {
+  try {
+    const { id, from } = req.params;
+    const to = req.query.to ?? 'current';
+    const fromIndex = parseInt(from, 10);
+    if (Number.isNaN(fromIndex)) {
+      return res.status(400).json({ error: 'from must be a version index' });
+    }
+    const agent = await db.getAgent({ id });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    // Permissions are enforced via route middleware (ACL VIEW).
+    const versions = agent.versions || [];
+    if (!versions[fromIndex]) {
+      return res.status(404).json({ error: `Version ${fromIndex} not found` });
+    }
+    let toSnapshot;
+    let toLabel;
+    if (to === 'current') {
+      toSnapshot = agent;
+      toLabel = 'current';
+    } else {
+      const toIndex = parseInt(String(to), 10);
+      if (Number.isNaN(toIndex) || !versions[toIndex]) {
+        return res.status(404).json({ error: `Version ${to} not found` });
+      }
+      toSnapshot = versions[toIndex];
+      toLabel = toIndex;
+    }
+    const changes = db.diffAgentVersions(versions[fromIndex], toSnapshot);
+    return res.json({ from: fromIndex, to: toLabel, changes });
+  } catch (error) {
+    logger.error('[/agents/:id/versions/:from/diff] Error diffing Agent versions', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
  * Get all agent categories with counts
  *
  * @param {Object} _req - Express request object (unused)
@@ -1313,6 +1467,9 @@ module.exports = {
   getListAgents: getListAgentsHandler,
   uploadAgentAvatar: uploadAgentAvatarHandler,
   revertAgentVersion: revertAgentVersionHandler,
+  archiveAgent: archiveAgentHandler,
+  restoreAgent: restoreAgentHandler,
+  getAgentVersionDiff: getAgentVersionDiffHandler,
   getAgentCategories,
   filterAuthorizedTools,
 };

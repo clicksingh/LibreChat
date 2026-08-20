@@ -247,6 +247,18 @@ class AgentClient extends BaseClient {
           workspaceId: this.options.workspaceId,
           endpoint: this.options.endpoint,
           agent_id: this.options.agent.id,
+          // 8S5: provenance snapshot for a REAL custom Agent only — the
+          // ephemeral/default base agent (no Agent object selected) has no
+          // "version" concept, so leave this unset rather than record a
+          // meaningless 1 for every plain chat. `versions` is seeded with
+          // one entry at creation, so length is already 1-indexed
+          // ("version 1" = the agent as first created). Only takes effect
+          // on this conversation's FIRST save — saveConvo() makes it
+          // immutable thereafter (see methods/conversation.ts).
+          agentVersion:
+            this.options.agent.id !== Constants.EPHEMERAL_AGENT_ID
+              ? this.options.agent?.versions?.length || 1
+              : undefined,
           modelLabel: this.options.modelLabel,
           resendFiles: this.options.resendFiles,
           imageDetail: this.options.imageDetail,

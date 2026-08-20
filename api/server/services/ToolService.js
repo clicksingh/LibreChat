@@ -22,6 +22,7 @@ const {
   getCodeApiAuthHeaders,
   getReplayablePendingMCPOAuthStart,
   getMCPServerNamesFromTools,
+  checkAccessWithRequestCache,
   buildMCPAuthToolCall,
   buildMCPAuthStepId,
   buildMCPAuthRunStepEvent,
@@ -35,7 +36,9 @@ const {
   Constants,
   CacheKeys,
   ErrorTypes,
+  Permissions,
   ContentTypes,
+  PermissionTypes,
   imageGenTools,
   EModelEndpoint,
   EToolResources,
@@ -69,12 +72,13 @@ const { manifestToolMap, toolkits } = require('~/app/clients/tools/manifest');
 const { createOnSearchResults } = require('~/server/services/Tools/search');
 const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { createDocumentVisualQATool } = require('~/server/services/Tools/documentVisualQA');
+const { createAgentManagementTool } = require('~/server/services/Tools/agentManagement');
 const { createMCPPermissionContext, resolveConfigServers } = require('~/server/services/MCP');
 const { getMCPRequestContext } = require('~/server/services/MCPRequestContext');
 const { recordUsage } = require('~/server/services/Threads');
 const { loadTools } = require('~/app/clients/tools/util');
 const { redactMessage } = require('~/config/parsers');
-const { findPluginAuthsByKeys } = require('~/models');
+const { findPluginAuthsByKeys, getRoleByName } = require('~/models');
 const { getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { getLogStores } = require('~/cache');
 const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
@@ -1544,6 +1548,38 @@ async function loadToolsForExecution({
       allLoadedTools.push(documentVisualQATool);
     } catch (error) {
       logger.error('[loadToolsForExecution] Failed to create document_visual_qa tool', error);
+    }
+  }
+
+  /* 8S5 — load-time gate for agent_management, mirroring the RUN_CODE
+   * pattern above but against PermissionTypes.AGENTS.USE: never
+   * materialize the tool for a user with zero Agent-management authority
+   * at all (cleaner UX — the model won't even see it offered), even
+   * though every individual action inside the tool ALSO independently
+   * re-checks its own required permission bit (defense in depth, not a
+   * single point of trust). */
+  const isAgentManagementTool = toolNames.includes(Tools.agent_management);
+  if (isAgentManagementTool) {
+    try {
+      const agentManagementAllowed =
+        req?.user?.id &&
+        req?.user?.role &&
+        (await checkAccessWithRequestCache({
+          req,
+          user: req.user,
+          permissionType: PermissionTypes.AGENTS,
+          permissions: [Permissions.USE],
+          getRoleByName,
+        }));
+      if (agentManagementAllowed) {
+        allLoadedTools.push(createAgentManagementTool({ req }));
+      } else {
+        logger.warn(
+          `[loadToolsForExecution] Skipping agent_management tool for User ${req?.user?.id}: AGENTS.USE denied`,
+        );
+      }
+    } catch (error) {
+      logger.error('[loadToolsForExecution] Failed to create agent_management tool', error);
     }
   }
 

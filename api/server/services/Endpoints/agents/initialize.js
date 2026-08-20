@@ -309,6 +309,21 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     throw new Error('Agent not found');
   }
 
+  /* 8S5 — archived agents are not offered for NEW invocation. A brand-new
+   * conversation (`conversationId === 'new'` or absent) starting with an
+   * archived agent is rejected; an EXISTING conversation that already
+   * references this agent continues to open/reply normally — lifecycle
+   * state does not retroactively break history. Ephemeral/default agents
+   * (no `lifecycle_state` field at all) are unaffected. */
+  if (
+    primaryAgent.lifecycle_state === 'archived' &&
+    (!req.body.conversationId || req.body.conversationId === 'new')
+  ) {
+    const err = new Error('This agent is archived and cannot start a new conversation.');
+    err.status = 400;
+    throw err;
+  }
+
   const modelsConfig = await getModelsConfig(req);
   const validationResult = await validateAgentModel({
     req,

@@ -125,6 +125,27 @@ const agentSchema: Schema<IAgent> = new Schema<IAgent>(
       type: Schema.Types.Mixed,
       default: undefined,
     },
+    /** 8S5: lifecycle state. 'active' = offered for new invocation/listing
+     *  by default; 'archived' = hidden from new-invocation selection but
+     *  the document (and its version history, ACL, and every historical
+     *  conversation that already reference it) is preserved unchanged.
+     *  Distinct from the pre-existing hard DELETE endpoint, which remains
+     *  available for direct owner action and is unaffected by this field. */
+    lifecycle_state: {
+      type: String,
+      enum: ['active', 'archived'],
+      default: 'active',
+      index: true,
+    },
+    archivedAt: {
+      type: Date,
+      default: undefined,
+    },
+    archivedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: undefined,
+    },
     tenantId: {
       type: String,
       index: true,
