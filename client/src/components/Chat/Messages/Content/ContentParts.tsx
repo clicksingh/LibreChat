@@ -1,5 +1,5 @@
 import { memo, useRef, useMemo, useCallback } from 'react';
-import { ContentTypes } from 'librechat-data-provider';
+import { ContentTypes, SystemRoles } from 'librechat-data-provider';
 import type {
   TMessageContentParts,
   SearchResultData,
@@ -8,7 +8,7 @@ import type {
 } from 'librechat-data-provider';
 import type { ToolCallGroupExpansionState } from './ToolCallGroup';
 import { ParallelContentRenderer, type PartWithIndex } from './ParallelContent';
-import { mapAttachments, groupSequentialToolCalls } from '~/utils';
+import { mapAttachments, groupSequentialToolCalls } from '~/utils';\nimport { useAuthContext } from '~/hooks';
 import { MessageContext, SearchContext } from '~/Providers';
 import PendingSkillCall from './Parts/PendingSkillCall';
 import { EditTextPart, EmptyText } from './Parts';
@@ -306,7 +306,7 @@ const ContentParts = memo(function ContentParts({
 
   const groupedParts = useMemo(
     () =>
-      groupSequentialToolCalls(sequentialParts).map((group) => {
+      groupSequentialToolCalls(sequentialParts, isManagedUser ? 1 : 2).map((group) => {
         if (group.type === 'single') {
           return group;
         }
@@ -316,7 +316,7 @@ const ContentParts = memo(function ContentParts({
         );
         return { ...group, groupId, groupAttachments };
       }),
-    [sequentialParts, attachmentMap, fallbackScope],
+    [sequentialParts, attachmentMap, fallbackScope, isManagedUser],
   );
 
   // Early return: no content to render AND no pending skill cards
