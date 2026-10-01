@@ -31,10 +31,14 @@ done
 
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"
 
+MOUNTS=(-v "${WORKTREE}:${WORKTREE}")
+if [ "${HOST_APP_DIR}" != "${WORKTREE}" ]; then
+  MOUNTS+=(-v "${HOST_APP_DIR}:${HOST_APP_DIR}:ro")
+fi
+
 echo ">> 8S3C.1 browser E2E via ${IMAGE}"
 exec docker run --rm --network host \
-  -v "${WORKTREE}:${WORKTREE}" \
-  -v "${HOST_APP_DIR}:${HOST_APP_DIR}:ro" \
+  "${MOUNTS[@]}" \
   -e PW_CHROMIUM="${CHROME}" \
   "${IMAGE}" \
-  bash -c "cd '${WORKTREE}' && PW_CHROMIUM='${CHROME}' './node_modules/.bin/playwright' test $*"
+  bash -c "cd '${WORKTREE}' && if [ -x './node_modules/.bin/playwright' ]; then PW_CHROMIUM='${CHROME}' ./node_modules/.bin/playwright test $*; else PW_CHROMIUM='${CHROME}' node node_modules/playwright/cli.js test $*; fi"
