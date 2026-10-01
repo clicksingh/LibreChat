@@ -9,7 +9,12 @@ import type {
   FunctionToolCall,
 } from 'librechat-data-provider';
 import type { PartWithIndex } from './ParallelContent';
-import {\n  useLocalize,\n  useAuthContext,\n  useExpandCollapse,\n  scheduleMessageContentLayoutReconcile,\n} from '~/hooks';
+import {
+  useLocalize,
+  useAuthContext,
+  useExpandCollapse,
+  scheduleMessageContentLayoutReconcile,
+} from '~/hooks';
 import { cn, getToolDisplayLabel } from '~/utils';
 import { StackedToolIcons } from './ToolOutput';
 import { useMCPIconMap } from '~/hooks/MCP';
@@ -103,6 +108,8 @@ export default function ToolCallGroup({
   onExpansionChange,
 }: ToolCallGroupProps) {
   const localize = useLocalize();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const mcpIconMap = useMCPIconMap();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const cancelLayoutReconcileRef = useRef<(() => void) | null>(null);
