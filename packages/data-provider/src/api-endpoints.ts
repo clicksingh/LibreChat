@@ -534,6 +534,8 @@ const workspaceQuery = (params?: Record<string, string | number | undefined | nu
 };
 
 export const personalWorkspaceUsage = () => `${workspaces()}/personal/usage`;
+export const personalWorkspaceCleanupPreview = () => `${workspaces()}/personal/cleanup-preview`;
+export const personalWorkspaceCleanup = () => `${workspaces()}/personal/cleanup`;
 export const personalWorkspaceFiles = (params?: { cursor?: string; limit?: number }) =>
   `${workspaces()}/personal/files${workspaceQuery(params)}`;
 export const personalWorkspaceTrash = (params?: { cursor?: string; limit?: number }) =>
@@ -543,6 +545,9 @@ export const personalWorkspaceRestore = () => `${workspaces()}/personal/restore`
 export const personalWorkspacePurge = () => `${workspaces()}/personal/purge`;
 
 export const projectWorkspaceUsage = (id: string) => `${workspace(id)}/usage`;
+export const projectWorkspaceCleanupPreview = (id: string) =>
+  `${workspace(id)}/cleanup-preview`;
+export const projectWorkspaceCleanup = (id: string) => `${workspace(id)}/cleanup`;
 export const projectWorkspaceFiles = (id: string, params?: { cursor?: string; limit?: number }) =>
   `${workspace(id)}/files${workspaceQuery(params)}`;
 export const projectWorkspaceTrash = (id: string, params?: { cursor?: string; limit?: number }) =>

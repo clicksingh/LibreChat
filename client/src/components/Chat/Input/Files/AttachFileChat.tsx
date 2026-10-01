@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { SystemRoles } from 'librechat-data-provider';
 import {
   Constants,
+  EToolResources,
   supportsFiles,
   mergeFileConfig,
   isAgentsEndpoint,
@@ -101,7 +102,18 @@ function AttachFileChat({
     [disableInputs, endpointFileConfig?.disabled],
   );
 
-  if (isAssistants && endpointSupportsFiles && !isUploadDisabled) {
+  if (isManagedUser && !isUploadDisabled) {
+    return (
+      <AttachFile
+        disabled={disableInputs}
+        files={files}
+        setFiles={setFiles}
+        setFilesLoading={setFilesLoading}
+        conversation={conversation}
+        toolResource={EToolResources.execute_code}
+      />
+    );
+  } else if (isAssistants && endpointSupportsFiles && !isUploadDisabled) {
     return (
       <AttachFile
         disabled={disableInputs}
@@ -111,7 +123,7 @@ function AttachFileChat({
         conversation={conversation}
       />
     );
-  } else if ((isManagedUser || isAgents || endpointSupportsFiles) && !isUploadDisabled) {
+  } else if ((isAgents || endpointSupportsFiles) && !isUploadDisabled) {
     return (
       <AttachFileMenu
         endpoint={endpoint}

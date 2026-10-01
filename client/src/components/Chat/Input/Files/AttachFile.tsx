@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { FileUpload, TooltipAnchor, AttachmentIcon } from '@librechat/client';
+import { EToolResources } from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter } from '~/common';
 import { useFileHandlingNoChatContext, useLocalize } from '~/hooks';
@@ -11,12 +12,14 @@ const AttachFile = ({
   setFiles,
   setFilesLoading,
   conversation,
+  toolResource,
 }: {
   disabled?: boolean | null;
   files: Map<string, ExtendedFile>;
   setFiles: FileSetter;
   setFilesLoading: React.Dispatch<React.SetStateAction<boolean>>;
   conversation: TConversation | null;
+  toolResource?: EToolResources;
 }) => {
   const localize = useLocalize();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,7 +33,10 @@ const AttachFile = ({
   });
 
   return (
-    <FileUpload ref={inputRef} handleFileChange={handleFileChange}>
+    <FileUpload
+      ref={inputRef}
+      handleFileChange={(event) => handleFileChange(event, toolResource)}
+    >
       <TooltipAnchor
         description={localize('com_sidepanel_attach_files')}
         id="attach-file"

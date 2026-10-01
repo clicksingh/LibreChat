@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   Permissions,
+  SystemRoles,
   EModelEndpoint,
   PermissionTypes,
   isParamEndpoint,
@@ -25,6 +26,7 @@ import {
   useMCPServerManager,
   useGetAgentsConfig,
   useHasAccess,
+  useAuthContext,
 } from '~/hooks';
 import MCPBuilderPanel from '~/components/SidePanel/MCPBuilder/MCPBuilderPanel';
 import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
@@ -94,6 +96,8 @@ export default function useSideNavLinks({
 
   const { agentsConfig } = useGetAgentsConfig({ endpointsConfig });
   const { skillsEnabled } = useAgentCapabilities(agentsConfig?.capabilities);
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
 
   const Links = useMemo(() => {
     const links: NavLink[] = [];
@@ -172,19 +176,21 @@ export default function useSideNavLinks({
       });
     }
 
-    links.push({
-      title: 'com_sidepanel_attach_files',
-      label: '',
-      icon: AttachmentIcon,
-      id: 'files',
-      Component: FilesPanel,
-    });
+    if (!isManagedUser) {
+      links.push({
+        title: 'com_sidepanel_attach_files',
+        label: '',
+        icon: AttachmentIcon,
+        id: 'files',
+        Component: FilesPanel,
+      });
+    }
 
     // 8S3D.1: personal workspace file browser is always available (every
     // authenticated user has one, implicitly); project workspaces are
     // reachable from the same panel once the user has access to any.
     links.push({
-      title: 'com_sidepanel_workspace',
+      title: isManagedUser ? 'com_ui_files' : 'com_sidepanel_workspace',
       label: '',
       icon: HardDrive,
       id: 'workspace',
@@ -239,6 +245,7 @@ export default function useSideNavLinks({
     hasAccessToPrompts,
     hasAccessToSkills,
     skillsEnabled,
+    isManagedUser,
     hasAccessToMemories,
     hasAccessToReadMemories,
     interfaceConfig.parameters,

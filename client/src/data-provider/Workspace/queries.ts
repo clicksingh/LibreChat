@@ -1,9 +1,12 @@
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { QueryKeys, dataService } from 'librechat-data-provider';
+
+const WORKSPACE_LISTING_POLL_MS = 5_000;
 import type { QueryObserverResult, UseQueryOptions } from '@tanstack/react-query';
 import type {
   TWorkspaceListResponse,
   TWorkspaceUsage,
+  TWorkspaceCleanupPreview,
   TWorkspaceFileListResponse,
   TWorkspaceTrashListResponse,
   TQuotaPolicy,
@@ -49,6 +52,21 @@ export const usePersonalWorkspaceUsageQuery = (
   );
 };
 
+export const usePersonalWorkspaceCleanupPreviewQuery = (
+  config?: UseQueryOptions<TWorkspaceCleanupPreview>,
+): QueryObserverResult<TWorkspaceCleanupPreview> => {
+  return useQuery<TWorkspaceCleanupPreview>(
+    [QueryKeys.workspaceUsage, 'cleanup', 'personal'],
+    () => dataService.getPersonalWorkspaceCleanupPreview(),
+    {
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
+  );
+};
+
 export const useProjectWorkspaceUsageQuery = (
   workspaceId: string | undefined,
   config?: UseQueryOptions<TWorkspaceUsage>,
@@ -66,14 +84,27 @@ export const useProjectWorkspaceUsageQuery = (
   );
 };
 
+export const useProjectWorkspaceCleanupPreviewQuery = (
+  workspaceId: string | undefined,
+  config?: UseQueryOptions<TWorkspaceCleanupPreview>,
+): QueryObserverResult<TWorkspaceCleanupPreview> => {
+  return useQuery<TWorkspaceCleanupPreview>(
+    [QueryKeys.workspaceUsage, 'cleanup', 'project', workspaceId],
+    () => dataService.getProjectWorkspaceCleanupPreview(workspaceId as string),
+    {
+      enabled: !!workspaceId,
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
+  );
+};
+
 /** Personal workspace file browser — cursor-paginated, bounded per page (never a full recursive tree in one response). */
 // Chat-driven code execution writes files server-side outside of any
 // mutation this panel knows about, so a plain fetch-once-on-mount query can
-// permanently miss a file created moments after the panel opened. Polling
-// while the panel is open (react-query pauses this automatically once the
-// observer unmounts) keeps the browser's view converging on server state
-// without requiring a manual refresh.
-const WORKSPACE_LISTING_POLL_MS = 5_000;
+// permanently miss a file created moments after the panel opened.
 
 export const usePersonalWorkspaceFilesQuery = () => {
   return useInfiniteQuery<TWorkspaceFileListResponse>(

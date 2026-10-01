@@ -1373,6 +1373,14 @@ export function getPersonalWorkspaceUsage(): Promise<ws.TWorkspaceUsage> {
   return request.get(endpoints.personalWorkspaceUsage());
 }
 
+export function getPersonalWorkspaceCleanupPreview(): Promise<ws.TWorkspaceCleanupPreview> {
+  return request.get(endpoints.personalWorkspaceCleanupPreview());
+}
+
+export function cleanupPersonalWorkspace(): Promise<ws.TWorkspaceCleanupResult> {
+  return request.post(endpoints.personalWorkspaceCleanup(), {});
+}
+
 export function listPersonalWorkspaceFiles(params?: {
   cursor?: string;
   limit?: number;
@@ -1401,6 +1409,16 @@ export function purgePersonalWorkspaceFile(payload: { trash_id: string }) {
 
 export function getProjectWorkspaceUsage(id: string): Promise<ws.TWorkspaceUsage> {
   return request.get(endpoints.projectWorkspaceUsage(id));
+}
+
+export function getProjectWorkspaceCleanupPreview(
+  id: string,
+): Promise<ws.TWorkspaceCleanupPreview> {
+  return request.get(endpoints.projectWorkspaceCleanupPreview(id));
+}
+
+export function cleanupProjectWorkspace(id: string): Promise<ws.TWorkspaceCleanupResult> {
+  return request.post(endpoints.projectWorkspaceCleanup(id), {});
 }
 
 export function listProjectWorkspaceFiles(

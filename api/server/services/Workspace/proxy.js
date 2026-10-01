@@ -42,6 +42,14 @@ async function getUsage(req, kind, id) {
   return codeApiGet(req, '/workspace/usage', { kind, ...(id ? { id } : {}) });
 }
 
+async function getCleanupPreview(req, kind, id) {
+  return codeApiGet(req, '/workspace/cleanup-preview', { kind, ...(id ? { id } : {}) });
+}
+
+async function cleanup(req, kind, id) {
+  return codeApiPost(req, '/workspace/cleanup', { kind, ...(id ? { id } : {}) });
+}
+
 async function listFiles(req, kind, id, cursor, limit) {
   return codeApiGet(req, '/workspace/files', {
     kind,
@@ -96,6 +104,8 @@ function handleProxyError(res, error, fallbackMessage) {
 
 module.exports = {
   getUsage,
+  getCleanupPreview,
+  cleanup,
   listFiles,
   listTrash,
   trashFile,

@@ -183,7 +183,7 @@ const CODE_CREATE_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     file_path: {
       type: 'string',
       description:
-        'Path to write in the code-execution sandbox, relative to your working directory (e.g. "result.txt" or "data/report.json"). Files written there persist across later sandbox calls and are automatically delivered as downloads.',
+        'Path to write in the code-execution sandbox, relative to your working directory. Working/source/dependency files may live anywhere appropriate and persist across calls. Put final user-facing deliverables under "outputs/" (for example "outputs/report.txt"); only published results are surfaced to the user.',
     },
     content: {
       type: 'string',
@@ -384,11 +384,11 @@ function normalizeSandboxPathGuidance(text: string): string {
   return text
     .replace(
       'Persist handoff artifacts in `/mnt/data`',
-      'Persist handoff artifacts in your sandbox working directory',
+      'Persist final handoff artifacts under `outputs/` in your sandbox working directory; keep scratch, source, dependency, render, and cache files elsewhere',
     )
     .replace(
       'Prior /mnt/data files are available and can be modified in place.',
-      'Files you wrote to the sandbox working directory in earlier calls are available and can be modified in place. Files written this call appear in the returned file list — verify the file is listed before telling the user it is ready.',
+      'Files you wrote to the sandbox working directory in earlier calls remain available and can be modified in place. Working files stay private. Put final user-facing deliverables under `outputs/`; verify the final file appears in the returned file list before telling the user it is ready.',
     );
 }
 

@@ -5,6 +5,7 @@ import type {
   TWorkspace,
   TCreateWorkspaceRequest,
   TWorkspaceMemberGrantRequest,
+  TWorkspaceCleanupResult,
   TQuotaPolicy,
   TQuotaPolicyScope,
 } from 'librechat-data-provider';
@@ -50,6 +51,32 @@ export const useRemoveWorkspaceMemberMutation = (
   return useMutation(({ principalType, principalId }) =>
     dataService.removeWorkspaceMember(workspaceId, principalType, principalId),
   );
+};
+
+export const useCleanupPersonalWorkspaceMutation = (): UseMutationResult<
+  TWorkspaceCleanupResult,
+  unknown,
+  void
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(() => dataService.cleanupPersonalWorkspace(), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'personal']);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'cleanup', 'personal']);
+    },
+  });
+};
+
+export const useCleanupProjectWorkspaceMutation = (
+  workspaceId: string,
+): UseMutationResult<TWorkspaceCleanupResult, unknown, void> => {
+  const queryClient = useQueryClient();
+  return useMutation(() => dataService.cleanupProjectWorkspace(workspaceId), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'project', workspaceId]);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'cleanup', 'project', workspaceId]);
+    },
+  });
 };
 
 /* ---- personal workspace trash lifecycle ---- */

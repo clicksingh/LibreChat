@@ -189,6 +189,22 @@ router.get('/personal/usage', async (req, res) => {
   }
 });
 
+router.get('/personal/cleanup-preview', async (req, res) => {
+  try {
+    res.json(await proxy.getCleanupPreview(req, 'user'));
+  } catch (error) {
+    proxy.handleProxyError(res, error, 'personal cleanup preview failed');
+  }
+});
+
+router.post('/personal/cleanup', async (req, res) => {
+  try {
+    res.json(await proxy.cleanup(req, 'user'));
+  } catch (error) {
+    proxy.handleProxyError(res, error, 'personal cleanup failed');
+  }
+});
+
 router.get('/personal/files', async (req, res) => {
   try {
     res.json(await proxy.listFiles(req, 'user', undefined, req.query.cursor, req.query.limit));
@@ -245,6 +261,26 @@ router.get('/:id/usage', async (req, res) => {
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     proxy.handleProxyError(res, error, 'project usage lookup failed');
+  }
+});
+
+router.get('/:id/cleanup-preview', async (req, res) => {
+  try {
+    req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
+    res.json(await proxy.getCleanupPreview(req, 'project', req.params.id));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    proxy.handleProxyError(res, error, 'project cleanup preview failed');
+  }
+});
+
+router.post('/:id/cleanup', async (req, res) => {
+  try {
+    req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
+    res.json(await proxy.cleanup(req, 'project', req.params.id));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    proxy.handleProxyError(res, error, 'project cleanup failed');
   }
 });
 

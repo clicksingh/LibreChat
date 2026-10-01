@@ -13,6 +13,7 @@ import {
   EModelEndpoint,
   mergeFileConfig,
   AgentCapabilities,
+  SystemRoles,
   resolveEndpointType,
   isAssistantsEndpoint,
   getEndpointFileConfig,
@@ -24,11 +25,14 @@ import store, { ephemeralAgentByConvoId } from '~/store';
 import useFileHandling from './useFileHandling';
 import { isEphemeralAgent } from '~/common';
 import useLocalize from '../useLocalize';
+import { useAuthContext } from '~/hooks/AuthContext';
 
 export default function useDragHelpers() {
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
   const localize = useLocalize();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const [showModal, setShowModal] = useState(false);
   const [draggedFiles, setDraggedFiles] = useState<File[]>([]);
   const conversation = useRecoilValue(store.conversationByIndex(0)) || undefined;
@@ -100,6 +104,11 @@ export default function useDragHelpers() {
         }
       }
 
+      if (isManagedUser) {
+        handleFilesRef.current(item.files, EToolResources.execute_code);
+        return;
+      }
+
       if (isAssistants) {
         handleFilesRef.current(item.files);
         return;
@@ -144,7 +153,7 @@ export default function useDragHelpers() {
       setDraggedFiles(item.files);
       setShowModal(true);
     },
-    [isAssistants, queryClient, showToast, localize],
+    [isManagedUser, isAssistants, queryClient, showToast, localize],
   );
 
   const [{ canDrop, isOver }, drop] = useDrop(

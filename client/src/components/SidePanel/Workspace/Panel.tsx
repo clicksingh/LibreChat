@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useToastContext } from '@librechat/client';
+import { Button, useToastContext } from '@librechat/client';
 import { Constants } from 'librechat-data-provider';
 import type {
   TWorkspaceFileEntry,
@@ -10,6 +10,10 @@ import {
   useListWorkspacesQuery,
   usePersonalWorkspaceUsageQuery,
   useProjectWorkspaceUsageQuery,
+  usePersonalWorkspaceCleanupPreviewQuery,
+  useProjectWorkspaceCleanupPreviewQuery,
+  useCleanupPersonalWorkspaceMutation,
+  useCleanupProjectWorkspaceMutation,
   usePersonalWorkspaceFilesQuery,
   useProjectWorkspaceFilesQuery,
   usePersonalWorkspaceTrashQuery,
@@ -24,6 +28,7 @@ import {
 import { useSetIndexOptions } from '~/hooks';
 import { useChatContext } from '~/Providers';
 import QuotaBar from './QuotaBar';
+import { formatWorkspaceBytes } from './formatBytes';
 import FileTable from './FileTable';
 import TrashTable from './TrashTable';
 import CreateProjectDialog from './CreateProjectDialog';
@@ -49,6 +54,13 @@ export default function WorkspacePanel() {
   const projectUsage = useProjectWorkspaceUsageQuery(projectId);
   const usage = isPersonal ? personalUsage.data : projectUsage.data;
 
+  const personalCleanupPreview = usePersonalWorkspaceCleanupPreviewQuery({ enabled: isPersonal });
+  const projectCleanupPreview = useProjectWorkspaceCleanupPreviewQuery(projectId);
+  const cleanupPreview = isPersonal ? personalCleanupPreview.data : projectCleanupPreview.data;
+  const cleanupPersonal = useCleanupPersonalWorkspaceMutation();
+  const cleanupProject = useCleanupProjectWorkspaceMutation(projectId ?? '');
+  const cleanupMutation = isPersonal ? cleanupPersonal : cleanupProject;
+
   const personalFiles = usePersonalWorkspaceFilesQuery();
   const projectFiles = useProjectWorkspaceFilesQuery(projectId);
   const filesQuery = isPersonal ? personalFiles : projectFiles;
@@ -71,6 +83,32 @@ export default function WorkspacePanel() {
   const trashProject = useTrashProjectFileMutation(projectId ?? '');
   const restoreProject = useRestoreProjectFileMutation(projectId ?? '');
   const purgeProject = usePurgeProjectFileMutation(projectId ?? '');
+
+  const handleCleanup = () => {
+    const reclaimable = cleanupPreview?.reclaimable_bytes ?? 0;
+    if (reclaimable <= 0 || cleanupMutation.isLoading) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Free up ${formatWorkspaceBytes(reclaimable)} of temporary workspace data?
+
+This removes only known package, cache, and temporary runtime folders. Uploaded files, created results, and unknown working files are preserved.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    cleanupMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        showToast({
+          message:
+            result.freed_bytes > 0
+              ? `Freed ${formatWorkspaceBytes(result.freed_bytes)} of temporary files`
+              : 'No temporary files were removed',
+        });
+      },
+      onError: () => showToast({ message: 'Temporary-file cleanup failed', status: 'error' }),
+    });
+  };
 
   const handleTrash = (item: TWorkspaceFileEntry) => {
     const payload = { session_id: item.sessionId, file_id: item.fileId };
@@ -159,6 +197,39 @@ export default function WorkspacePanel() {
       </div>
 
       <QuotaBar usage={usage} />
+
+      {cleanupPreview && (
+        <div className="rounded-lg border border-border-light bg-surface-secondary/40 px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Temporary files</div>
+              <div className="text-xs text-text-secondary">
+                {cleanupPreview.reclaimable_bytes > 0
+                  ? `${formatWorkspaceBytes(cleanupPreview.reclaimable_bytes)} can be safely removed`
+                  : 'No reclaimable temporary files'}
+              </div>
+              {cleanupPreview.skipped_active_sessions > 0 && (
+                <div className="mt-0.5 text-xs text-text-secondary">
+                  Files currently in use are automatically skipped.
+                </div>
+              )}
+            </div>
+            {cleanupPreview.reclaimable_bytes > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleCleanup}
+                disabled={cleanupMutation.isLoading}
+              >
+                {cleanupMutation.isLoading
+                  ? 'Cleaning…'
+                  : `Free up ${formatWorkspaceBytes(cleanupPreview.reclaimable_bytes)}`}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-1 border-b border-border-light text-sm">
         <button

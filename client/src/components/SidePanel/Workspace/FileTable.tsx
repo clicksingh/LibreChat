@@ -38,8 +38,13 @@ export default function FileTable({
         <tbody>
           {items.map((item) => (
             <tr key={item.path} className="border-b border-border-light/50 hover:bg-surface-hover">
-              <td className="max-w-[200px] truncate py-1.5" title={item.path}>
-                {item.name}
+              <td className="max-w-[200px] py-1.5" title={item.path}>
+                <div className="truncate">{item.name}</div>
+                {item.role && (
+                  <div className="mt-0.5 text-[11px] text-text-secondary">
+                    {item.role === 'output' ? 'Created by ChatGPT' : 'Uploaded'}
+                  </div>
+                )}
               </td>
               <td className="py-1.5 text-right text-xs text-text-secondary">
                 {formatWorkspaceBytes(item.size)}

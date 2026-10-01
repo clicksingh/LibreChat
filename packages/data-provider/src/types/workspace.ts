@@ -31,11 +31,33 @@ export interface TWorkspaceUsage {
   state: WorkspaceUsageState;
 }
 
+export interface TWorkspaceCleanupCategory {
+  bytes: number;
+  items: number;
+  files?: number;
+}
+
+export interface TWorkspaceCleanupPreview {
+  reclaimable_bytes: number;
+  item_count: number;
+  file_count: number;
+  skipped_active_sessions: number;
+  categories: Record<string, TWorkspaceCleanupCategory>;
+}
+
+export interface TWorkspaceCleanupResult {
+  freed_bytes: number;
+  removed_items: number;
+  skipped_active_sessions: number;
+  categories: Record<string, TWorkspaceCleanupCategory>;
+}
+
 export interface TWorkspaceFileEntry {
   sessionId: string;
   fileId: string;
   path: string;
   name: string;
+  role?: 'input' | 'output';
   size: number;
   modified: string;
 }
