@@ -8,7 +8,8 @@ import type {
 } from 'librechat-data-provider';
 import type { ToolCallGroupExpansionState } from './ToolCallGroup';
 import { ParallelContentRenderer, type PartWithIndex } from './ParallelContent';
-import { mapAttachments, groupSequentialToolCalls } from '~/utils';\nimport { useAuthContext } from '~/hooks';
+import { mapAttachments, groupSequentialToolCalls } from '~/utils';
+import { useAuthContext } from '~/hooks';
 import { MessageContext, SearchContext } from '~/Providers';
 import PendingSkillCall from './Parts/PendingSkillCall';
 import { EditTextPart, EmptyText } from './Parts';
@@ -146,6 +147,8 @@ const ContentParts = memo(function ContentParts({
   isLatestMessage,
   createdAt,
 }: ContentPartsProps) {
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const attachmentMap = useMemo(() => mapAttachments(attachments ?? []), [attachments]);
   const effectiveIsSubmitting = isLatestMessage ? isSubmitting : false;
   const toolGroupExpansionRef = useRef(new Map<string, ToolCallGroupExpansionState>());
@@ -306,7 +309,8 @@ const ContentParts = memo(function ContentParts({
 
   const groupedParts = useMemo(
     () =>
-      // Managed users get one compact work row even for a single tool; admins keep the 2+ grouping threshold.\n      groupSequentialToolCalls(sequentialParts, isManagedUser ? 1 : 2).map((group) => {
+      // Managed users get one compact work row even for a single tool; admins keep the 2+ grouping threshold.
+      groupSequentialToolCalls(sequentialParts, isManagedUser ? 1 : 2).map((group) => {
         if (group.type === 'single') {
           return group;
         }
