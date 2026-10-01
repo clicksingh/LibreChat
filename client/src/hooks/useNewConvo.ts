@@ -361,7 +361,12 @@ const useNewConvo = (index = 0) => {
       const explicitAgentOrAssistant =
         isAgentsEndpoint(_template.endpoint ?? _preset?.endpoint ?? '') ||
         isAssistantsEndpoint(_template.endpoint ?? _preset?.endpoint ?? '') ||
-        Boolean(_template.agent_id || _template.assistant_id || _preset?.agent_id || _preset?.assistant_id);
+        Boolean(
+          _template.agent_id ||
+            _template.assistant_id ||
+            _preset?.agent_id ||
+            _preset?.assistant_id,
+        );
 
       if (isManagedUser && !explicitAgentOrAssistant) {
         defaultModelSpec = result?.default ?? result?.softDefault;
