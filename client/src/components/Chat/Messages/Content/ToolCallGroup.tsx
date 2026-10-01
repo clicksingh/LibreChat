@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { useRecoilValue } from 'recoil';
 import { ChevronDown, Users } from 'lucide-react';
-import { Tools, Constants, ContentTypes, ToolCallTypes } from 'librechat-data-provider';
+import { Tools, Constants, ContentTypes, ToolCallTypes, SystemRoles } from 'librechat-data-provider';
 import type {
   TAttachment,
   TMessageContentParts,
@@ -9,7 +9,7 @@ import type {
   FunctionToolCall,
 } from 'librechat-data-provider';
 import type { PartWithIndex } from './ParallelContent';
-import { useLocalize, useExpandCollapse, scheduleMessageContentLayoutReconcile } from '~/hooks';
+import {\n  useLocalize,\n  useAuthContext,\n  useExpandCollapse,\n  scheduleMessageContentLayoutReconcile,\n} from '~/hooks';
 import { cn, getToolDisplayLabel } from '~/utils';
 import { StackedToolIcons } from './ToolOutput';
 import { useMCPIconMap } from '~/hooks/MCP';
@@ -151,10 +151,11 @@ export default function ToolCallGroup({
   }, [toolNames, localize]);
 
   const autoExpand = useRecoilValue(store.autoExpandTools);
-  const autoCollapse = !autoExpand && count >= 2 && allCompleted;
+  const effectiveAutoExpand = !isManagedUser && autoExpand;
+  const autoCollapse = isManagedUser || (!effectiveAutoExpand && count >= 2 && allCompleted);
   const initialState = initialExpansionState?.userOverride === true ? initialExpansionState : null;
   const [isExpanded, setIsExpanded] = useState(
-    initialState?.isExpanded ?? (autoExpand || !autoCollapse),
+    initialState?.isExpanded ?? (isManagedUser ? false : effectiveAutoExpand || !autoCollapse),
   );
   const [userOverride, setUserOverride] = useState(initialState != null);
   const [shouldRenderBody, setShouldRenderBody] = useState(isExpanded);
@@ -221,9 +222,13 @@ export default function ToolCallGroup({
     subagentsDone
       ? localize('com_ui_ran_n_agents', { 0: String(count) })
       : localize('com_ui_running_n_agents', { 0: String(count) });
-  const groupLabel = allSubagents
-    ? getSubagentLabel()
-    : localize('com_ui_used_n_tools', { 0: String(count) });
+  const groupLabel = isManagedUser
+    ? isSubmitting && !allCompleted
+      ? 'Working…'
+      : 'Work completed'
+    : allSubagents
+      ? getSubagentLabel()
+      : localize('com_ui_used_n_tools', { 0: String(count) });
 
   const hasActiveToolCall = useMemo(
     () => isSubmitting && toolMetadata.some((m) => m && !m.hasOutput),
@@ -231,11 +236,11 @@ export default function ToolCallGroup({
   );
 
   useEffect(() => {
-    if (hasActiveToolCall && !userOverride) {
+    if (hasActiveToolCall && !userOverride && !isManagedUser) {
       setShouldRenderBody(true);
       setIsExpanded(true);
     }
-  }, [hasActiveToolCall, userOverride]);
+  }, [hasActiveToolCall, userOverride, isManagedUser]);
 
   return (
     <div className="mb-2 mt-1" ref={rootRef}>
@@ -272,7 +277,7 @@ export default function ToolCallGroup({
         {/** Hide the tool-name summary for pure-subagent groups — every
          *   entry deduplicates to the same "subagent" token, which adds
          *   noise without info. Mixed groups keep the summary. */}
-        {toolNameSummary && !allSubagents && (
+        {toolNameSummary && !allSubagents && !isManagedUser && (
           <span className="text-xs font-normal text-text-secondary">— {toolNameSummary}</span>
         )}
         <ChevronDown
