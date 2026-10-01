@@ -1,12 +1,19 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useSetRecoilState } from 'recoil';
-import { Tools, Constants, LocalStorageKeys, AgentCapabilities } from 'librechat-data-provider';
+import {
+  Tools,
+  Constants,
+  LocalStorageKeys,
+  AgentCapabilities,
+  SystemRoles,
+} from 'librechat-data-provider';
 import type { TAgentsEndpoint, TEphemeralAgent } from 'librechat-data-provider';
 import {
   useMCPServerManager,
   useSearchApiKeyForm,
   useGetAgentsConfig,
   useToolToggle,
+  useAuthContext,
 } from '~/hooks';
 import { getTimestampedValue } from '~/utils/timestamps';
 import { useGetStartupConfig } from '~/data-provider';
@@ -48,6 +55,8 @@ export default function BadgeRowProvider({
   const hasInitializedRef = useRef(false);
   const { agentsConfig } = useGetAgentsConfig();
   const { data: startupConfig } = useGetStartupConfig();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const key = conversationId ?? Constants.NEW_CONVO;
   const hasModelSpecs = (startupConfig?.modelSpecs?.list?.length ?? 0) > 0;
 
@@ -75,6 +84,51 @@ export default function BadgeRowProvider({
   const storageSuffix = isNewConvo && storageContextKey ? storageContextKey : key;
 
   const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(key));
+
+  /**
+   * CBHR managed-user baseline.
+   *
+   * Regular USERs should never have to discover or opt into tool switches.
+   * Keep the approved capabilities active in every chat context, including
+   * existing conversations that may carry stale browser-local preferences.
+   * Authorization still remains server-side; this only expresses intent.
+   *
+   * Native web_search stays off because UltraSearch is the canonical web path.
+   * The special E2E_NOCODE role is deliberately excluded from this policy so
+   * the server-side RUN_CODE authorization ceiling remains continuously tested.
+   */
+  useEffect(() => {
+    if (!isManagedUser || isSubmitting) {
+      return;
+    }
+
+    setEphemeralAgent((prev) => {
+      const current = prev ?? {};
+      const mcpIsManaged =
+        Array.isArray(current.mcp) && current.mcp.length === 1 && current.mcp[0] === 'ultrasearch';
+
+      if (
+        current[Tools.execute_code] === true &&
+        current[Tools.file_search] === true &&
+        current[Tools.web_search] === false &&
+        current[AgentCapabilities.skills] === true &&
+        current[AgentCapabilities.artifacts] === 'default' &&
+        mcpIsManaged
+      ) {
+        return prev;
+      }
+
+      return {
+        ...current,
+        [Tools.execute_code]: true,
+        [Tools.file_search]: true,
+        [Tools.web_search]: false,
+        [AgentCapabilities.skills]: true,
+        [AgentCapabilities.artifacts]: 'default',
+        mcp: ['ultrasearch'],
+      };
+    });
+  }, [isManagedUser, isSubmitting, key, setEphemeralAgent]);
 
   /** Initialize ephemeralAgent from localStorage on mount and when conversation/spec changes.
    *  Skipped when a spec is active — applyModelSpecEphemeralAgent handles both new conversations
