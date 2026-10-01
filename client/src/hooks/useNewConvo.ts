@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import { useRecoilState, useRecoilValue, useSetRecoilState, useRecoilCallback } from 'recoil';
@@ -15,6 +15,7 @@ import {
   isEphemeralAgentId,
   isAssistantsEndpoint,
   getDefaultParamsEndpoint,
+  SystemRoles,
 } from 'librechat-data-provider';
 import type {
   TPreset,
@@ -40,14 +41,17 @@ import useAssistantListMap from './Assistants/useAssistantListMap';
 import { useResetChatBadges } from './useChatBadges';
 import { useApplyModelSpecEffects } from './Agents';
 import { usePauseGlobalAudio } from './Audio';
-import { useHasAccess } from '~/hooks';
+import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: startupConfig } = useGetStartupConfig();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const getConversation = useGetConversation(index);
+  const activeConversation = useRecoilValue(store.conversationByKeySelector(index));
   const applyModelSpecEffects = useApplyModelSpecEffects();
   const clearAllConversations = store.useClearConvoState();
   const defaultPreset = useRecoilValue(store.defaultPreset);
@@ -343,14 +347,30 @@ const useNewConvo = (index = 0) => {
 
       let preset = _preset;
       const result = getDefaultModelSpec(startupConfig, endpointsConfig);
-      const defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
-      const shouldApplyModelSpec =
+      let defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
+      let shouldApplyModelSpec =
         result?.softDefault != null
           ? !hasModelSelection(_template)
           : startupConfig?.modelSpecs?.prioritize === true ||
             (startupConfig?.interface?.modelSelect ?? true) !== true ||
             (result?.last != null &&
               Object.keys(_template).filter((key) => key !== 'chatProjectId').length === 0);
+
+      const explicitAgentOrAssistant =
+        isAgentsEndpoint(_template.endpoint ?? _preset?.endpoint ?? '') ||
+        isAssistantsEndpoint(_template.endpoint ?? _preset?.endpoint ?? '') ||
+        Boolean(
+          _template.agent_id ||
+            _template.assistant_id ||
+            _preset?.agent_id ||
+            _preset?.assistant_id,
+        );
+
+      if (isManagedUser && !explicitAgentOrAssistant) {
+        defaultModelSpec = result?.default ?? result?.softDefault;
+        shouldApplyModelSpec = defaultModelSpec != null;
+      }
+
       if (!preset && startupConfig && shouldApplyModelSpec && defaultModelSpec) {
         preset = getModelSpecPreset(defaultModelSpec);
       }
@@ -406,6 +426,7 @@ const useNewConvo = (index = 0) => {
       mutateAsync,
       resetBadges,
       startupConfig,
+      isManagedUser,
       saveBadgesState,
       endpointsConfig,
       getConversation,
@@ -414,6 +435,35 @@ const useNewConvo = (index = 0) => {
       applyModelSpecEffects,
     ],
   );
+
+  useEffect(() => {
+    if (
+      !isManagedUser ||
+      !activeConversation ||
+      activeConversation.conversationId !== Constants.NEW_CONVO ||
+      activeConversation.endpoint
+    ) {
+      return;
+    }
+
+    const endpointsReady = Object.keys(endpointsConfig ?? {}).some((endpoint) =>
+      Boolean(endpointsConfig?.[endpoint]),
+    );
+    const modelsReady = Object.keys(modelsQuery.data ?? {}).length > 0;
+    if (!endpointsReady || !modelsReady) {
+      return;
+    }
+
+    newConversation({
+      template: {
+        chatProjectId: activeConversation.chatProjectId,
+        workspaceId: activeConversation.workspaceId,
+      },
+      buildDefault: true,
+      keepAddedConvos: true,
+      disableFocus: true,
+    });
+  }, [activeConversation, endpointsConfig, isManagedUser, modelsQuery.data, newConversation]);
 
   return {
     switchToConversation,
