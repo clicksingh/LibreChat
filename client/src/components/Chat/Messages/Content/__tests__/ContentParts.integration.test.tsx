@@ -5,8 +5,11 @@ import type { TAttachment, TMessageContentParts } from 'librechat-data-provider'
 import { fireEvent, render, screen } from '@testing-library/react';
 import ContentParts from '../ContentParts';
 
+let mockRole = SystemRoles.ADMIN;
+
 jest.mock('~/hooks', () => ({
-  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),\n  useLocalize: () => (key: string, values?: Record<string | number, string>) => {
+  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),
+  useLocalize: () => (key: string, values?: Record<string | number, string>) => {
     if (key === 'com_ui_used_n_tools') {
       return `Used ${values?.[0]} tools`;
     }
@@ -159,6 +162,10 @@ const renderContentParts = (props: React.ComponentProps<typeof ContentParts>) =>
   );
 
 describe('ContentParts integration: MCP image hoist and grouping', () => {
+  beforeEach(() => {
+    mockRole = SystemRoles.ADMIN;
+  });
+
   const baseProps = {
     messageId: 'msg1',
     isCreatedByUser: false,
