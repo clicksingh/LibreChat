@@ -6,8 +6,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ToolCallGroup from '../ToolCallGroup';
 import { scheduleMessageContentLayoutReconcile } from '~/hooks';
 
+let mockRole = SystemRoles.ADMIN;
+
 jest.mock('~/hooks', () => ({
-  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),\n  useLocalize: () => (key: string, values?: Record<string | number, string>) => {
+  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),
+  useLocalize: () => (key: string, values?: Record<string | number, string>) => {
     if (key === 'com_ui_used_n_tools') {
       return `Used ${values?.[0]} tools`;
     }
