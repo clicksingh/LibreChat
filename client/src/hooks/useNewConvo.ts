@@ -15,6 +15,7 @@ import {
   isEphemeralAgentId,
   isAssistantsEndpoint,
   getDefaultParamsEndpoint,
+  SystemRoles,
 } from 'librechat-data-provider';
 import type {
   TPreset,
@@ -40,13 +41,15 @@ import useAssistantListMap from './Assistants/useAssistantListMap';
 import { useResetChatBadges } from './useChatBadges';
 import { useApplyModelSpecEffects } from './Agents';
 import { usePauseGlobalAudio } from './Audio';
-import { useHasAccess } from '~/hooks';
+import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: startupConfig } = useGetStartupConfig();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const getConversation = useGetConversation(index);
   const applyModelSpecEffects = useApplyModelSpecEffects();
   const clearAllConversations = store.useClearConvoState();
@@ -343,14 +346,22 @@ const useNewConvo = (index = 0) => {
 
       let preset = _preset;
       const result = getDefaultModelSpec(startupConfig, endpointsConfig);
-      const defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
-      const shouldApplyModelSpec =
+      // CBHR regular USERs are managed: never let browser-local model history
+      // win over the current admin-defined default when creating a new chat.
+      // Admins and special roles retain the standard LibreChat selection flow.
+      let defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
+      let shouldApplyModelSpec =
         result?.softDefault != null
           ? !hasModelSelection(_template)
           : startupConfig?.modelSpecs?.prioritize === true ||
             (startupConfig?.interface?.modelSelect ?? true) !== true ||
             (result?.last != null &&
               Object.keys(_template).filter((key) => key !== 'chatProjectId').length === 0);
+
+      if (isManagedUser) {
+        defaultModelSpec = result?.default ?? result?.softDefault;
+        shouldApplyModelSpec = defaultModelSpec != null;
+      }
       if (!preset && startupConfig && shouldApplyModelSpec && defaultModelSpec) {
         preset = getModelSpecPreset(defaultModelSpec);
       }
@@ -406,6 +417,7 @@ const useNewConvo = (index = 0) => {
       mutateAsync,
       resetBadges,
       startupConfig,
+      isManagedUser,
       saveBadgesState,
       endpointsConfig,
       getConversation,

@@ -28,6 +28,26 @@ test.describe('CBHR managed regular user', () => {
         }
       });
 
+      // Simulate the exact legacy failure mode: this browser previously saved
+      // every user-facing tool toggle OFF and no MCP selection.
+      await page.addInitScript(() => {
+        const suffix = '__defaults__';
+        const poisoned: Record<string, string> = {
+          ['LAST_CODE_TOGGLE_' + suffix]: 'false',
+          ['LAST_FILE_SEARCH_TOGGLE_' + suffix]: 'false',
+          ['LAST_WEB_SEARCH_TOGGLE_' + suffix]: 'false',
+          ['LAST_ARTIFACTS_TOGGLE_' + suffix]: 'false',
+          ['LAST_SKILLS_TOGGLE_' + suffix]: 'false',
+          ['LAST_MCP_' + suffix]: '[]',
+        };
+        const now = Date.now().toString();
+        for (const [key, value] of Object.entries(poisoned)) {
+          localStorage.setItem(key, value);
+          localStorage.setItem(key + '_TIMESTAMP', now);
+        }
+        localStorage.setItem('lastSelectedModel', 'glm-5.1');
+      });
+
       await page.goto('/c/new');
       await expect(page).toHaveURL(/\/c\//, { timeout: 60_000 });
 
