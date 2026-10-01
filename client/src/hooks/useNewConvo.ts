@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import { useRecoilState, useRecoilValue, useSetRecoilState, useRecoilCallback } from 'recoil';
@@ -51,6 +51,7 @@ const useNewConvo = (index = 0) => {
   const { user } = useAuthContext();
   const isManagedUser = user?.role === SystemRoles.USER;
   const getConversation = useGetConversation(index);
+  const activeConversation = useRecoilValue(store.conversationByKeySelector(index));
   const applyModelSpecEffects = useApplyModelSpecEffects();
   const clearAllConversations = store.useClearConvoState();
   const defaultPreset = useRecoilValue(store.defaultPreset);
@@ -436,6 +437,14 @@ const useNewConvo = (index = 0) => {
       applyModelSpecEffects,
     ],
   );
+
+  useEffect(() => {
+    if (!isManagedUser || !activeConversation || activeConversation.conversationId !== Constants.NEW_CONVO || activeConversation.endpoint) return;
+    const endpointsReady = Object.keys(endpointsConfig ?? {}).some((endpoint) => Boolean(endpointsConfig?.[endpoint]));
+    const modelsReady = Object.keys(modelsQuery.data ?? {}).length > 0;
+    if (!endpointsReady || !modelsReady) return;
+    newConversation({ template: { chatProjectId: activeConversation.chatProjectId, workspaceId: activeConversation.workspaceId }, buildDefault: true, keepAddedConvos: true, disableFocus: true });
+  }, [activeConversation, endpointsConfig, isManagedUser, modelsQuery.data, newConversation]);
 
   return {
     switchToConversation,
