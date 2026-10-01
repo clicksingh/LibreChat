@@ -1,12 +1,12 @@
 import React from 'react';
 import { RecoilRoot } from 'recoil';
-import { ContentTypes } from 'librechat-data-provider';
+import { ContentTypes, SystemRoles } from 'librechat-data-provider';
 import type { TAttachment, TMessageContentParts } from 'librechat-data-provider';
 import { fireEvent, render, screen } from '@testing-library/react';
 import ContentParts from '../ContentParts';
 
 jest.mock('~/hooks', () => ({
-  useLocalize: () => (key: string, values?: Record<string | number, string>) => {
+  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),\n  useLocalize: () => (key: string, values?: Record<string | number, string>) => {
     if (key === 'com_ui_used_n_tools') {
       return `Used ${values?.[0]} tools`;
     }
@@ -166,6 +166,24 @@ describe('ContentParts integration: MCP image hoist and grouping', () => {
     isSubmitting: false,
     isLatestMessage: true,
   };
+
+  it('groups a single tool call for managed users and keeps attachments visible', () => {
+    mockRole = SystemRoles.USER;
+    const content = [makeMcpToolCall('t1')];
+    const attachments = [imageAttachment('t1', 'a.png')];
+
+    renderContentParts({
+      ...baseProps,
+      content,
+      attachments,
+    });
+
+    const button = screen.getByRole('button', { name: 'Work completed' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    const groups = screen.getAllByTestId('attachment-group');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].getAttribute('data-count')).toBe('1');
+  });
 
   it('groups 2+ MCP tool calls and hoists their attachments outside the collapsible', () => {
     const content = [makeMcpToolCall('t1'), makeMcpToolCall('t2')];
