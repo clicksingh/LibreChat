@@ -24,4 +24,4 @@ exec docker run --rm --network host \
   "${MOUNTS[@]}" \
   -e PW_CHROMIUM="${CHROME}" \
   "${IMAGE}" \
-  bash -c "cd '${WORKTREE}' && if [ -x './node_modules/.bin/playwright' ]; then PW='./node_modules/.bin/playwright'; else PW='node node_modules/playwright/cli.js'; fi; PW_CHROMIUM='${CHROME}' ${PW} test $*"
+  bash -c "cd '${WORKTREE}' && if [ -x './node_modules/.bin/playwright' ]; then PW_CHROMIUM='${CHROME}' ./node_modules/.bin/playwright test $*; else PW_CHROMIUM='${CHROME}' node node_modules/playwright/cli.js test $*; fi"
