@@ -231,8 +231,8 @@ export default function ToolCallGroup({
       : localize('com_ui_running_n_agents', { 0: String(count) });
   const groupLabel = isManagedUser
     ? isSubmitting && !allCompleted
-      ? 'Working…'
-      : 'Work completed'
+      ? localize('com_ui_working')
+      : localize('com_ui_work_completed')
     : allSubagents
       ? getSubagentLabel()
       : localize('com_ui_used_n_tools', { 0: String(count) });
