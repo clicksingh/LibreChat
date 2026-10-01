@@ -22,7 +22,10 @@ function isGroupableToolCall(part: TMessageContentParts): boolean {
   return true;
 }
 
-export function groupSequentialToolCalls(\n  parts: PartWithIndex[],\n  minGroupSize = 2,\n): GroupedPart[] {
+export function groupSequentialToolCalls(
+  parts: PartWithIndex[],
+  minGroupSize = 2,
+): GroupedPart[] {
   const result: GroupedPart[] = [];
   let currentGroup: PartWithIndex[] = [];
 
