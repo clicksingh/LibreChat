@@ -274,13 +274,13 @@ Paths starting with "skills/" write skill files:
 
 For SKILL.md, frontmatter name must match {skillName}; create skills/{newName}/SKILL.md to rename. Keep large artifacts in bundled files (references/template.html) and have SKILL.md point to them.
 
-Non-skills paths target the code-execution sandbox when enabled. Working files persist privately across calls. Put final user-facing deliverables under outputs/ so they are published as downloads; keep sources, dependencies, renders, and temporary files elsewhere.`;
+Non-skills paths target the code-execution sandbox when enabled. Working files persist across calls. Publication follows the sandbox's returned artifact file list, not the path alone. Use outputs/ for final user-facing deliverables and keep sources, dependencies, renders, and temporary files organized elsewhere.`;
 
 const CODE_CREATE_FILE_DESCRIPTION = `Create a new file, or overwrite an existing file with explicit intent.
 
 Use for new files and full rewrites where the change is larger than half the file. Requires overwrite: true to replace existing files. Refuses otherwise.
 
-Targets code-execution sandbox paths, relative to your working directory. Files persist across later calls. Put final user-facing deliverables under outputs/ so they are published as downloads; keep scratch/source/dependency files outside outputs/.`;
+Targets code-execution sandbox paths, relative to your working directory. Files persist across later calls. Publication follows the sandbox's returned artifact file list, not the path alone. Use outputs/ for final user-facing deliverables and keep scratch/source/dependency files outside outputs/.`;
 
 const SKILL_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an existing file.
 
@@ -288,13 +288,13 @@ Use for small, precise changes. Each old_text must match exactly one location. T
 
 For skills/{skillName}/SKILL.md, edit description, title, or body content, but keep YAML frontmatter name equal to {skillName}. edit_file cannot rename skills; create a new skills/{newName}/SKILL.md for a different skill name. Keep SKILL.md concise; move large templates, HTML/CSS/JS dashboards, examples, schemas, and long docs into references/, scripts/, assets/, or templates/ files and point to them from SKILL.md.
 
-Paths starting with "skills/" target the skill file system. When code execution is enabled, non-skills paths target the persistent sandbox. For user-facing final deliverables, edit the file under outputs/; working files elsewhere remain private.`;
+Paths starting with "skills/" target the skill file system. When code execution is enabled, non-skills paths target the persistent sandbox. For non-skill files, publication follows the sandbox's returned artifact file list. Use outputs/ for final user-facing deliverables.`;
 
 const CODE_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an existing file.
 
 Use for small, precise changes. Each old_text must match exactly one location. Tries exact match first; falls back to whitespace-tolerant matching if needed. Reports which matching strategy was used. Returns a unified diff.
 
-Targets persistent code-execution sandbox paths. Final user-facing deliverables belong under outputs/; edits elsewhere remain private working state.`;
+Targets persistent code-execution sandbox paths. Publication follows the sandbox's returned artifact file list. Use outputs/ for final user-facing deliverables and keep other files as working state.`;
 
 const SKILL_CREATE_FILE_DEF: LCTool = Object.freeze({
   name: CREATE_FILE_TOOL_NAME,
