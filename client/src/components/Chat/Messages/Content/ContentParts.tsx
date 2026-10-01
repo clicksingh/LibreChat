@@ -306,7 +306,7 @@ const ContentParts = memo(function ContentParts({
 
   const groupedParts = useMemo(
     () =>
-      groupSequentialToolCalls(sequentialParts, isManagedUser ? 1 : 2).map((group) => {
+      // Managed users get one compact work row even for a single tool; admins keep the 2+ grouping threshold.\n      groupSequentialToolCalls(sequentialParts, isManagedUser ? 1 : 2).map((group) => {
         if (group.type === 'single') {
           return group;
         }
