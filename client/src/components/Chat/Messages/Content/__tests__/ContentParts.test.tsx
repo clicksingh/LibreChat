@@ -9,6 +9,10 @@ jest.mock('~/utils', () => ({
     parts.map((p) => ({ type: 'single' as const, part: p })),
 }));
 
+jest.mock('~/hooks', () => ({
+  useAuthContext: () => ({ user: { id: 'test-user', role: 'ADMIN' } }),
+}));
+
 jest.mock('~/Providers', () => ({
   MessageContext: {
     Provider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
