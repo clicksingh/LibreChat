@@ -323,6 +323,52 @@ const ContentParts = memo(function ContentParts({
     [sequentialParts, attachmentMap, fallbackScope, isManagedUser],
   );
 
+  const renderManagedPartSequence = useCallback(
+    (parts: PartWithIndex[]) => {
+      const groups = groupSequentialToolCalls(parts, 1).map((group) => {
+        if (group.type === 'single') {
+          return group;
+        }
+        const groupId = getToolGroupId(group.parts, fallbackScope);
+        const groupAttachments = group.parts.flatMap(
+          ({ part }) => attachmentMap[getToolCallId(part)] ?? [],
+        );
+        return { ...group, groupId, groupAttachments };
+      });
+
+      return groups.map((group) => {
+        if (group.type === 'single') {
+          const { part, idx } = group.part;
+          return renderPart(part, idx, idx === (content?.length ?? 0) - 1);
+        }
+        const { groupId } = group;
+        const lastContentIdx = (content?.length ?? 0) - 1;
+        return (
+          <ToolCallGroup
+            key={`parallel-tool-group-${groupId}`}
+            parts={group.parts}
+            isSubmitting={effectiveIsSubmitting}
+            isLast={group.parts.some((p) => p.idx === lastContentIdx)}
+            renderPart={renderGroupedPart}
+            lastContentIdx={lastContentIdx}
+            groupAttachments={group.groupAttachments}
+            initialExpansionState={toolGroupExpansionRef.current.get(groupId)}
+            onExpansionChange={(state) => handleGroupExpansionChange(groupId, state)}
+          />
+        );
+      });
+    },
+    [
+      attachmentMap,
+      content,
+      effectiveIsSubmitting,
+      fallbackScope,
+      handleGroupExpansionChange,
+      renderGroupedPart,
+      renderPart,
+    ],
+  );
+
   // Early return: no content to render AND no pending skill cards
   if (!content && !hasPendingSkills) {
     return null;
@@ -388,6 +434,7 @@ const ContentParts = memo(function ContentParts({
           searchResults={searchResults}
           isSubmitting={effectiveIsSubmitting}
           renderPart={renderPart}
+          renderPartSequence={isManagedUser ? renderManagedPartSequence : undefined}
         />
       </>
     );
