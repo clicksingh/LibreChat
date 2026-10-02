@@ -57,7 +57,7 @@ test.describe('CBHR managed regular user', () => {
       await expect(page.getByText('UltraSearch', { exact: true })).toHaveCount(0);
 
       // Hiding tool controls must not hide the document/file entry point.
-      await expect(page.getByRole('button', { name: /attach file options/i })).toBeVisible();
+      await expect(page.getByRole('button', { name: /attach files/i })).toBeVisible();
 
       // Send through the real composer and inspect the actual request-state surface.
       const textarea = page.locator('textarea[data-testid="message-input"], textarea').first();
