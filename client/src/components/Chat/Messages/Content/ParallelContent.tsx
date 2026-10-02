@@ -142,6 +142,7 @@ type ParallelColumnsProps = {
   lastContentIdx: number;
   conversationId?: string | null;
   renderPart: (part: TMessageContentParts, idx: number, isLastPart: boolean) => React.ReactNode;
+  renderPartSequence?: (parts: PartWithIndex[]) => React.ReactNode;
 };
 
 /**
@@ -156,6 +157,7 @@ export const ParallelColumns = memo(function ParallelColumns({
   isSubmitting,
   lastContentIdx,
   renderPart,
+  renderPartSequence,
 }: ParallelColumnsProps) {
   return (
     <div className={cn('flex w-full flex-col gap-3 md:flex-row', 'sibling-content-group')}>
@@ -179,6 +181,8 @@ export const ParallelColumns = memo(function ParallelColumns({
               <Container>
                 <EmptyText />
               </Container>
+            ) : renderPartSequence ? (
+              renderPartSequence(columnParts)
             ) : (
               columnParts.map(({ part, idx }) => {
                 const isLastInColumn = idx === columnParts[columnParts.length - 1]?.idx;
@@ -202,6 +206,7 @@ type ParallelContentRendererProps = {
   searchResults?: { [key: string]: SearchResultData };
   isSubmitting: boolean;
   renderPart: (part: TMessageContentParts, idx: number, isLastPart: boolean) => React.ReactNode;
+  renderPartSequence?: (parts: PartWithIndex[]) => React.ReactNode;
 };
 
 /**
@@ -217,6 +222,7 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
   searchResults,
   isSubmitting,
   renderPart,
+  renderPartSequence,
 }: ParallelContentRendererProps) {
   const { parallelSections, sequentialParts } = useMemo(
     () => groupParallelContent(content),
@@ -249,7 +255,9 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
       <Sources messageId={messageId} conversationId={conversationId || undefined} />
 
       {/* Sequential content BEFORE parallel sections */}
-      {before.map(({ part, idx }) => renderPart(part, idx, false))}
+      {renderPartSequence
+        ? renderPartSequence(before)
+        : before.map(({ part, idx }) => renderPart(part, idx, false))}
 
       {/* Parallel sections - each group renders as columns */}
       {parallelSections.map(({ groupId, columns }) => (
@@ -260,6 +268,7 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
           messageId={messageId}
           createdAt={createdAt}
           renderPart={renderPart}
+          renderPartSequence={renderPartSequence}
           isSubmitting={isSubmitting}
           conversationId={conversationId}
           lastContentIdx={lastContentIdx}
@@ -267,7 +276,9 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
       ))}
 
       {/* Sequential content AFTER parallel sections */}
-      {after.map(({ part, idx }) => renderPart(part, idx, idx === lastContentIdx))}
+      {renderPartSequence
+        ? renderPartSequence(after)
+        : after.map(({ part, idx }) => renderPart(part, idx, idx === lastContentIdx))}
     </SearchContext.Provider>
   );
 });
