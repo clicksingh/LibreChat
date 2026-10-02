@@ -114,6 +114,16 @@ jest.mock('../Container', () => ({
   default: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
 
+jest.mock('../SiblingHeader', () => ({
+  __esModule: true,
+  default: () => <div data-testid="sibling-header" />,
+}));
+
+jest.mock('~/components/Web/Sources', () => ({
+  __esModule: true,
+  default: () => <div data-testid="sources" />,
+}));
+
 jest.mock('~/utils', () => {
   const actual = jest.requireActual('~/utils');
   return {
@@ -196,6 +206,24 @@ describe('ContentParts integration: MCP image hoist and grouping', () => {
     const groups = screen.getAllByTestId('attachment-group');
     expect(groups).toHaveLength(1);
     expect(groups[0].getAttribute('data-count')).toBe('1');
+  });
+
+  it('groups managed tool activity before, inside, and after parallel sections', () => {
+    mockRole = SystemRoles.USER;
+    const before = makeMcpToolCall('t-before');
+    const inside = {
+      ...makeMcpToolCall('t-inside'),
+      groupId: 1,
+      agentId: 'agent-a',
+    } as unknown as TMessageContentParts;
+    const after = makeMcpToolCall('t-after');
+
+    renderContentParts({
+      ...baseProps,
+      content: [before, inside, after],
+    });
+
+    expect(screen.getAllByRole('button', { name: 'Work completed' })).toHaveLength(3);
   });
 
   it('groups 2+ MCP tool calls and hoists their attachments outside the collapsible', () => {
