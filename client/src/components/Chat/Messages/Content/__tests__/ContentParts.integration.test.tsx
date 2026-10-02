@@ -13,6 +13,12 @@ jest.mock('~/hooks', () => ({
     if (key === 'com_ui_used_n_tools') {
       return `Used ${values?.[0]} tools`;
     }
+    if (key === 'com_ui_working') {
+      return 'Working…';
+    }
+    if (key === 'com_ui_work_completed') {
+      return 'Work completed';
+    }
     return key;
   },
   useExpandCollapse: (isExpanded: boolean) => ({
