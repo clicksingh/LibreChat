@@ -60,6 +60,8 @@ export * from './skills';
 export * from './favorites';
 /* Agent Plugins */
 export * from './plugins';
+/* Xpose */
+export * from './xpose';
 /* Endpoints */
 export * from './endpoints';
 /* Files */
