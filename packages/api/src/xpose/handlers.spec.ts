@@ -58,7 +58,7 @@ function mockReq(overrides = {}) {
     query: {},
     body: { code: 'ABC-123' },
     ...overrides,
-  } as Partial<ServerRequest> as ServerRequest;
+  } as unknown as ServerRequest;
 }
 
 function createHandlers(overrides = {}) {
