@@ -1,0 +1,28 @@
+name: CBHR AI Host Probe
+on:
+  push:
+    branches:
+      - agent/cbhr-ai-host-probe-20261004
+jobs:
+  probe:
+    runs-on: self-hosted
+    timeout-minutes: 3
+    steps:
+      - name: Identify host read-only
+        shell: bash
+        run: |
+          set -eu
+          echo "HOST=$(hostname)"
+          echo "USER=$(id -un)"
+          uname -a
+          if [ -d /opt/cbhr-ai/LibreChat ]; then
+            echo "CBHR_AI_HOST=YES"
+            git -C /opt/cbhr-ai/LibreChat rev-parse HEAD || true
+            git -C /opt/cbhr-ai/LibreChat status --short || true
+            docker ps --filter name=LibreChat --format 'LIBRECHAT={{.Image}} {{.Status}}' || true
+            if [ -f /opt/cbhr-ai/LibreChat/.env ]; then
+              grep -E '^(XPOSE_PAIRING_|XPOSE_)' /opt/cbhr-ai/LibreChat/.env | sed 's/=.*$/=<redacted>/' || true
+            fi
+          else
+            echo "CBHR_AI_HOST=NO"
+          fi
