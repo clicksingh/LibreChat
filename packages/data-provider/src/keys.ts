@@ -94,6 +94,7 @@ export const DynamicQueryKeys = {
 } as const;
 
 export enum MutationKeys {
+  claimXposeDevice = 'claimXposeDevice',
   updateLangfuseConnection = 'updateLangfuseConnection',
   testLangfuseConnection = 'testLangfuseConnection',
   createAgentApiKey = 'createAgentApiKey',

@@ -940,3 +940,13 @@ export type TLangfuseConnectionTestErrorCode =
 export type TLangfuseConnectionTestResponse =
   | { success: true }
   | { success: false; errorCode: TLangfuseConnectionTestErrorCode };
+
+export type TXposeDeviceClaimRequest = {
+  code: string;
+};
+
+export type TXposeDeviceClaimResponse = {
+  ok: true;
+  state?: string;
+  deviceId?: string;
+};

@@ -4,6 +4,7 @@ export * from './Endpoints';
 export * from './Skills';
 export * from './Files';
 export * from './Langfuse';
+export * from './Xpose';
 /* Memories */
 export * from './Memories';
 export * from './Messages';

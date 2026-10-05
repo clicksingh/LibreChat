@@ -19,6 +19,7 @@ import DisplayUsernameMessages from '../SettingsTabs/Account/DisplayUsernameMess
 import ConversationModeSwitch from '../SettingsTabs/Speech/ConversationModeSwitch';
 import EnableTwoFactorItem from '../SettingsTabs/Account/TwoFactorAuthentication';
 import LangfuseConnection from '../SettingsTabs/Integrations/LangfuseConnection';
+import { Devices } from '../SettingsTabs/Connections';
 import ImportConversations from '../SettingsTabs/Data/ImportConversations';
 import { toggleControl, ThemeSetting, LangSetting } from './controls';
 import BackupCodesItem from '../SettingsTabs/Account/BackupCodesItem';
@@ -45,7 +46,7 @@ import MemoryToggle from './MemoryToggle';
 import { TTSEndpoints } from '~/common';
 import store from '~/store';
 
-const { GENERAL, CHAT, SPEECH, DATA, ACCOUNT, ABOUT } = SettingsTabValues;
+const { GENERAL, CHAT, SPEECH, CONNECTIONS, DATA, ACCOUNT, ABOUT } = SettingsTabValues;
 
 export const registry: SettingEntry[] = [
   // General · Appearance
@@ -549,6 +550,16 @@ export const registry: SettingEntry[] = [
     show: (ctx) => ctx.langfuseConnectionAccess,
     Component: LangfuseConnection,
   },
+  // Connections · Devices
+  {
+    id: 'xposeDevices',
+    tab: CONNECTIONS,
+    section: 'devices',
+    labelKey: 'com_ui_xpose_devices_title',
+    keywords: ['xpose', 'device', 'pair', 'pairing', 'connection'],
+    Component: Devices,
+  },
+
   // Data controls · Danger zone
   {
     id: 'deleteCache',

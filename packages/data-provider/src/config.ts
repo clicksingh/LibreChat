@@ -2788,6 +2788,10 @@ export enum SettingsTabValues {
    */
   LANGFUSE = 'langfuse',
   /**
+   * Tab for Connections Settings
+   */
+  CONNECTIONS = 'connections',
+  /**
    * Tab for Beta Features
    */
   BETA = 'beta',

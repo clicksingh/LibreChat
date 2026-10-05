@@ -87,4 +87,15 @@ describe('settings registry', () => {
       ).toBe(true);
     });
   });
+
+  describe('Xpose device pairing', () => {
+    const xposeEntry = registry.find((entry) => entry.id === 'xposeDevices');
+
+    it('places Xpose device pairing under Connections > Devices', () => {
+      expect(xposeEntry).toMatchObject({
+        tab: SettingsTabValues.CONNECTIONS,
+        section: 'devices',
+      });
+    });
+  });
 });
