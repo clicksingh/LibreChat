@@ -83,7 +83,14 @@ describe('createXposePairingHandlers', () => {
   };
 
   it('rejects a missing or malformed authenticated email without contacting upstream', async () => {
-    const users = [undefined, {}, { email: '' }, { email: 'not-an-email' }, { email: 'a@b\n@c' }, { email: `${'a'.repeat(200)}@example.com` }];
+    const users = [
+      undefined,
+      {},
+      { email: '' },
+      { email: 'not-an-email' },
+      { email: 'a@b\n@c' },
+      { email: `${'a'.repeat(200)}@example.com` },
+    ];
     for (const user of users) {
       const fetchImpl = upstreamFetch(200, successBody);
       const res = mockRes();
@@ -113,7 +120,14 @@ describe('createXposePairingHandlers', () => {
   });
 
   it('rejects a missing, empty, oversized, or newline pairing code', async () => {
-    const bodies = [{}, { code: '' }, { code: 'A'.repeat(33) }, { code: 'AB\r\nCD' }, { code: 42 }, { code: 'AB\n' }];
+    const bodies = [
+      {},
+      { code: '' },
+      { code: 'A'.repeat(33) },
+      { code: 'AB\r\nCD' },
+      { code: 42 },
+      { code: 'AB\n' },
+    ];
     for (const body of bodies) {
       const fetchImpl = upstreamFetch(200, successBody);
       const res = mockRes();
@@ -172,18 +186,61 @@ describe('createXposePairingHandlers', () => {
   });
 
   it('maps upstream error statuses conservatively and preserves bounded error codes', async () => {
-    const cases: Array<{ status: number; body: unknown; expectedStatus: number; expectedCode: string }> = [
-      { status: 404, body: { ok: false, code: 'pairing_not_found' }, expectedStatus: 404, expectedCode: 'pairing_not_found' },
-      { status: 400, body: { ok: false, code: 'pairing_code_invalid' }, expectedStatus: 400, expectedCode: 'pairing_code_invalid' },
-      { status: 429, body: { ok: false, code: 'pairing_rate_limited' }, expectedStatus: 429, expectedCode: 'pairing_rate_limited' },
-      { status: 500, body: { ok: false, code: 'pairing_storage_unavailable' }, expectedStatus: 502, expectedCode: 'pairing_storage_unavailable' },
-      { status: 200, body: { ok: false, code: 'pairing_not_claimed' }, expectedStatus: 502, expectedCode: 'pairing_not_claimed' },
-      { status: 418, body: 'not json', expectedStatus: 502, expectedCode: 'xpose_pairing_upstream_error' },
-      { status: 502, body: { ok: false, code: 'has spaces and is not bounded' }, expectedStatus: 502, expectedCode: 'xpose_pairing_upstream_error' },
+    const cases: Array<{
+      status: number;
+      body: unknown;
+      expectedStatus: number;
+      expectedCode: string;
+    }> = [
+      {
+        status: 404,
+        body: { ok: false, code: 'pairing_not_found' },
+        expectedStatus: 404,
+        expectedCode: 'pairing_not_found',
+      },
+      {
+        status: 400,
+        body: { ok: false, code: 'pairing_code_invalid' },
+        expectedStatus: 400,
+        expectedCode: 'pairing_code_invalid',
+      },
+      {
+        status: 429,
+        body: { ok: false, code: 'pairing_rate_limited' },
+        expectedStatus: 429,
+        expectedCode: 'pairing_rate_limited',
+      },
+      {
+        status: 500,
+        body: { ok: false, code: 'pairing_storage_unavailable' },
+        expectedStatus: 502,
+        expectedCode: 'pairing_storage_unavailable',
+      },
+      {
+        status: 200,
+        body: { ok: false, code: 'pairing_not_claimed' },
+        expectedStatus: 502,
+        expectedCode: 'pairing_not_claimed',
+      },
+      {
+        status: 418,
+        body: 'not json',
+        expectedStatus: 502,
+        expectedCode: 'xpose_pairing_upstream_error',
+      },
+      {
+        status: 502,
+        body: { ok: false, code: 'has spaces and is not bounded' },
+        expectedStatus: 502,
+        expectedCode: 'xpose_pairing_upstream_error',
+      },
     ];
     for (const testCase of cases) {
       const res = mockRes();
-      await createHandlers({ fetch: upstreamFetch(testCase.status, testCase.body) }).claimDevice(mockReq(), res);
+      await createHandlers({ fetch: upstreamFetch(testCase.status, testCase.body) }).claimDevice(
+        mockReq(),
+        res,
+      );
       expect(res.statusCode).toBe(testCase.expectedStatus);
       expect(res.body).toEqual({ ok: false, code: testCase.expectedCode });
     }
@@ -199,7 +256,10 @@ describe('createXposePairingHandlers', () => {
     expect(timeoutRes.body).toEqual({ ok: false, code: 'xpose_pairing_unavailable' });
 
     const networkRes = mockRes();
-    await createHandlers({ fetch: failingFetch(new Error('econnrefused')) }).claimDevice(mockReq(), networkRes);
+    await createHandlers({ fetch: failingFetch(new Error('econnrefused')) }).claimDevice(
+      mockReq(),
+      networkRes,
+    );
     expect(networkRes.statusCode).toBe(502);
     expect(networkRes.body).toEqual({ ok: false, code: 'xpose_pairing_unavailable' });
   });

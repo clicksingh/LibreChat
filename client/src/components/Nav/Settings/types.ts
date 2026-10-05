@@ -1,6 +1,6 @@
 import { createElement } from 'react';
-import { MessageSquare, Info, MonitorSmartphone } from 'lucide-react';
 import { SettingsTabValues } from 'librechat-data-provider';
+import { MessageSquare, Info, MonitorSmartphone } from 'lucide-react';
 import { GearIcon, DataIcon, UserIcon, SpeechIcon } from '@librechat/client';
 import type { ComponentType, ReactNode } from 'react';
 import type { TranslationKeys } from '~/hooks';

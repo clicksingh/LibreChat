@@ -1,7 +1,9 @@
 const express = require('express');
 const request = require('supertest');
 
-const mockClaimDevice = jest.fn((_req, res) => res.status(200).json({ ok: true, state: 'claimed' }));
+const mockClaimDevice = jest.fn((_req, res) =>
+  res.status(200).json({ ok: true, state: 'claimed' }),
+);
 
 jest.mock('@librechat/api', () => ({
   createToolFavoritesHandlers: () => ({

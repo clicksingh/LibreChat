@@ -1,11 +1,10 @@
 import React from 'react';
 import '@testing-library/jest-dom/extend-expect';
+import { useClaimXposeDeviceMutation } from '~/data-provider/Xpose';
 import { render, fireEvent } from 'test/layout-test-utils';
-import { useClaimXposeDeviceMutation } from '~/data-provider';
 import Devices from '../Devices';
 
-jest.mock('~/data-provider', () => ({
-  ...jest.requireActual('~/data-provider'),
+jest.mock('~/data-provider/Xpose', () => ({
   useClaimXposeDeviceMutation: jest.fn(),
 }));
 

@@ -55,10 +55,16 @@ describe('loadXposePairingConfig', () => {
   it('fails closed when any env var is missing or invalid', () => {
     expect(loadXposePairingConfig({}).ok).toBe(false);
     expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_URL: '' }).ok).toBe(false);
-    expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_URL: 'http://xpose.example.com' }).ok).toBe(false);
+    expect(
+      loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_URL: 'http://xpose.example.com' }).ok,
+    ).toBe(false);
     expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_URL: 'not-a-url' }).ok).toBe(false);
-    expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_PORTAL_SECRET: 'QUJD' }).ok).toBe(false);
-    expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_FLEET_ID: 'bad fleet!' }).ok).toBe(false);
+    expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_PORTAL_SECRET: 'QUJD' }).ok).toBe(
+      false,
+    );
+    expect(loadXposePairingConfig({ ...VALID_ENV, XPOSE_PAIRING_FLEET_ID: 'bad fleet!' }).ok).toBe(
+      false,
+    );
   });
 
   it('normalizes to the exact portal-claim pathname and exposes decoded bytes', () => {
@@ -86,8 +92,12 @@ describe('signPortalClaim', () => {
     }
     const bodyHash = hashPortalClaimBody(BODY_TEXT);
     expect(bodyHash).toBe(BODY_HASH);
-    expect(buildPortalClaimCanonicalString({ timestamp: TIMESTAMP, nonce: NONCE, bodyHash })).toBe(CANONICAL);
-    expect(signPortalClaim({ secret, timestamp: TIMESTAMP, nonce: NONCE, bodyText: BODY_TEXT })).toEqual({
+    expect(buildPortalClaimCanonicalString({ timestamp: TIMESTAMP, nonce: NONCE, bodyHash })).toBe(
+      CANONICAL,
+    );
+    expect(
+      signPortalClaim({ secret, timestamp: TIMESTAMP, nonce: NONCE, bodyText: BODY_TEXT }),
+    ).toEqual({
       bodyHash: BODY_HASH,
       signature: SIGNATURE,
     });
@@ -127,7 +137,11 @@ describe('requestPortalClaim', () => {
 
     const result = await requestPortalClaim(requireConfig(), BODY, { ...deps, fetch: fetchImpl });
 
-    expect(result).toEqual({ ok: true, status: 200, body: { ok: true, state: 'claimed', deviceId: 'dev-1' } });
+    expect(result).toEqual({
+      ok: true,
+      status: 200,
+      body: { ok: true, state: 'claimed', deviceId: 'dev-1' },
+    });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('https://xpose.example.com/pairing/portal-claim');
     expect(calls[0].init.method).toBe('POST');
@@ -140,7 +154,9 @@ describe('requestPortalClaim', () => {
   });
 
   it('tags network failures as unreachable', async () => {
-    const fetchImpl = jest.fn().mockRejectedValue(new Error('econnrefused')) as unknown as typeof fetch;
+    const fetchImpl = jest
+      .fn()
+      .mockRejectedValue(new Error('econnrefused')) as unknown as typeof fetch;
     const result = await requestPortalClaim(requireConfig(), BODY, { ...deps, fetch: fetchImpl });
     expect(result).toEqual({ ok: false, reason: 'unreachable' });
   });
@@ -155,7 +171,12 @@ describe('requestPortalClaim', () => {
         });
       })) as unknown as typeof fetch;
 
-    const result = await requestPortalClaim(requireConfig(), BODY, { ...deps, fetch: fetchImpl }, 5);
+    const result = await requestPortalClaim(
+      requireConfig(),
+      BODY,
+      { ...deps, fetch: fetchImpl },
+      5,
+    );
     expect(result).toEqual({ ok: false, reason: 'timeout' });
   });
 });
