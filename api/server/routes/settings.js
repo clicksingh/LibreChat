@@ -1,5 +1,5 @@
 const express = require('express');
-const { createToolFavoritesHandlers } = require('@librechat/api');
+const { createToolFavoritesHandlers, createXposePairingHandlers } = require('@librechat/api');
 const {
   updateFavoritesController,
   getFavoritesController,
@@ -19,6 +19,8 @@ const toolFavorites = createToolFavoritesHandlers({
   removeToolFavorite,
 });
 
+const xposePairing = createXposePairingHandlers();
+
 router.get('/favorites/tools', requireJwtAuth, toolFavorites.listToolFavorites);
 router.put('/favorites/tools/:itemType/:itemId', requireJwtAuth, toolFavorites.addToolFavorite);
 router.delete(
@@ -30,5 +32,6 @@ router.get('/favorites', requireJwtAuth, getFavoritesController);
 router.post('/favorites', requireJwtAuth, updateFavoritesController);
 router.get('/skills/active', requireJwtAuth, getSkillStatesController);
 router.post('/skills/active', requireJwtAuth, updateSkillStatesController);
+router.post('/xpose/devices/claim', requireJwtAuth, xposePairing.claimDevice);
 
 module.exports = router;

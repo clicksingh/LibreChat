@@ -38,6 +38,7 @@ import AdminPanel from '../SettingsTabs/General/AdminPanel';
 import SharedLinks from '../SettingsTabs/Data/SharedLinks';
 import { showThinkingAtom } from '~/store/showThinking';
 import ProviderKeys from '../SettingsTabs/ProviderKeys';
+import { Devices } from '../SettingsTabs/Connections';
 import Avatar from '../SettingsTabs/Account/Avatar';
 import About from '../SettingsTabs/About/About';
 import ApiKeys from '../SettingsTabs/ApiKeys';
@@ -45,7 +46,7 @@ import MemoryToggle from './MemoryToggle';
 import { TTSEndpoints } from '~/common';
 import store from '~/store';
 
-const { GENERAL, CHAT, SPEECH, DATA, ACCOUNT, ABOUT } = SettingsTabValues;
+const { GENERAL, CHAT, SPEECH, CONNECTIONS, DATA, ACCOUNT, ABOUT } = SettingsTabValues;
 
 export const registry: SettingEntry[] = [
   // General · Appearance
@@ -549,6 +550,16 @@ export const registry: SettingEntry[] = [
     show: (ctx) => ctx.langfuseConnectionAccess,
     Component: LangfuseConnection,
   },
+  // Connections · Devices
+  {
+    id: 'xposeDevices',
+    tab: CONNECTIONS,
+    section: 'devices',
+    labelKey: 'com_ui_xpose_devices_title',
+    keywords: ['xpose', 'device', 'pair', 'pairing', 'connection'],
+    Component: Devices,
+  },
+
   // Data controls · Danger zone
   {
     id: 'deleteCache',

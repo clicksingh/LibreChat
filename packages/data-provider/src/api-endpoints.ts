@@ -440,6 +440,9 @@ export const skillTree = ({ skillId, path = '' }: { skillId: string; path?: stri
 /* Skill active states (per-user overrides) */
 export const skillStates = () => `${BASE_URL}/api/user/settings/skills/active`;
 
+/* Xpose device pairing (authenticated user settings) */
+export const xposeDeviceClaim = () => `${BASE_URL}/api/user/settings/xpose/devices/claim`;
+
 /* Langfuse connection (admin) */
 export const adminLangfuseConnection = () => `${BASE_URL}/api/admin/langfuse/connection`;
 export const adminLangfuseConnectionTest = () => `${adminLangfuseConnection()}/test`;

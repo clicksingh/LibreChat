@@ -76,6 +76,12 @@ export function updateSkillStates(
   return request.post(endpoints.skillStates(), { skillStates });
 }
 
+export function claimXposeDevice(
+  payload: t.TXposeDeviceClaimRequest,
+): Promise<t.TXposeDeviceClaimResponse> {
+  return request.post(endpoints.xposeDeviceClaim(), payload);
+}
+
 export function getSharedMessages(shareId: string): Promise<t.TSharedMessagesResponse> {
   return request.get(endpoints.shareMessages(shareId));
 }

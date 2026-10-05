@@ -1,6 +1,6 @@
 import { createElement } from 'react';
-import { MessageSquare, Info } from 'lucide-react';
 import { SettingsTabValues } from 'librechat-data-provider';
+import { MessageSquare, Info, MonitorSmartphone } from 'lucide-react';
 import { GearIcon, DataIcon, UserIcon, SpeechIcon } from '@librechat/client';
 import type { ComponentType, ReactNode } from 'react';
 import type { TranslationKeys } from '~/hooks';
@@ -10,6 +10,7 @@ export type SettingsTab =
   | SettingsTabValues.CHAT
   | SettingsTabValues.SPEECH
   | SettingsTabValues.LANGFUSE
+  | SettingsTabValues.CONNECTIONS
   | SettingsTabValues.DATA
   | SettingsTabValues.ACCOUNT
   | SettingsTabValues.ABOUT;
@@ -30,6 +31,7 @@ export type SectionId =
   | 'data'
   | 'apiKeys'
   | 'langfuse'
+  | 'devices'
   | 'danger'
   | 'profile'
   | 'security'
@@ -134,6 +136,12 @@ export const TABS: TabMeta[] = [
       },
     ],
     show: (ctx) => ctx.langfuseConnectionAccess,
+  },
+  {
+    id: SettingsTabValues.CONNECTIONS,
+    labelKey: 'com_ui_settings_tab_connections',
+    icon: createElement(MonitorSmartphone, { className: 'icon-sm', 'aria-hidden': true }),
+    sections: [{ id: 'devices', labelKey: 'com_ui_settings_section_devices' }],
   },
   {
     id: SettingsTabValues.DATA,
