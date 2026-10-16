@@ -66,6 +66,17 @@ describe('memory config', () => {
     expect(isMemoryAgentEnabled(loaded)).toBe(true);
   });
 
+  it('enables conversation-model memory only with explicit authorization', () => {
+    const enabled = loadMemoryConfig({
+      agent: { enabled: true, useConversationModel: true },
+    });
+    expect(isMemoryAgentEnabled(enabled)).toBe(true);
+    const disabled = loadMemoryConfig({
+      agent: { enabled: false, useConversationModel: true },
+    });
+    expect(isMemoryAgentEnabled(disabled)).toBe(false);
+  });
+
   it('keeps disabled memory disabled even when the agent is explicitly enabled', () => {
     const config: TCustomConfig['memory'] = {
       disabled: true,

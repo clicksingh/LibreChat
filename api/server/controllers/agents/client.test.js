@@ -21,7 +21,7 @@ jest.mock('@librechat/api', () => ({
     if (!config || config.disabled === true) return false;
     const agent = config.agent;
     if (agent?.enabled !== true) return false;
-    return Boolean(agent.id || (agent.provider && agent.model));
+    return Boolean(agent.id || (agent.provider && agent.model) || agent.useConversationModel === true);
   }),
   loadAgent: jest.fn(),
 }));
@@ -2660,6 +2660,43 @@ describe('AgentClient - titleConvo', () => {
           agent: mockAgent,
         }),
         expect.any(Object),
+      );
+    });
+
+    it('uses the selected conversation model and provider for automatic memory', async () => {
+      mockReq.config.memory.agent = {
+        enabled: true,
+        useConversationModel: true,
+      };
+      mockAgent.provider = 'custom/merge-gateway';
+      mockAgent.model = 'glm-5.3-flash';
+      mockAgent.model_parameters.model = 'glm-5.3-flash';
+      mockAgent.tools = ['execute_code', 'some_office_tool'];
+      mockCheckAccess.mockResolvedValue(true);
+      mockInitializeAgent.mockImplementation(async ({ agent }) => agent);
+      mockCreateMemoryProcessor.mockResolvedValue([undefined, jest.fn()]);
+
+      client = new AgentClient(mockOptions);
+      client.conversationId = 'convo-123';
+      client.responseMessageId = 'response-123';
+      await client.useMemory();
+
+      expect(mockLoadAgent).not.toHaveBeenCalled();
+      const memoryAgent = mockInitializeAgent.mock.calls[0][0].agent;
+      expect(memoryAgent.provider).toBe('custom/merge-gateway');
+      expect(memoryAgent.model).toBe('glm-5.3-flash');
+      expect(memoryAgent.tools).toEqual([]);
+      expect(memoryAgent.tool_resources).toBeUndefined();
+      expect(mockAgent.tools).toEqual(['execute_code', 'some_office_tool']);
+      expect(mockCreateMemoryProcessor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            llmConfig: expect.objectContaining({
+              provider: 'custom/merge-gateway',
+              model: 'glm-5.3-flash',
+            }),
+          }),
+        }),
       );
     });
 

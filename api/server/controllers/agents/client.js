@@ -628,7 +628,17 @@ class AgentClient extends BaseClient {
       appConfig?.endpoints?.[EModelEndpoint.agents]?.allowedProviders,
     );
     try {
-      if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
+      if (memoryConfig.agent?.useConversationModel === true) {
+        // Match the model/provider already validated for this chat request.
+        // Memory extraction only receives its own dedicated memory tools.
+        prelimAgent = {
+          ...this.options.agent,
+          tools: [],
+          tool_resources: undefined,
+          model_parameters: { ...this.options.agent.model_parameters },
+          instructions: memoryConfig.agent.instructions,
+        };
+      } else if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
         prelimAgent = await loadAgent({
           req: this.options.req,
           agent_id: memoryConfig.agent.id,
@@ -676,7 +686,7 @@ class AgentClient extends BaseClient {
         endpointOption: {
           endpoint: !isEphemeralAgentId(prelimAgent.id)
             ? EModelEndpoint.agents
-            : memoryConfig.agent?.provider,
+            : prelimAgent.provider,
         },
         codeEnvAvailable: memoryCodeEnvAvailable,
       },

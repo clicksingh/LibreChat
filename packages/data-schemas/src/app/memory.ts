@@ -7,7 +7,8 @@ import logger from '~/config/winston';
 const hasValidAgent = (agent: TMemoryConfig['agent']) =>
   !!agent &&
   (('id' in agent && !!agent.id) ||
-    ('provider' in agent && 'model' in agent && !!agent.provider && !!agent.model));
+    ('provider' in agent && 'model' in agent && !!agent.provider && !!agent.model) ||
+    ('useConversationModel' in agent && agent.useConversationModel === true));
 
 const isDisabled = (config?: TMemoryConfig | TCustomConfig['memory']) =>
   !config || config.disabled === true;
