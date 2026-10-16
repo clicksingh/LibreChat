@@ -213,6 +213,15 @@ router.get('/personal/files', async (req, res) => {
   }
 });
 
+router.get('/personal/files/:sessionId/:fileId/download', async (req, res) => {
+  try {
+    await proxy.downloadFile(req, res, 'user', undefined, req.params.sessionId, req.params.fileId);
+  } catch (error) {
+    if (res.headersSent) return res.destroy(error);
+    proxy.handleProxyError(res, error, 'personal download failed');
+  }
+});
+
 router.get('/personal/trash', async (req, res) => {
   try {
     res.json(await proxy.listTrash(req, 'user', undefined, req.query.cursor, req.query.limit));
@@ -291,6 +300,17 @@ router.get('/:id/files', async (req, res) => {
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     proxy.handleProxyError(res, error, 'project file listing failed');
+  }
+});
+
+router.get('/:id/files/:sessionId/:fileId/download', async (req, res) => {
+  try {
+    req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
+    await proxy.downloadFile(req, res, 'project', req.params.id, req.params.sessionId, req.params.fileId);
+  } catch (error) {
+    if (res.headersSent) return res.destroy(error);
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    proxy.handleProxyError(res, error, 'project download failed');
   }
 });
 

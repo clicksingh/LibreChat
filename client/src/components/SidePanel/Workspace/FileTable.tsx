@@ -1,4 +1,5 @@
 import { Button, TrashIcon } from '@librechat/client';
+import { Download } from 'lucide-react';
 import { formatDate } from '~/utils';
 import { formatWorkspaceBytes } from './formatBytes';
 import type { TWorkspaceFileEntry } from 'librechat-data-provider';
@@ -11,12 +12,16 @@ import type { TWorkspaceFileEntry } from 'librechat-data-provider';
 export default function FileTable({
   items,
   onTrash,
+  onDownload,
+  downloadingPath,
   hasMore,
   onLoadMore,
   isLoadingMore,
 }: {
   items: TWorkspaceFileEntry[];
   onTrash: (item: TWorkspaceFileEntry) => void;
+  onDownload: (item: TWorkspaceFileEntry) => void;
+  downloadingPath: string | null;
   hasMore: boolean;
   onLoadMore: () => void;
   isLoadingMore: boolean;
@@ -53,15 +58,27 @@ export default function FileTable({
                 {formatDate(item.modified)}
               </td>
               <td className="py-1.5 text-right">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Move ${item.name} to trash`}
-                  title="Move to trash"
-                  onClick={() => onTrash(item)}
-                >
-                  <TrashIcon />
-                </Button>
+                <div className="flex items-center justify-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={'Download ' + item.name}
+                    title="Download"
+                    disabled={downloadingPath !== null}
+                    onClick={() => onDownload(item)}
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={'Move ' + item.name + ' to trash'}
+                    title="Move to trash"
+                    onClick={() => onTrash(item)}
+                  >
+                    <TrashIcon />
+                  </Button>
+                </div>
               </td>
             </tr>
           ))}

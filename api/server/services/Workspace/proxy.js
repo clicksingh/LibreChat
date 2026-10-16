@@ -11,6 +11,10 @@ const { createAxiosInstance, logAxiosError, getCodeApiAuthHeaders } = require('@
 
 const axios = createAxiosInstance();
 
+// CodeAPI session/file identifiers are opaque storage keys, never paths.
+const safeFileKey = (key) =>
+  typeof key === 'string' && /^[A-Za-z0-9_.-]{1,180}$/.test(key) && key !== '.' && key !== '..';
+
 /**
  * @param {Express.Request} req
  * @param {'user'|'project'} kind
@@ -57,6 +61,48 @@ async function listFiles(req, kind, id, cursor, limit) {
     ...(cursor ? { cursor } : {}),
     ...(limit ? { limit } : {}),
   });
+}
+
+/**
+ * Stream a single listed workspace file from CodeAPI through the same authenticated
+ * boundary as the file browser. The caller must validate project ACL membership and
+ * set req.workspaceContext before requesting any project file.
+ */
+async function downloadFile(req, res, kind, id, sessionId, fileId) {
+  if (!safeFileKey(sessionId) || !safeFileKey(fileId)) {
+    const error = new Error('invalid file identifier');
+    error.status = 400;
+    throw error;
+  }
+  const baseURL = getCodeBaseURL();
+  const authHeaders = await getCodeApiAuthHeaders(req);
+  const query = new URLSearchParams({ kind, ...(id ? { id } : {}) }).toString();
+  const url = `${baseURL}/download/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileId)}?${query}`;
+  const upstream = await axios.get(url, {
+    headers: authHeaders,
+    responseType: 'stream',
+    maxRedirects: 0,
+    timeout: 30000,
+  });
+  res.status(200);
+  res.set({
+    'Content-Type': upstream.headers['content-type'] || 'application/octet-stream',
+    'Content-Disposition': upstream.headers['content-disposition'] || 'attachment',
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  if (upstream.headers['content-length']) {
+    res.set('Content-Length', upstream.headers['content-length']);
+  }
+  upstream.data.on('error', (error) => {
+    logger.warn(`[Workspace proxy] download stream failed: ${error.message}`);
+    if (!res.headersSent) return res.status(502).end();
+    res.destroy(error);
+  });
+  res.on('close', () => {
+    if (!upstream.data.destroyed) upstream.data.destroy();
+  });
+  upstream.data.pipe(res);
 }
 
 async function listTrash(req, kind, id, cursor, limit) {
@@ -107,6 +153,7 @@ module.exports = {
   getCleanupPreview,
   cleanup,
   listFiles,
+  downloadFile,
   listTrash,
   trashFile,
   restoreFile,

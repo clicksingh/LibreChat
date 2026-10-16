@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Button, useToastContext } from '@librechat/client';
-import { Constants } from 'librechat-data-provider';
+import { Constants, dataService } from 'librechat-data-provider';
+import { triggerDownload } from '~/utils';
 import type {
   TWorkspaceFileEntry,
   TWorkspaceTrashEntry,
@@ -43,6 +44,7 @@ export default function WorkspacePanel() {
   const { setOption } = useSetIndexOptions();
   const [selection, setSelection] = useState<Selection>({ kind: 'personal' });
   const [view, setView] = useState<View>('files');
+  const [downloadingPath, setDownloadingPath] = useState<string | null>(null);
 
   const { data: workspaceList } = useListWorkspacesQuery();
   const projects: TWorkspace[] = workspaceList?.projects ?? [];
@@ -108,6 +110,25 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
       },
       onError: () => showToast({ message: 'Temporary-file cleanup failed', status: 'error' }),
     });
+  };
+
+  const handleDownload = async (item: TWorkspaceFileEntry) => {
+    if (downloadingPath !== null) return;
+    setDownloadingPath(item.path);
+    try {
+      const response = isPersonal
+        ? await dataService.downloadPersonalWorkspaceFile(item.sessionId, item.fileId)
+        : await dataService.downloadProjectWorkspaceFile(projectId as string, item.sessionId, item.fileId);
+      if (!(response.data instanceof Blob) || response.data.size === 0) {
+        throw new Error('File download returned no data');
+      }
+      triggerDownload(URL.createObjectURL(response.data), item.name);
+    } catch (error) {
+      console.error('Workspace file download failed', error);
+      showToast({ message: 'Unable to download ' + item.name, status: 'error' });
+    } finally {
+      setDownloadingPath(null);
+    }
   };
 
   const handleTrash = (item: TWorkspaceFileEntry) => {
@@ -252,6 +273,8 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
         <FileTable
           items={fileItems}
           onTrash={handleTrash}
+          onDownload={handleDownload}
+          downloadingPath={downloadingPath}
           hasMore={!!filesQuery.hasNextPage}
           onLoadMore={() => filesQuery.fetchNextPage()}
           isLoadingMore={!!filesQuery.isFetchingNextPage}
