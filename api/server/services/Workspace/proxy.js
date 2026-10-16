@@ -105,6 +105,55 @@ async function downloadFile(req, res, kind, id, sessionId, fileId) {
   upstream.data.pipe(res);
 }
 
+/**
+ * Server-only bounded read for attaching a previously published workspace
+ * object. Auth is the SAME per-request signed CodeAPI claim as downloads.
+ * Never expose this buffer to the browser or follow redirect URLs.
+ */
+async function readWorkspaceFile(req, kind, id, sessionId, fileId, maxBytes) {
+  if (!safeFileKey(sessionId) || !safeFileKey(fileId)) {
+    const error = new Error('invalid file identifier');
+    error.status = 400;
+    throw error;
+  }
+  const baseURL = getCodeBaseURL();
+  const headers = await getCodeApiAuthHeaders(req);
+  const query = new URLSearchParams({ kind, ...(id ? { id } : {}) }).toString();
+  const url =
+    baseURL +
+    '/download/' +
+    encodeURIComponent(sessionId) +
+    '/' +
+    encodeURIComponent(fileId) +
+    '?' +
+    query;
+  const upstream = await axios.get(url, {
+    headers,
+    responseType: 'stream',
+    maxRedirects: 0,
+    timeout: 30000,
+  });
+  const declared = Number(upstream.headers['content-length']);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    upstream.data.destroy();
+    throw Object.assign(new Error('Workspace file too large'), { status: 413 });
+  }
+  const chunks = [];
+  let size = 0;
+  try {
+    for await (const chunk of upstream.data) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        throw Object.assign(new Error('Workspace file too large'), { status: 413 });
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    upstream.data.destroy();
+  }
+  return Buffer.concat(chunks, size);
+}
+
 async function listTrash(req, kind, id, cursor, limit) {
   return codeApiGet(req, '/workspace/trash', {
     kind,
@@ -154,6 +203,7 @@ module.exports = {
   cleanup,
   listFiles,
   downloadFile,
+  readWorkspaceFile,
   listTrash,
   trashFile,
   restoreFile,

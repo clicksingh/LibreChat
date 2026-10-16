@@ -66,6 +66,9 @@ async function getCodeOutputDownloadStream(fileIdentifier, identity, req) {
  * @returns {Promise<void>}
  */
 async function deleteCodeEnvFile(req, file) {
+  // Workspace attachment uses borrowed CodeAPI output. Deleting the private
+  // chat copy must NEVER delete the original persistent workspace object.
+  if (file?.metadata?.workspaceFileAttachment === true) return;
   const ref = file?.metadata?.codeEnvRef;
   if (!ref) {
     return;

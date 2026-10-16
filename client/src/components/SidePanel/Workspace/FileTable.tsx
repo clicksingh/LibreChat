@@ -1,5 +1,6 @@
 import { Button, TrashIcon } from '@librechat/client';
-import { Download } from 'lucide-react';
+import { Download, Paperclip } from 'lucide-react';
+import { WORKSPACE_FILE_DRAG_TYPE, type WorkspaceAttachRequest } from '~/utils/workspaceAttachment';
 import { formatDate } from '~/utils';
 import { formatWorkspaceBytes } from './formatBytes';
 import type { TWorkspaceFileEntry } from 'librechat-data-provider';
@@ -13,6 +14,9 @@ export default function FileTable({
   items,
   onTrash,
   onDownload,
+  onAttach,
+  makeAttachRequest,
+  attachingPath,
   downloadingPath,
   hasMore,
   onLoadMore,
@@ -21,6 +25,9 @@ export default function FileTable({
   items: TWorkspaceFileEntry[];
   onTrash: (item: TWorkspaceFileEntry) => void;
   onDownload: (item: TWorkspaceFileEntry) => void;
+  onAttach: (item: TWorkspaceFileEntry) => void;
+  makeAttachRequest: (item: TWorkspaceFileEntry) => WorkspaceAttachRequest;
+  attachingPath: string | null;
   downloadingPath: string | null;
   hasMore: boolean;
   onLoadMore: () => void;
@@ -42,7 +49,19 @@ export default function FileTable({
         </thead>
         <tbody>
           {items.map((item) => (
-            <tr key={item.path} className="border-b border-border-light/50 hover:bg-surface-hover">
+            <tr
+              key={item.path}
+              draggable
+              title={'Drag ' + item.name + ' into the chat composer'}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'copy';
+                event.dataTransfer.setData(
+                  WORKSPACE_FILE_DRAG_TYPE,
+                  JSON.stringify(makeAttachRequest(item)),
+                );
+              }}
+              className="border-border-light/50 cursor-grab border-b hover:bg-surface-hover active:cursor-grabbing"
+            >
               <td className="max-w-[200px] py-1.5" title={item.path}>
                 <div className="truncate">{item.name}</div>
                 {item.role && (
@@ -59,6 +78,16 @@ export default function FileTable({
               </td>
               <td className="py-1.5 text-right">
                 <div className="flex items-center justify-end gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={'Attach ' + item.name + ' to chat'}
+                    title="Attach to chat"
+                    disabled={attachingPath !== null}
+                    onClick={() => onAttach(item)}
+                  >
+                    <Paperclip className="h-4 w-4" aria-hidden="true" />
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"

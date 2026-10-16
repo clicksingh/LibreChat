@@ -28,6 +28,7 @@ const {
 } = require('~/server/services/Endpoints/agents/authorization');
 const { syncProjectQuota } = require('~/server/services/Workspace/quotaSync');
 const proxy = require('~/server/services/Workspace/proxy');
+const { attachWorkspaceFile } = require('~/server/services/Workspace/attach');
 const db = require('~/models');
 
 const router = express.Router();
@@ -99,7 +100,10 @@ router.patch('/:id', async (req, res) => {
 
     let workspace;
     if (req.body?.name) {
-      workspace = await db.renameWorkspace(req.params.id, String(req.body.name).trim().slice(0, 100));
+      workspace = await db.renameWorkspace(
+        req.params.id,
+        String(req.body.name).trim().slice(0, 100),
+      );
     }
     if (req.body?.archive === true) {
       workspace = await db.archiveWorkspace(req.params.id);
@@ -129,9 +133,11 @@ router.post('/:id/members', async (req, res) => {
     if (
       ![PrincipalType.USER, PrincipalType.GROUP].includes(principalType) ||
       !mongoose.Types.ObjectId.isValid(principalId) ||
-      ![AccessRoleIds.WORKSPACE_VIEWER, AccessRoleIds.WORKSPACE_EDITOR, AccessRoleIds.WORKSPACE_OWNER].includes(
-        accessRoleId,
-      )
+      ![
+        AccessRoleIds.WORKSPACE_VIEWER,
+        AccessRoleIds.WORKSPACE_EDITOR,
+        AccessRoleIds.WORKSPACE_OWNER,
+      ].includes(accessRoleId)
     ) {
       return res.status(400).json({ error: 'invalid principalType/principalId/accessRoleId' });
     }
@@ -222,6 +228,26 @@ router.get('/personal/files/:sessionId/:fileId/download', async (req, res) => {
   }
 });
 
+/**
+ * Register an existing CodeAPI object as a chat attachment. The request may
+ * only name opaque session/file keys; server re-resolves the real file under
+ * the signed personal scope and checks existing-chat ownership/scope.
+ */
+router.post('/personal/files/attach', async (req, res) => {
+  try {
+    const file = await attachWorkspaceFile(req, {
+      kind: 'user',
+      sessionId: req.body?.session_id,
+      fileId: req.body?.file_id,
+      conversationId: req.body?.conversationId,
+    });
+    res.status(201).json(file);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    proxy.handleProxyError(res, error, 'personal workspace attachment failed');
+  }
+});
+
 router.get('/personal/trash', async (req, res) => {
   try {
     res.json(await proxy.listTrash(req, 'user', undefined, req.query.cursor, req.query.limit));
@@ -296,7 +322,9 @@ router.post('/:id/cleanup', async (req, res) => {
 router.get('/:id/files', async (req, res) => {
   try {
     req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
-    res.json(await proxy.listFiles(req, 'project', req.params.id, req.query.cursor, req.query.limit));
+    res.json(
+      await proxy.listFiles(req, 'project', req.params.id, req.query.cursor, req.query.limit),
+    );
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     proxy.handleProxyError(res, error, 'project file listing failed');
@@ -306,7 +334,14 @@ router.get('/:id/files', async (req, res) => {
 router.get('/:id/files/:sessionId/:fileId/download', async (req, res) => {
   try {
     req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
-    await proxy.downloadFile(req, res, 'project', req.params.id, req.params.sessionId, req.params.fileId);
+    await proxy.downloadFile(
+      req,
+      res,
+      'project',
+      req.params.id,
+      req.params.sessionId,
+      req.params.fileId,
+    );
   } catch (error) {
     if (res.headersSent) return res.destroy(error);
     if (error.status) return res.status(error.status).json({ error: error.message });
@@ -314,10 +349,31 @@ router.get('/:id/files/:sessionId/:fileId/download', async (req, res) => {
   }
 });
 
+router.post('/:id/files/attach', async (req, res) => {
+  try {
+    // Projects require EDIT and active membership on EVERY request. CodeAPI
+    // receives the resulting signed project claim, never the browser id alone.
+    req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
+    const file = await attachWorkspaceFile(req, {
+      kind: 'project',
+      projectId: req.params.id,
+      sessionId: req.body?.session_id,
+      fileId: req.body?.file_id,
+      conversationId: req.body?.conversationId,
+    });
+    res.status(201).json(file);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    proxy.handleProxyError(res, error, 'project workspace attachment failed');
+  }
+});
+
 router.get('/:id/trash', async (req, res) => {
   try {
     req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
-    res.json(await proxy.listTrash(req, 'project', req.params.id, req.query.cursor, req.query.limit));
+    res.json(
+      await proxy.listTrash(req, 'project', req.params.id, req.query.cursor, req.query.limit),
+    );
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     proxy.handleProxyError(res, error, 'project trash listing failed');
@@ -327,7 +383,9 @@ router.get('/:id/trash', async (req, res) => {
 router.post('/:id/trash', async (req, res) => {
   try {
     req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
-    res.json(await proxy.trashFile(req, 'project', req.params.id, req.body.session_id, req.body.file_id));
+    res.json(
+      await proxy.trashFile(req, 'project', req.params.id, req.body.session_id, req.body.file_id),
+    );
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     proxy.handleProxyError(res, error, 'project trash-file failed');
@@ -337,7 +395,9 @@ router.post('/:id/trash', async (req, res) => {
 router.post('/:id/restore', async (req, res) => {
   try {
     req.workspaceContext = await resolveWorkspaceContextExplicit(req, req.params.id);
-    res.json(await proxy.restoreFile(req, 'project', req.params.id, req.body.trash_id, req.body.newName));
+    res.json(
+      await proxy.restoreFile(req, 'project', req.params.id, req.body.trash_id, req.body.newName),
+    );
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     proxy.handleProxyError(res, error, 'project restore failed');

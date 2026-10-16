@@ -540,6 +540,7 @@ export const personalWorkspaceFiles = (params?: { cursor?: string; limit?: numbe
   `${workspaces()}/personal/files${workspaceQuery(params)}`;
 export const personalWorkspaceFileDownload = (sessionId: string, fileId: string) =>
   `${workspaces()}/personal/files/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileId)}/download`;
+export const personalWorkspaceFileAttach = () => workspaces() + '/personal/files/attach';
 export const personalWorkspaceTrash = (params?: { cursor?: string; limit?: number }) =>
   `${workspaces()}/personal/trash${workspaceQuery(params)}`;
 export const personalWorkspaceTrashCreate = () => `${workspaces()}/personal/trash`;
@@ -547,13 +548,13 @@ export const personalWorkspaceRestore = () => `${workspaces()}/personal/restore`
 export const personalWorkspacePurge = () => `${workspaces()}/personal/purge`;
 
 export const projectWorkspaceUsage = (id: string) => `${workspace(id)}/usage`;
-export const projectWorkspaceCleanupPreview = (id: string) =>
-  `${workspace(id)}/cleanup-preview`;
+export const projectWorkspaceCleanupPreview = (id: string) => `${workspace(id)}/cleanup-preview`;
 export const projectWorkspaceCleanup = (id: string) => `${workspace(id)}/cleanup`;
 export const projectWorkspaceFiles = (id: string, params?: { cursor?: string; limit?: number }) =>
   `${workspace(id)}/files${workspaceQuery(params)}`;
 export const projectWorkspaceFileDownload = (id: string, sessionId: string, fileId: string) =>
   `${workspace(id)}/files/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileId)}/download`;
+export const projectWorkspaceFileAttach = (id: string) => workspace(id) + '/files/attach';
 export const projectWorkspaceTrash = (id: string, params?: { cursor?: string; limit?: number }) =>
   `${workspace(id)}/trash${workspaceQuery(params)}`;
 export const projectWorkspaceTrashCreate = (id: string) => `${workspace(id)}/trash`;

@@ -112,6 +112,21 @@ const fileAccess = async (req, res, next) => {
       return denyFileAccess(res);
     }
 
+    // A file imported from a PROJECT workspace is an ACL-bound borrowed
+    // artifact, even though its private chat copy is owned by this user.
+    // Revocation must prevent future downloads/preview access.
+    const ref = file.metadata?.codeEnvRef;
+    if (file.metadata?.workspaceFileAttachment === true && ref?.kind === 'project') {
+      const allowed = await checkPermission({
+        userId,
+        role: userRole,
+        resourceType: ResourceType.WORKSPACE,
+        resourceId: ref.id,
+        requiredPermission: PermissionBits.EDIT,
+      });
+      if (!allowed) return denyFileAccess(res);
+    }
+
     if (file.user && file.user.toString() === userId) {
       req.fileAccess = { file };
       return next();

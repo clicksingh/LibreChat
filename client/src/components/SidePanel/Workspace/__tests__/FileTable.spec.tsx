@@ -15,11 +15,22 @@ const file: TWorkspaceFileEntry = {
 
 describe('Workspace Files table - download and trash actions', () => {
   const onDownload = jest.fn();
+  const onAttach = jest.fn();
+  const makeAttachRequest = jest.fn((item: TWorkspaceFileEntry) => ({
+    kind: 'personal' as const,
+    sessionId: item.sessionId,
+    fileId: item.fileId,
+    name: item.name,
+    size: item.size,
+  }));
   const onTrash = jest.fn();
   const defaults = {
     items: [file],
     onTrash,
     onDownload,
+    onAttach,
+    makeAttachRequest,
+    attachingPath: null,
     downloadingPath: null,
     hasMore: false,
     onLoadMore: jest.fn(),
@@ -36,6 +47,26 @@ describe('Workspace Files table - download and trash actions', () => {
     expect(onTrash).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Move ' + file.name + ' to trash' }));
     expect(onTrash).toHaveBeenCalledWith(file);
+  });
+
+  it('makes the workspace row draggable without creating a browser File upload', () => {
+    render(<FileTable {...defaults} />);
+    const setData = jest.fn();
+    const row = screen.getByText(file.name).closest('tr');
+    expect(row).toHaveAttribute('draggable', 'true');
+    fireEvent.dragStart(row!, { dataTransfer: { setData, effectAllowed: 'copy' } });
+    expect(setData).toHaveBeenCalledWith(
+      'application/x-cbhr-workspace-file',
+      JSON.stringify(makeAttachRequest(file)),
+    );
+  });
+
+  it('offers a click-to-attach fallback, independently of Download/Trash', () => {
+    render(<FileTable {...defaults} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Attach ' + file.name + ' to chat' }));
+    expect(onAttach).toHaveBeenCalledWith(file);
+    expect(onDownload).not.toHaveBeenCalled();
+    expect(onTrash).not.toHaveBeenCalled();
   });
 
   it('disables Download while a download is underway', () => {

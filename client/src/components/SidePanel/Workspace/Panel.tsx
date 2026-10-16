@@ -2,6 +2,10 @@ import { useState, useMemo } from 'react';
 import { Button, useToastContext } from '@librechat/client';
 import { Constants, dataService } from 'librechat-data-provider';
 import { triggerDownload } from '~/utils';
+import {
+  makeWorkspaceAttachRequest,
+  requestWorkspaceFileAttach,
+} from '~/utils/workspaceAttachment';
 import type {
   TWorkspaceFileEntry,
   TWorkspaceTrashEntry,
@@ -118,7 +122,11 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
     try {
       const response = isPersonal
         ? await dataService.downloadPersonalWorkspaceFile(item.sessionId, item.fileId)
-        : await dataService.downloadProjectWorkspaceFile(projectId as string, item.sessionId, item.fileId);
+        : await dataService.downloadProjectWorkspaceFile(
+            projectId as string,
+            item.sessionId,
+            item.fileId,
+          );
       if (!(response.data instanceof Blob) || response.data.size === 0) {
         throw new Error('File download returned no data');
       }
@@ -129,6 +137,10 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
     } finally {
       setDownloadingPath(null);
     }
+  };
+
+  const handleAttach = (item: TWorkspaceFileEntry) => {
+    requestWorkspaceFileAttach(makeWorkspaceAttachRequest(item, selection));
   };
 
   const handleTrash = (item: TWorkspaceFileEntry) => {
@@ -145,7 +157,10 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
       {
         onSuccess: () => showToast({ message: `${item.name} restored` }),
         onError: () =>
-          showToast({ message: 'Restore failed — a file may already exist there', status: 'error' }),
+          showToast({
+            message: 'Restore failed — a file may already exist there',
+            status: 'error',
+          }),
       },
     );
   };
@@ -161,7 +176,8 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
   };
 
   const activeForNewChat =
-    (conversation?.conversationId == null || conversation?.conversationId === Constants.NEW_CONVO) &&
+    (conversation?.conversationId == null ||
+      conversation?.conversationId === Constants.NEW_CONVO) &&
     (isPersonal ? !conversation?.workspaceId : conversation?.workspaceId === projectId);
 
   const useForNewChat = () => {
@@ -220,7 +236,7 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
       <QuotaBar usage={usage} />
 
       {cleanupPreview && (
-        <div className="rounded-lg border border-border-light bg-surface-secondary/40 px-3 py-2">
+        <div className="bg-surface-secondary/40 rounded-lg border border-border-light px-3 py-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium">Temporary files</div>
@@ -274,6 +290,9 @@ This removes only known package, cache, and temporary runtime folders. Uploaded 
           items={fileItems}
           onTrash={handleTrash}
           onDownload={handleDownload}
+          onAttach={handleAttach}
+          makeAttachRequest={(item) => makeWorkspaceAttachRequest(item, selection)}
+          attachingPath={null}
           downloadingPath={downloadingPath}
           hasMore={!!filesQuery.hasNextPage}
           onLoadMore={() => filesQuery.fetchNextPage()}

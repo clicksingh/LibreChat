@@ -1,8 +1,15 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { useWatch } from 'react-hook-form';
-import { TextareaAutosize } from '@librechat/client';
+import { TextareaAutosize, useToastContext } from '@librechat/client';
+import { v4 as uuidv4 } from 'uuid';
 import { useRecoilState, useRecoilValue } from 'recoil';
-import { Constants, isAssistantsEndpoint, isAgentsEndpoint } from 'librechat-data-provider';
+import {
+  Constants,
+  dataService,
+  EToolResources,
+  isAssistantsEndpoint,
+  isAgentsEndpoint,
+} from 'librechat-data-provider';
 import type { TConversation } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter, ConvoGenerator } from '~/common';
 import {
@@ -40,6 +47,13 @@ import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
 import Mention from './Mention';
 import store from '~/store';
+import {
+  WORKSPACE_ATTACH_EVENT,
+  isWorkspaceFileDrag,
+  readWorkspaceFileDrop,
+  matchesWorkspaceChatScope,
+  type WorkspaceAttachRequest,
+} from '~/utils/workspaceAttachment';
 
 interface ChatFormProps {
   index: number;
@@ -71,6 +85,8 @@ const ChatForm = memo(function ChatForm({
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   useFocusChatEffect(textAreaRef);
   const localize = useLocalize();
+  const { showToast } = useToastContext();
+  const [dragOverWorkspace, setDragOverWorkspace] = useState(false);
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, setIsScrollable] = useState(false);
@@ -130,6 +146,125 @@ const ChatForm = memo(function ChatForm({
   const disableInputs = useMemo(
     () => requiresKey || invalidAssistant,
     [requiresKey, invalidAssistant],
+  );
+
+  const attachWorkspaceFile = useCallback(
+    async (item: WorkspaceAttachRequest) => {
+      if (disableInputs || isSubmitting || filesLoading) {
+        showToast({
+          message: 'Finish the current operation before attaching another file',
+          status: 'error',
+        });
+        return;
+      }
+      // Endpoint-agnostic: managed-user custom endpoints (e.g. CBHR AI)
+      // already support composer files and must not be blocked here.
+      if (!matchesWorkspaceChatScope(item, conversation)) {
+        showToast({
+          message: 'Choose the same workspace as this chat before attaching its files',
+          status: 'error',
+        });
+        return;
+      }
+      const reference =
+        item.kind + ':' + (item.projectId ?? '') + ':' + item.sessionId + ':' + item.fileId;
+      if (Array.from(files.values()).some((f) => f.workspaceReference === reference)) {
+        showToast({ message: item.name + ' is already attached' });
+        return;
+      }
+      const temporaryId = uuidv4();
+      const pending: ExtendedFile = {
+        file_id: temporaryId,
+        filename: item.name,
+        size: item.size,
+        progress: 0.1,
+        workspaceReference: reference,
+        tool_resource: EToolResources.execute_code,
+      };
+      setFiles((prev) => new Map(prev).set(temporaryId, pending));
+      setFilesLoading(true);
+      try {
+        const payload = {
+          session_id: item.sessionId,
+          file_id: item.fileId,
+          ...(conversationId !== Constants.NEW_CONVO ? { conversationId } : {}),
+        };
+        const result =
+          item.kind === 'project'
+            ? await dataService.attachProjectWorkspaceFile(item.projectId as string, payload)
+            : await dataService.attachPersonalWorkspaceFile(payload);
+        setFiles((prev) => {
+          const updated = new Map(prev);
+          // The user may have removed the pending chip before the request completed.
+          if (!updated.has(temporaryId)) return prev;
+          updated.delete(temporaryId);
+          updated.set(result.file_id, {
+            ...pending,
+            file_id: result.file_id,
+            filepath: result.filepath,
+            filename: result.filename,
+            size: result.bytes,
+            type: result.type,
+            source: result.source,
+            metadata: result.metadata,
+            progress: 1,
+          });
+          return updated;
+        });
+      } catch (error) {
+        setFiles((prev) => {
+          const updated = new Map(prev);
+          updated.delete(temporaryId);
+          return updated;
+        });
+        showToast({
+          message: 'Unable to attach ' + item.name + '. Check workspace access and try again.',
+          status: 'error',
+        });
+      }
+    },
+    [
+      conversation?.workspaceId,
+      conversationId,
+      disableInputs,
+      endpoint,
+      files,
+      filesLoading,
+      isSubmitting,
+      setFiles,
+      setFilesLoading,
+      showToast,
+    ],
+  );
+
+  // Click-to-attach from Workspace Files uses the exact same authorized path
+  // as native drag/drop. No browser bytes are fetched or reuploaded.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const item = (event as CustomEvent<WorkspaceAttachRequest>).detail;
+      if (item) void attachWorkspaceFile(item);
+    };
+    window.addEventListener(WORKSPACE_ATTACH_EVENT, handler);
+    return () => window.removeEventListener(WORKSPACE_ATTACH_EVENT, handler);
+  }, [attachWorkspaceFile]);
+
+  const handleWorkspaceDragOver = useCallback((event: React.DragEvent) => {
+    if (!isWorkspaceFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+    setDragOverWorkspace(true);
+  }, []);
+  const handleWorkspaceDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!isWorkspaceFileDrag(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDragOverWorkspace(false);
+      const item = readWorkspaceFileDrop(event.dataTransfer);
+      if (item) void attachWorkspaceFile(item);
+    },
+    [attachWorkspaceFile],
   );
 
   const handleContainerClick = useCallback(() => {
@@ -275,7 +410,16 @@ const ChatForm = memo(function ChatForm({
           />
           <div
             onClick={handleContainerClick}
+            onDragOver={handleWorkspaceDragOver}
+            onDrop={handleWorkspaceDrop}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                setDragOverWorkspace(false);
+              }
+            }}
+            aria-label={dragOverWorkspace ? 'Drop workspace file to attach' : undefined}
             className={cn(
+              dragOverWorkspace && 'ring-2 ring-inset ring-primary',
               'relative flex w-full flex-grow flex-col overflow-hidden rounded-t-3xl border pb-4 text-text-primary transition-all duration-200 sm:rounded-3xl sm:pb-0',
               isTextAreaFocused ? 'shadow-lg' : 'shadow-md',
               isTemporary
@@ -447,6 +591,7 @@ function ChatFormWrapper({ index = 0, placeholder }: { index?: number; placehold
       conversation?.spec,
       conversation?.useResponsesApi,
       conversation?.model,
+      conversation?.workspaceId,
       conversation?.maxContextTokens,
       hasMessages,
     ],
