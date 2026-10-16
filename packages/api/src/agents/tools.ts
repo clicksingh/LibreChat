@@ -261,20 +261,20 @@ const CODE_EDIT_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
   required: ['file_path'],
 }) as LCTool['parameters'];
 
-const SKILL_CREATE_FILE_DESCRIPTION = `Create a new file, or overwrite an existing file with explicit intent.
+const SKILL_CREATE_FILE_DESCRIPTION = `Create files; overwrite requires overwrite: true.
 
-Use for new files and full rewrites. Requires overwrite: true to replace existing files.
+For "create a skill from what we just did", write skills/{skillName}/SKILL.md. Base steps on verified results. Include trigger-friendly description, inputs, prerequisites, workflow, validation, and recovery. Exclude secrets and private data.
 
-Paths starting with "skills/" write skill files:
-- skills/{skillName}/SKILL.md - main instructions; keep it lean with YAML frontmatter, trigger-friendly description, workflow steps, and short snippets.
-- skills/{skillName}/references/{file} - long docs, schemas, examples, large templates, HTML/CSS/JS dashboards.
-- skills/{skillName}/scripts/{file} - helper scripts.
-- skills/{skillName}/assets/{file} - static assets.
-- skills/{skillName}/templates/{file} - reusable output templates.
+Skill paths (saved in the author's private Skills library):
+- skills/{skillName}/SKILL.md - YAML frontmatter and concise steps.
+- skills/{skillName}/references/{file} - docs (e.g. references/template.html).
+- skills/{skillName}/scripts/{file} - helpers.
+- skills/{skillName}/assets/{file} - text assets.
+- skills/{skillName}/templates/{file} - templates.
 
-For SKILL.md, frontmatter name must match {skillName}; create skills/{newName}/SKILL.md to rename. Keep large artifacts in bundled files (references/template.html) and have SKILL.md point to them.
+For SKILL.md, frontmatter name must match {skillName}. Create skills/{newName}/SKILL.md to rename; link large files from SKILL.md. Sharing with staff requires a separate authorized action; never claim it is public.
 
-Non-skills paths target the code-execution sandbox when enabled. Working files persist across calls. Publication follows the sandbox's returned artifact file list, not the path alone. Use outputs/ for final user-facing deliverables and keep sources, dependencies, renders, and temporary files organized elsewhere.`;
+Non-skills paths use the code-execution sandbox; put final downloads in outputs/. Sandbox files are not automatically bundled with skills.`;
 
 const CODE_CREATE_FILE_DESCRIPTION = `Create a new file, or overwrite an existing file with explicit intent.
 
@@ -294,7 +294,7 @@ const CODE_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an exist
 
 Use for small, precise changes. Each old_text must match exactly one location. Tries exact match first; falls back to whitespace-tolerant matching if needed. Reports which matching strategy was used. Returns a unified diff.
 
-Targets persistent code-execution sandbox paths. Publication follows the sandbox's returned artifact file list. Use outputs/ for final user-facing deliverables and keep other files as working state.`;
+Targets persistent code-execution sandbox paths relative to your working directory. Publication follows the sandbox's returned artifact file list. Use outputs/ for final user-facing deliverables and keep other files as working state.`;
 
 const SKILL_CREATE_FILE_DEF: LCTool = Object.freeze({
   name: CREATE_FILE_TOOL_NAME,
