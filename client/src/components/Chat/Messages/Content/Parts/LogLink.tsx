@@ -2,6 +2,7 @@ import React from 'react';
 import { FileSources } from 'librechat-data-provider';
 import { useToastContext } from '@librechat/client';
 import { useCodeOutputDownload, useFileDownload } from '~/data-provider';
+import { useLocalize } from '~/hooks';
 import { isHttpDownloadTarget, triggerDownload } from '~/utils';
 
 interface LogLinkProps {
@@ -47,6 +48,7 @@ export const useAttachmentLink = ({
   source,
 }: AttachmentLinkOptions) => {
   const { showToast } = useToastContext();
+  const localize = useLocalize();
 
   const useLocalDownload = isLocallyStoredSource(source) && !!file_id && !!user;
   const { refetch: downloadFromApi } = useFileDownload(user, file_id, { source });
@@ -54,6 +56,7 @@ export const useAttachmentLink = ({
 
   const handleDownload = async (event: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => {
     event.preventDefault();
+    event.stopPropagation();
     try {
       if (!useLocalDownload && isHttpDownloadTarget(href)) {
         triggerDownload(href, filename);
@@ -65,13 +68,14 @@ export const useAttachmentLink = ({
         console.error('Error downloading file: No data found');
         showToast({
           status: 'error',
-          message: 'Error downloading file',
+          message: localize('com_ui_download_error'),
         });
         return;
       }
       triggerDownload(stream.data, filename);
     } catch (error) {
       console.error('Error downloading file:', error);
+      showToast({ status: 'error', message: localize('com_ui_download_error') });
     }
   };
 

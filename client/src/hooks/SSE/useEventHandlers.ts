@@ -154,6 +154,67 @@ export const getExistingConversationAbortMessages = ({
   return [...sourceMessages];
 };
 
+/**
+ * A stream failure must not replace content already received by the user.
+ * The error is attached to the in-progress assistant turn so a later refresh
+ * can reconcile it against persisted server state.
+ */
+export const reconcileStreamFailureMessages = ({
+  messages,
+  currentMessages,
+  userMessage,
+  errorMessage,
+}: {
+  messages: TMessage[];
+  currentMessages?: TMessage[];
+  userMessage: TMessage;
+  errorMessage: TMessage;
+}): TMessage[] => {
+  const hasCurrentUser = currentMessages?.some(
+    (message) =>
+      message.messageId === userMessage.messageId &&
+      message.conversationId === userMessage.conversationId,
+  );
+  const baseMessages = hasCurrentUser
+    ? (currentMessages as TMessage[])
+    : [...messages.filter((message) => message.messageId !== userMessage.messageId), userMessage];
+
+  for (let index = baseMessages.length - 1; index >= 0; index--) {
+    const response = baseMessages[index];
+    if (
+      response.isCreatedByUser ||
+      response.parentMessageId !== userMessage.messageId ||
+      response.conversationId !== userMessage.conversationId ||
+      !response.content?.length
+    ) {
+      continue;
+    }
+
+    const previous = messages.find((message) => message.messageId === response.messageId);
+    if (previous?.content === response.content) {
+      continue;
+    }
+
+    const alreadyErrored =
+      response.content[response.content.length - 1]?.type === ContentTypes.ERROR;
+    const content = alreadyErrored
+      ? response.content
+      : [
+          ...response.content,
+          { type: ContentTypes.ERROR, error: errorMessage.text || 'Response interrupted' } as const,
+        ];
+    const nextMessages = [...baseMessages];
+    nextMessages[index] = { ...response, error: undefined, unfinished: true, content };
+    return nextMessages;
+  }
+
+  return baseMessages.some((message) => message.messageId === errorMessage.messageId)
+    ? baseMessages.map((message) =>
+        message.messageId === errorMessage.messageId ? errorMessage : message,
+      )
+    : [...baseMessages, errorMessage];
+};
+
 export type EventHandlerParams = {
   isAddedRequest?: boolean;
   setCompleted: React.Dispatch<React.SetStateAction<Set<unknown>>>;
@@ -876,7 +937,12 @@ export default function useEventHandlers({
         userMessage.conversationId ?? submission.conversation?.conversationId ?? '';
 
       const setErrorMessages = (convoId: string, errorMessage: TMessage) => {
-        const finalMessages: TMessage[] = [...messages, userMessage, errorMessage];
+        const finalMessages = reconcileStreamFailureMessages({
+          messages,
+          currentMessages: getMessages(),
+          userMessage,
+          errorMessage,
+        });
         setMessages(finalMessages);
         queryClient.setQueryData<TMessage[]>([QueryKeys.messages, convoId], finalMessages);
       };

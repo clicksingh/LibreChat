@@ -119,6 +119,7 @@ export default function useStepHandler({
   const toolCallIdMap = useRef(new Map<string, string | undefined>());
   const messageMap = useRef(new Map<string, TMessage>());
   const stepMap = useRef(new Map<string, Agents.RunStep>());
+  const stepSlotMap = useRef(new Map<string, number>());
   /** Buffer for deltas that arrive before their corresponding run step */
   const pendingDeltaBuffer = useRef(new Map<string, TStepEvent[]>());
   /** Coalesces rapid-fire summarize delta renders into a single rAF frame */
@@ -318,6 +319,7 @@ export default function useStepHandler({
     contentPart: Agents.MessageContentComplex,
     finalUpdate = false,
     metadata?: ContentMetadata,
+    stepId?: string,
   ) => {
     const contentType = contentPart.type ?? '';
     if (!contentType) {
@@ -333,6 +335,12 @@ export default function useStepHandler({
     let updatedContent = [...(message.content || [])] as Array<
       Partial<TMessageContentParts> | undefined
     >;
+
+    const slotKey = stepId ? message.messageId + ':' + stepId + ':' + contentType : undefined;
+    const mappedIndex = slotKey ? stepSlotMap.current.get(slotKey) : undefined;
+    if (mappedIndex != null) {
+      index = mappedIndex;
+    }
 
     const oauthPromptOccupiesSlot = isOAuthToolCallContent(updatedContent[index]);
     if (!incomingOAuthToolCall && oauthPromptOccupiesSlot) {
@@ -351,8 +359,23 @@ export default function useStepHandler({
       !contentType.startsWith(existingType) &&
       !existingType.startsWith(contentType)
     ) {
-      console.warn('Content type mismatch', { existingType, contentType, index });
-      return message;
+      if (!slotKey) {
+        console.warn('Content type mismatch', { existingType, contentType, index });
+        return message;
+      }
+      const serverIndex = index;
+      index = updatedContent.length;
+      stepSlotMap.current.set(slotKey, index);
+      if (contentType !== ContentTypes.TOOL_CALL) {
+        updatedContent[index] = { type: contentPart.type as AllContentTypes };
+      }
+      console.warn('Content type mismatch', {
+        existingType,
+        contentType,
+        index: serverIndex,
+        recoveredIndex: index,
+        stepId,
+      });
     }
 
     if (
@@ -687,6 +710,7 @@ export default function useStepHandler({
               contentPart,
               false,
               getStepMetadata(runStep),
+              runStep.id,
             );
           });
 
@@ -714,6 +738,7 @@ export default function useStepHandler({
             summaryPart,
             false,
             getStepMetadata(runStep),
+            runStep.id,
           );
 
           messageMap.current.set(responseMessageId, updatedResponse);
@@ -757,6 +782,7 @@ export default function useStepHandler({
             stepEvent.data,
             false,
             agentUpdateMeta,
+            agent_update.runId + ':' + agent_update.index,
           );
           messageMap.current.set(responseMessageId, updatedResponse);
           setMessages(
@@ -803,6 +829,7 @@ export default function useStepHandler({
             contentPart,
             false,
             getStepMetadata(runStep),
+            runStep.id,
           );
           messageMap.current.set(responseMessageId, updatedResponse);
           setMessages(
@@ -849,6 +876,7 @@ export default function useStepHandler({
             contentPart,
             false,
             getStepMetadata(runStep),
+            runStep.id,
           );
           messageMap.current.set(responseMessageId, updatedResponse);
           setMessages(
@@ -906,6 +934,7 @@ export default function useStepHandler({
               contentPart,
               false,
               getStepMetadata(runStep),
+              runStep.id,
             );
           });
 
@@ -954,6 +983,7 @@ export default function useStepHandler({
             contentPart,
             true,
             getStepMetadata(runStep),
+            runStep.id,
           );
 
           messageMap.current.set(responseMessageId, updatedResponse);
@@ -997,6 +1027,7 @@ export default function useStepHandler({
             contentPart,
             false,
             getStepMetadata(runStep),
+            runStep.id,
           );
           messageMap.current.set(responseMessageId, updatedResponse);
           if (summarizeDeltaRaf.current == null) {
@@ -1080,6 +1111,7 @@ export default function useStepHandler({
     toolCallIdMap.current.clear();
     messageMap.current.clear();
     stepMap.current.clear();
+    stepSlotMap.current.clear();
     pendingDeltaBuffer.current.clear();
     subagentRunToToolCallId.current.clear();
     claimedSubagentToolCallIds.current.clear();
@@ -1101,6 +1133,7 @@ export default function useStepHandler({
    */
   const syncStepMessage = useCallback((message: TMessage) => {
     if (message?.messageId) {
+      stepSlotMap.current.clear();
       messageMap.current.set(message.messageId, { ...message });
     }
   }, []);
