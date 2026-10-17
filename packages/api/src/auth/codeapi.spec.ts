@@ -1,7 +1,7 @@
 import { createHash, generateKeyPairSync, verify as cryptoVerify } from 'crypto';
 import type { KeyObject } from 'crypto';
 import type { ServerRequest } from '~/types';
-import { getCodeApiAuthHeaders, mintCodeApiToken } from './codeapi';
+import { bindCodeApiExecutionScope, getCodeApiAuthHeaders, mintCodeApiToken } from './codeapi';
 
 jest.mock(
   '@librechat/data-schemas',
@@ -326,5 +326,75 @@ describe('Code API JWT minting', () => {
     process.env.CODEAPI_AUTH_PROVIDER = 'legacy-api-key';
     delete process.env.CODEAPI_JWT_ENABLED;
     await expect(getCodeApiAuthHeaders(baseRequest())).resolves.toEqual({});
+  });
+
+  it('B1: signs fresh 60-second immutable chat claims and authorized Personal DOCX ref, not request body', async () => {
+    const req = baseRequest();
+    const scope = {
+      userId: 'user_123', tenantId: 'tenant_abc',
+      conversationId: 'conversation-A',
+      sessionId: 'conv-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workspaceKind: 'personal' as const, workspaceId: 'user_123',
+      fileGrants: [{kind:'user' as const,owner:'user_123',session_id:'ul-test',
+        file_id:'f-doc',name:'proposal.docx',bytes:42,sha256:'a'.repeat(64)}],
+    };
+    bindCodeApiExecutionScope(req,scope);
+    (req.body as Record<string,unknown>).execution_session_id =
+      'conv-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    scope.fileGrants[0].name = 'evil.pdf';
+    const first = await mintCodeApiToken(req);
+    const second = await mintCodeApiToken(req);
+    const a=decodeToken(first), b=decodeToken(second);
+    expect(cryptoVerify(null,Buffer.from(a.signingInput),publicKey,a.signature)).toBe(true);
+    expect(first).not.toBe(second);
+    expect(a.claims.exp as number).toBeLessThanOrEqual((a.claims.iat as number)+60);
+    expect(a.claims).toMatchObject({
+      sub:'user_123',tenant_id:'tenant_abc',workspace_kind:'personal',
+      execution_session_id:'conv-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      execution_conversation_id:'conversation-A',
+      execution_file_grants:[{kind:'user',owner:'user_123',session_id:'ul-test',
+        file_id:'f-doc',name:'proposal.docx',bytes:42,sha256:'a'.repeat(64)}],
+    });
+    expect(a.claims).not.toHaveProperty('workspace_id');
+    expect(a.claims.execution_session_id).not.toEqual(req.body.execution_session_id);
+    expect(() => bindCodeApiExecutionScope(req,scope)).toThrow('ALREADY_BOUND');
+    expect(decodeToken(second).claims.jti).not.toEqual(a.claims.jti);
+  });
+
+  it('B1: rejects wrong authenticated user/tenant/project and unsigned session identifiers', () => {
+    const req = baseRequest();
+    const valid = {
+      userId:'user_123',tenantId:'tenant_abc',conversationId:'conversation-A',
+      sessionId:'conv-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      workspaceKind:'personal' as const,workspaceId:'user_123',fileGrants:[],
+    };
+    expect(() => bindCodeApiExecutionScope(req,{...valid,userId:'other'})).toThrow('NOT_VERIFIED');
+    expect(() => bindCodeApiExecutionScope(req,{...valid,tenantId:'foreign'})).toThrow('NOT_VERIFIED');
+    expect(() => bindCodeApiExecutionScope(req,{...valid,sessionId:'lc-user'})).toThrow('NOT_VERIFIED');
+    expect(() => bindCodeApiExecutionScope(req,{...valid,workspaceKind:'project',workspaceId:'project1'})).
+      toThrow('NOT_VERIFIED');
+  });
+
+  it('B1: signs current project claim and rejects project membership changes before mint', async () => {
+    const req=baseRequest();
+    (req as ServerRequest & {workspaceContext?:unknown}).workspaceContext={
+      kind:'project',workspaceId:'project-approved'
+    } as never;
+    bindCodeApiExecutionScope(req,{
+      userId:'user_123',tenantId:'tenant_abc',conversationId:'chat-project',
+      sessionId:'conv-cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      workspaceKind:'project',workspaceId:'project-approved',
+      fileGrants:[{kind:'project',owner:'project-approved',session_id:'ul-project',
+        file_id:'f-pdf',name:'project.pdf',bytes:20,sha256:'b'.repeat(64)}],
+    });
+    const token=await mintCodeApiToken(req);
+    expect(decodeToken(token).claims).toMatchObject({
+      workspace_kind:'project',workspace_id:'project-approved',
+      execution_file_grants:[{kind:'project',owner:'project-approved'}],
+    });
+    (req as ServerRequest & {workspaceContext?:unknown}).workspaceContext={
+      kind:'project',workspaceId:'project-revoked'
+    } as never;
+    await expect(mintCodeApiToken(req)).rejects.toThrow('CODEAPI_EXECUTION_SCOPE_STALE');
   });
 });
