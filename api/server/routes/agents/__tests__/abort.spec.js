@@ -120,7 +120,7 @@ describe('Agent Abort Endpoint', () => {
         expect(mockGenerationJobManager.abortJob).toHaveBeenCalledWith(jobStreamId);
       });
 
-      it('should allow abort when job has no userId metadata (backwards compatibility)', async () => {
+      it('fails closed when a job has no owner metadata (legacy unsafe case)', async () => {
         const jobStreamId = 'test-stream-123';
 
         mockGenerationJobManager.getJob.mockResolvedValue({
@@ -138,8 +138,9 @@ describe('Agent Abort Endpoint', () => {
           .post('/api/agents/chat/abort')
           .send({ conversationId: jobStreamId });
 
-        expect(response.status).toBe(200);
-        expect(response.body).toEqual({ success: true, aborted: jobStreamId });
+        expect(response.status).toBe(403);
+        expect(response.body).toEqual({ error: 'Unauthorized' });
+        expect(mockGenerationJobManager.abortJob).not.toHaveBeenCalled();
       });
     });
 
