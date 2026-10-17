@@ -50,6 +50,8 @@ import store from '~/store';
 import {
   WORKSPACE_ATTACH_EVENT,
   isWorkspaceFileDrag,
+  isWorkspaceAttachRequest,
+  beginWorkspaceFileAttach,
   readWorkspaceFileDrop,
   matchesWorkspaceChatScope,
   type WorkspaceAttachRequest,
@@ -87,6 +89,9 @@ const ChatForm = memo(function ChatForm({
   const localize = useLocalize();
   const { showToast } = useToastContext();
   const [dragOverWorkspace, setDragOverWorkspace] = useState(false);
+  // A synchronous guard closes the gap before React publishes filesLoading.
+  // Without it two rapid drops can launch duplicate server-side copies.
+  const attachingWorkspaceRef = useRef(false);
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, setIsScrollable] = useState(false);
@@ -150,7 +155,7 @@ const ChatForm = memo(function ChatForm({
 
   const attachWorkspaceFile = useCallback(
     async (item: WorkspaceAttachRequest) => {
-      if (disableInputs || isSubmitting || filesLoading) {
+      if (attachingWorkspaceRef.current || disableInputs || isSubmitting || filesLoading) {
         showToast({
           message: 'Finish the current operation before attaching another file',
           status: 'error',
@@ -172,6 +177,8 @@ const ChatForm = memo(function ChatForm({
         showToast({ message: item.name + ' is already attached' });
         return;
       }
+      const releaseAttach = beginWorkspaceFileAttach(attachingWorkspaceRef, setFilesLoading);
+      if (!releaseAttach) return;
       const temporaryId = uuidv4();
       const pending: ExtendedFile = {
         file_id: temporaryId,
@@ -182,7 +189,6 @@ const ChatForm = memo(function ChatForm({
         tool_resource: EToolResources.execute_code,
       };
       setFiles((prev) => new Map(prev).set(temporaryId, pending));
-      setFilesLoading(true);
       try {
         const payload = {
           session_id: item.sessionId,
@@ -221,6 +227,10 @@ const ChatForm = memo(function ChatForm({
           message: 'Unable to attach ' + item.name + '. Check workspace access and try again.',
           status: 'error',
         });
+      } finally {
+        // The original attach-to-chat path set this true but never cleared it,
+        // leaving the composer send button disabled after success AND failure.
+        releaseAttach();
       }
     },
     [
@@ -240,13 +250,17 @@ const ChatForm = memo(function ChatForm({
   // Click-to-attach from Workspace Files uses the exact same authorized path
   // as native drag/drop. No browser bytes are fetched or reuploaded.
   useEffect(() => {
+    // The side-panel Paperclip command is global. In multi-chat comparison
+    // mode more than one ChatForm mounts; only the primary composer should
+    // consume it. A direct drop still targets whichever composer received it.
+    if (index !== 0) return;
     const handler = (event: Event) => {
       const item = (event as CustomEvent<WorkspaceAttachRequest>).detail;
-      if (item) void attachWorkspaceFile(item);
+      if (isWorkspaceAttachRequest(item)) void attachWorkspaceFile(item);
     };
     window.addEventListener(WORKSPACE_ATTACH_EVENT, handler);
     return () => window.removeEventListener(WORKSPACE_ATTACH_EVENT, handler);
-  }, [attachWorkspaceFile]);
+  }, [attachWorkspaceFile, index]);
 
   const handleWorkspaceDragOver = useCallback((event: React.DragEvent) => {
     if (!isWorkspaceFileDrag(event.dataTransfer)) return;
