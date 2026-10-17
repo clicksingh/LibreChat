@@ -48,6 +48,8 @@ const {
   buildAgentScopedContext,
   buildSkillPrimeContentParts,
   buildInitialToolSessions,
+  resolveExecutionSession,
+  bindExecutionSession,
 } = require('@librechat/api');
 const {
   Callback,
@@ -81,6 +83,7 @@ const { getMCPServerTools } = require('~/server/services/Config');
 const BaseClient = require('~/app/clients/BaseClient');
 const { getMCPManager } = require('~/config');
 const db = require('~/models');
+const mongoose = require('mongoose');
 
 const loadAgent = (params) => loadAgentFn(params, { getAgent: db.getAgent, getMCPServerTools });
 
@@ -1172,10 +1175,42 @@ class AgentClient extends BaseClient {
        * run-wide semantics live in `buildInitialToolSessions`; see that
        * helper's doc for why this is intentionally NOT per-agent.
        */
-      const initialSessions = buildInitialToolSessions({
+      let initialSessions = buildInitialToolSessions({
         skillSessions: skillPrimeResult?.initialSessions,
         agents: [this.options.agent, ...(this.agentConfigs ? this.agentConfigs.values() : [])],
       });
+
+      // Rollout gate: legacy chats still use their original execution sessions
+      // until migration ownership and CodeAPI filesystem enforcement qualify.
+      if (process.env.CBHR_CONVERSATION_EXECUTION_SESSIONS === '1') {
+        const req = this.options.req;
+        const userId = req?.user?.id;
+        if (!userId || !this.conversationId || this.conversationId === 'new') {
+          throw new Error('An authenticated conversation is required for code execution');
+        }
+        const requestedId = req.body?.conversationId;
+        const isNewConversation = !requestedId || requestedId === 'new';
+        if (!isNewConversation) {
+          if (requestedId !== this.conversationId) {
+            throw new Error('Conversation execution identity mismatch');
+          }
+          const owned = await db.getConvo(userId, this.conversationId);
+          if (!owned) throw new Error('Conversation execution access denied');
+        }
+        const workspace = req.workspaceContext;
+        const sessionId = await resolveExecutionSession(
+          mongoose.connection.collection('code_execution_sessions'),
+          {
+            tenantId: String(req.user.tenantId ?? 'legacy'),
+            userId: String(userId),
+            conversationId: this.conversationId,
+            workspaceKind: workspace?.kind === 'project' ? 'project' : 'personal',
+            workspaceId: workspace?.kind === 'project' ? workspace.workspaceId : String(userId),
+          },
+          { allowCreate: isNewConversation },
+        );
+        initialSessions = bindExecutionSession(initialSessions, sessionId);
+      }
 
       /** Spoof `Providers.DEEPSEEK` so the SDK preserves `reasoning_content` on tool turns (#13366). */
       const hasDeepSeekAgent = (agent) =>
