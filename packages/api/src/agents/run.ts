@@ -36,6 +36,7 @@ import type { SubagentUsageEvent } from '~/agents/usage';
 import type * as t from '~/types';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
 import { getProviderConfig } from '~/endpoints/config/providers';
+import { buildStaffWorkstationContract } from '~/agents/staffWorkstationContract';
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { resolveHeaders, createSafeUser } from '~/utils/env';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
@@ -915,7 +916,15 @@ export async function createRun({
     const toolInstructions = joinInstructionMap(agent.toolContextMap);
     const dynamicToolInstructions = joinInstructionMap(agent.dynamicToolContextMap);
 
-    const systemContent = [toolInstructions, agent.instructions ?? ''].join('\n').trim();
+    const managedStaffContract = buildStaffWorkstationContract({
+      endpoint: agent.endpoint ?? undefined,
+      toolNames: (agent.toolDefinitions ?? []).map((definition) => definition.name),
+      isSubagent,
+    });
+    const systemContent = [managedStaffContract, toolInstructions, agent.instructions ?? '']
+      .filter(Boolean)
+      .join('\n')
+      .trim();
 
     const additionalInstructions = [dynamicToolInstructions, agent.additional_instructions ?? '']
       .join('\n')
