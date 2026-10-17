@@ -872,6 +872,7 @@ const primeFiles = async (options) => {
 
   const files = [];
   const sessions = new Map();
+  const seenFileIds = new Set();
   let toolContext = '';
 
   /* Per-file path counters — emitted at the bottom so a single
@@ -882,16 +883,54 @@ const primeFiles = async (options) => {
 
   for (let i = 0; i < dbFiles.length; i++) {
     const file = dbFiles[i];
-    if (!file) {
+    if (!file || (file.file_id && seenFileIds.has(file.file_id))) {
       continue;
     }
+    if (file.file_id) seenFileIds.add(file.file_id);
 
     const ref = file.metadata?.codeEnvRef;
     if (!ref) {
-      skippedNoRef += 1;
-      logger.debug(
-        `[primeCodeFiles] file=${file.file_id} path=skip reason=no-codeenvref filename=${file.filename}`,
-      );
+      // Direct-files fallback. Treat unindexed uploads as input resources,
+      // never as generated output; enforce source ownership before staging.
+      const directInput =
+        file.user?.toString() === req?.user?.id?.toString() &&
+        file.context !== FileContext.execute_code &&
+        /\.(docx|pdf|odt|txt|md|xlsx|xls|xlsm|csv|ods)$/i.test(file.filename ?? '') &&
+        Number.isFinite(file.bytes) && file.bytes > 0 && file.bytes <= 25 * 1024 * 1024;
+      if (!directInput) {
+        skippedNoRef += 1;
+        continue;
+      }
+      try {
+        const { getDownloadStream } = getStrategyFunctions(file.source);
+        if (typeof getDownloadStream !== 'function') throw new Error('No input stream');
+        const stream = await getDownloadStream(req, file.filepath);
+        const { handleFileUpload } = getStrategyFunctions(FileSources.execute_code);
+        const uploaded = await handleFileUpload({
+          req, stream, filename: file.filename, kind: 'user', id: req.user.id,
+        });
+        if (!uploaded?.storage_session_id || !uploaded.file_id) {
+          throw new Error('Code input staging returned no object');
+        }
+        const stagedRef = {
+          kind: 'user', id: req.user.id,
+          storage_session_id: uploaded.storage_session_id, file_id: uploaded.file_id,
+        };
+        await updateFile({ file_id: file.file_id, metadata: { ...file.metadata, codeEnvRef: stagedRef } });
+        files.push({
+          id: stagedRef.file_id, resource_id: stagedRef.id,
+          storage_session_id: stagedRef.storage_session_id,
+          name: file.filename, kind: 'user',
+        });
+        toolContext = appendVisibleCodeFileContext(
+          toolContext,
+          getVisibleCodeFileContextLine(file, agentResourceIds),
+        );
+        sessions.set(stagedRef.storage_session_id, true);
+      } catch (error) {
+        reuploadFailures += 1;
+        logger.warn(`[primeCodeFiles] Direct input staging failed for file=${file.file_id}: ${error.message}`);
+      }
       continue;
     }
     const session_id = ref.storage_session_id;
