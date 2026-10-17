@@ -73,6 +73,7 @@ const {
 } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { resolveEffectiveCodeEnv } = require('~/server/services/Endpoints/agents/authorization');
+const { createConversationMemoryAgent } = require('./memoryProvider');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
 const { resolveConfigServers } = require('~/server/services/MCP');
@@ -629,15 +630,22 @@ class AgentClient extends BaseClient {
     );
     try {
       if (memoryConfig.agent?.useConversationModel === true) {
-        // Match the model/provider already validated for this chat request.
-        // Memory extraction only receives its own dedicated memory tools.
-        prelimAgent = {
-          ...this.options.agent,
-          tools: [],
-          tool_resources: undefined,
-          model_parameters: { ...this.options.agent.model_parameters },
-          instructions: memoryConfig.agent.instructions,
-        };
+        // initializeAgent normalizes custom providers (e.g. CBHR AI) to
+        // their SDK adapter ('openAI'). For the memory agent's *second*
+        // initialization, use agent.endpoint, the original credential-bearing
+        // source, or it would wrongly demand a personal OpenAI BYOK key.
+        // Keep the same model/config but no conversation tools.
+        prelimAgent = createConversationMemoryAgent(
+          this.options.agent,
+          memoryConfig.agent.instructions,
+        );
+        if (prelimAgent.provider !== this.options.agent.provider) {
+          logger.info('[AgentClient] Memory provider restored to configured endpoint', {
+            streamId: this.options.req?._resumableStreamId,
+            configuredEndpoint: prelimAgent.provider,
+            normalizedProvider: this.options.agent.provider,
+          });
+        }
       } else if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
         prelimAgent = await loadAgent({
           req: this.options.req,
