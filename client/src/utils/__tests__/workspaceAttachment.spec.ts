@@ -4,6 +4,10 @@ import {
   readWorkspaceFileDrop,
   isWorkspaceFileDrag,
   matchesWorkspaceChatScope,
+  isWorkspaceAttachRequest,
+  beginWorkspaceFileAttach,
+  requestWorkspaceFileAttach,
+  WORKSPACE_ATTACH_EVENT,
 } from '../workspaceAttachment';
 
 const item = {
@@ -46,6 +50,60 @@ describe('Workspace ? composer drag identity', () => {
     expect(matchesWorkspaceChatScope(personal, { endpoint: 'CBHR AI', workspaceId: 'ws-1' })).toBe(
       false,
     );
+  });
+
+  it('preserves personal and project scope in actual drag payloads and rejects untrusted keys', () => {
+    const data = (value: unknown) => ({ getData: () => JSON.stringify(value) });
+    const personal = makeWorkspaceAttachRequest(item, { kind: 'personal' });
+    const project = makeWorkspaceAttachRequest(item, { kind: 'project', id: 'ws-1' });
+    expect(readWorkspaceFileDrop(data(personal))).toEqual(personal);
+    expect(readWorkspaceFileDrop(data(project))).toEqual(project);
+    for (const forged of [
+      { ...personal, sessionId: '../escape' },
+      { ...personal, fileId: '.pending' },
+      { ...personal, sessionId: '' },
+      { ...personal, projectId: 'unexpected-project' },
+      { ...personal, name: '' },
+      { ...personal, size: NaN },
+      { ...project, projectId: '../wrong' },
+      { ...project, projectId: '' },
+    ]) {
+      expect(readWorkspaceFileDrop(data(forged))).toBeNull();
+      expect(isWorkspaceAttachRequest(forged)).toBe(false);
+    }
+  });
+
+  it('routes paperclip attach through the same scoped event as workspace drops', () => {
+    const project = makeWorkspaceAttachRequest(item, { kind: 'project', id: 'project-1' });
+    const listener = jest.fn();
+    window.addEventListener(WORKSPACE_ATTACH_EVENT, listener);
+    try {
+      requestWorkspaceFileAttach(project);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual(project);
+    } finally {
+      window.removeEventListener(WORKSPACE_ATTACH_EVENT, listener);
+    }
+  });
+
+  it('blocks same-tick duplicate drops and always releases composer loading', () => {
+    const lock = { current: false };
+    const loading = jest.fn();
+    const finish = beginWorkspaceFileAttach(lock, loading);
+    expect(finish).not.toBeNull();
+    expect(lock.current).toBe(true);
+    expect(loading).toHaveBeenCalledWith(true);
+    expect(beginWorkspaceFileAttach(lock, loading)).toBeNull();
+    expect(loading).toHaveBeenCalledTimes(1);
+    finish?.();
+    finish?.();
+    expect(lock.current).toBe(false);
+    expect(loading.mock.calls).toEqual([[true], [false]]);
+    const failedRetryFinish = beginWorkspaceFileAttach(lock, loading);
+    expect(failedRetryFinish).not.toBeNull();
+    failedRetryFinish?.();
+    expect(lock.current).toBe(false);
+    expect(loading.mock.calls).toEqual([[true], [false], [true], [false]]);
   });
 
   it('ignores tampered/incomplete drag metadata instead of invoking upload', () => {

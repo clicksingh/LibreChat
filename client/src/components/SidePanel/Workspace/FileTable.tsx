@@ -1,7 +1,7 @@
 import { Button, TrashIcon } from '@librechat/client';
 import { Download, Paperclip } from 'lucide-react';
-import { WORKSPACE_FILE_DRAG_TYPE, type WorkspaceAttachRequest } from '~/utils/workspaceAttachment';
-import { formatDate } from '~/utils';
+import { WORKSPACE_FILE_DRAG_TYPE, type WorkspaceAttachRequest } from '../../../utils/workspaceAttachment';
+import { formatDate } from '../../../utils/files';
 import { formatWorkspaceBytes } from './formatBytes';
 import type { TWorkspaceFileEntry } from 'librechat-data-provider';
 
@@ -38,6 +38,9 @@ export default function FileTable({
   }
   return (
     <div className="w-full">
+      <p className="pb-2 text-xs text-text-secondary">
+        Drag a file into the chat composer, or use the paperclip to attach it.
+      </p>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border-light text-left text-xs text-text-secondary">
