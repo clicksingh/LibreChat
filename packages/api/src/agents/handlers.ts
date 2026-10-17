@@ -180,7 +180,7 @@ export interface ToolExecuteOptions {
   batchUploadCodeEnvFiles?: (params: {
     req: ServerRequest;
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
-    kind: 'skill' | 'agent' | 'user';
+    kind: 'skill' | 'agent' | 'user' | 'project';
     id: string;
     version?: number;
     read_only?: boolean;
@@ -3053,7 +3053,7 @@ async function handleSkillToolCall(
           resource_id: string;
           name: string;
           storage_session_id: string;
-          kind?: 'skill' | 'agent' | 'user';
+          kind?: 'skill' | 'agent' | 'user' | 'project';
           version?: number;
         }>;
       }

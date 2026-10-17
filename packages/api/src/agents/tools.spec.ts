@@ -572,6 +572,14 @@ describe('registerFileAuthoringTools', () => {
     expect(toolRegistry.get('create_file')?.description).toContain('trigger-friendly');
     expect(toolRegistry.get('create_file')?.description).toContain('references/template.html');
     expect(toolRegistry.get('create_file')?.description).toContain('templates/{file}');
+    expect(toolRegistry.get('create_file')?.description).toContain(
+      'create a skill from what we just did',
+    );
+    expect(toolRegistry.get('create_file')?.description).toContain('verified results');
+    expect(toolRegistry.get('create_file')?.description).toContain('private Skills library');
+    expect(toolRegistry.get('create_file')?.description).toContain(
+      'Sharing with staff requires a separate authorized action',
+    );
     expect(toolRegistry.get('edit_file')?.description).toContain('edit_file cannot rename skills');
     expect(toolRegistry.get('edit_file')?.description).toContain('Keep SKILL.md concise');
     expect(toolRegistry.get('edit_file')?.description).toContain('templates/');

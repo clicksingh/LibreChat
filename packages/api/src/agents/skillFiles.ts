@@ -38,7 +38,7 @@ export interface PrimeSkillFilesParams {
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
     /** Resource kind that owns the batch's storage session. Drives codeapi's
      *  sessionKey derivation (`<tenant>:<kind>:<id>[:v:<version>]`). */
-    kind: 'skill' | 'agent' | 'user';
+    kind: 'skill' | 'agent' | 'user' | 'project';
     /** Resource id (skillId / agentId / userId). */
     id: string;
     /** Required when `kind === 'skill'`; forbidden otherwise. */
@@ -80,7 +80,7 @@ export interface PrimeSkillFilesResult {
     resource_id: string;
     storage_session_id: string;
     name: string;
-    kind: 'skill' | 'agent' | 'user';
+    kind: 'skill' | 'agent' | 'user' | 'project';
     version?: number;
   }>;
 }

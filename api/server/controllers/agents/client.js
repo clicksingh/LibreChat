@@ -73,6 +73,7 @@ const {
 } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { resolveEffectiveCodeEnv } = require('~/server/services/Endpoints/agents/authorization');
+const { createConversationMemoryAgent } = require('./memoryProvider');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
 const { resolveConfigServers } = require('~/server/services/MCP');
@@ -628,7 +629,24 @@ class AgentClient extends BaseClient {
       appConfig?.endpoints?.[EModelEndpoint.agents]?.allowedProviders,
     );
     try {
-      if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
+      if (memoryConfig.agent?.useConversationModel === true) {
+        // initializeAgent normalizes custom providers (e.g. CBHR AI) to
+        // their SDK adapter ('openAI'). For the memory agent's *second*
+        // initialization, use agent.endpoint, the original credential-bearing
+        // source, or it would wrongly demand a personal OpenAI BYOK key.
+        // Keep the same model/config but no conversation tools.
+        prelimAgent = createConversationMemoryAgent(
+          this.options.agent,
+          memoryConfig.agent.instructions,
+        );
+        if (prelimAgent.provider !== this.options.agent.provider) {
+          logger.info('[AgentClient] Memory provider restored to configured endpoint', {
+            streamId: this.options.req?._resumableStreamId,
+            configuredEndpoint: prelimAgent.provider,
+            normalizedProvider: this.options.agent.provider,
+          });
+        }
+      } else if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
         prelimAgent = await loadAgent({
           req: this.options.req,
           agent_id: memoryConfig.agent.id,
@@ -676,7 +694,7 @@ class AgentClient extends BaseClient {
         endpointOption: {
           endpoint: !isEphemeralAgentId(prelimAgent.id)
             ? EModelEndpoint.agents
-            : memoryConfig.agent?.provider,
+            : prelimAgent.provider,
         },
         codeEnvAvailable: memoryCodeEnvAvailable,
       },

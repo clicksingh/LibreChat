@@ -10,9 +10,10 @@ RUN apk add --no-cache python3 py3-pip uv
 # Set environment variable to use jemalloc
 ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
 
-# Add `uv` for extended MCP support
-COPY --from=ghcr.io/astral-sh/uv:0.9.5-python3.12-alpine /usr/local/bin/uv /usr/local/bin/uvx /bin/
-RUN uv --version
+# Alpine uv is installed above via apk alongside Python tools; it is the
+# same runtime toolchain used by the current qualified CBHR image. Avoid a
+# GHCR-only foreign stage that requires unavailable registry authorization.
+RUN command -v uv && command -v uvx && uv --version
 
 # Set configurable max-old-space-size with default
 ARG NODE_MAX_OLD_SPACE_SIZE=6144

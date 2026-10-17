@@ -118,12 +118,13 @@ const file: Schema<IMongoFile> = new Schema(
     width: Number,
     height: Number,
     metadata: {
+      workspaceFileAttachment: { type: Boolean, default: undefined },
       codeEnvRef: {
         type: new Schema(
           {
             kind: {
               type: String,
-              enum: ['skill', 'agent', 'user'],
+              enum: ['skill', 'agent', 'user', 'project'],
               required: true,
             },
             id: { type: String, required: true },

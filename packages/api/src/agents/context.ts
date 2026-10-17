@@ -107,6 +107,32 @@ export function buildAgentInstructions({
   return combined || undefined;
 }
 
+/** Only advertise tool definitions that were loaded for this authorized run. */
+export function buildAvailableToolContext(agent: AgentWithTools): string {
+  const definitions = agent.toolDefinitions ?? [];
+  if (!definitions.length) {
+    return '';
+  }
+
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const definition of definitions) {
+    const name = definition.name;
+    if (typeof name !== 'string' || !name || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    names.push(name);
+  }
+  if (names.length === 0) {
+    return '';
+  }
+
+  const visible = names.slice(0, 128);
+  const suffix = names.length > visible.length ? ` (${names.length - visible.length} more in tool definitions)` : '';
+  return `# Tools available for this turn\nThese exact tool names are authorized and callable: ${visible.join(', ')}${suffix}. Check each tool's schema before calling. Any skills that can be invoked are listed in the skill catalog above.`;
+}
+
 /**
  * Builds dynamic system-tail instructions for an agent.
  * Order: existing additional instructions -> shared run context.
@@ -171,7 +197,9 @@ export async function applyContextToAgent({
     });
     agent.additional_instructions = buildAgentAdditionalInstructions({
       additionalInstructions,
-      sharedRunContext,
+      sharedRunContext: [buildAvailableToolContext(agent), sharedRunContext]
+        .filter(Boolean)
+        .join('\n\n'),
     });
 
     if (agentId && logger) {
@@ -184,7 +212,9 @@ export async function applyContextToAgent({
     });
     agent.additional_instructions = buildAgentAdditionalInstructions({
       additionalInstructions,
-      sharedRunContext,
+      sharedRunContext: [buildAvailableToolContext(agent), sharedRunContext]
+        .filter(Boolean)
+        .join('\n\n'),
     });
 
     if (logger) {

@@ -1,4 +1,5 @@
 const express = require('express');
+const { rejectManagedAssistantEndpoint } = require('~/server/middleware/enforceManagedChatEndpoint');
 
 const router = express.Router();
 const {
@@ -23,6 +24,7 @@ router.post('/abort', handleAbort());
  */
 router.post(
   '/',
+  rejectManagedAssistantEndpoint,
   validateModel,
   buildEndpointOption,
   validateAssistant,

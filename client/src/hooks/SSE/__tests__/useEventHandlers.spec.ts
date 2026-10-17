@@ -5,6 +5,7 @@ import {
   getExistingConversationAbortMessages,
   isInitialNewConversationSubmission,
   mergeRegenerateFinalMessages,
+  reconcileStreamFailureMessages,
 } from '~/hooks/SSE/useEventHandlers';
 
 describe('buildCreatedInitialResponse', () => {
@@ -171,5 +172,61 @@ describe('getExistingConversationAbortMessages', () => {
         currentMessages,
       }).map(({ messageId }) => messageId),
     ).toEqual(['user-1']);
+  });
+});
+
+describe('reconcileStreamFailureMessages', () => {
+  const message = (id: string, isCreatedByUser: boolean, parentMessageId = '') =>
+    ({
+      messageId: id,
+      parentMessageId,
+      conversationId: 'conv-1',
+      isCreatedByUser,
+      text: '',
+    }) as TMessage;
+
+  it('keeps streamed content and appends a visible error instead of resetting the turn', () => {
+    const user = message('user-1', true);
+    const partial = {
+      ...message('response-1', false, user.messageId),
+      content: [{ type: 'text', text: 'Work completed before disconnect' }],
+    } as TMessage;
+    const error = { ...message('error-1', false, user.messageId), text: 'terminated' };
+    const messages = reconcileStreamFailureMessages({
+      messages: [],
+      currentMessages: [user, partial],
+      userMessage: user,
+      errorMessage: error,
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toEqual(
+      expect.objectContaining({
+        messageId: partial.messageId,
+        unfinished: true,
+        content: [
+          { type: 'text', text: 'Work completed before disconnect' },
+          { type: 'error', error: 'terminated' },
+        ],
+      }),
+    );
+  });
+
+  it('does not mix another conversation into a failed response', () => {
+    const user = message('user-1', true);
+    const unrelated = {
+      ...message('response-2', false, 'user-2'),
+      conversationId: 'other-conversation',
+      content: [{ type: 'text', text: 'Unrelated' }],
+    } as TMessage;
+    const error = { ...message('error-1', false, user.messageId), text: 'terminated' };
+
+    const messages = reconcileStreamFailureMessages({
+      messages: [],
+      currentMessages: [unrelated],
+      userMessage: user,
+      errorMessage: error,
+    });
+    expect(messages.map((msg) => msg.messageId)).toEqual(['user-1', 'error-1']);
   });
 });

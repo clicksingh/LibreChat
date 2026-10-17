@@ -1613,6 +1613,11 @@ export const memorySchema = z.object({
         instructions: z.string().optional(),
         model_parameters: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
       }),
+      z.object({
+        enabled: z.boolean().optional(),
+        useConversationModel: z.literal(true),
+        instructions: z.string().optional(),
+      }),
     ])
     .optional(),
 });

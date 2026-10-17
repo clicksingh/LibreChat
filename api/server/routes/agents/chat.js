@@ -12,6 +12,7 @@ const { initializeClient } = require('~/server/services/Endpoints/agents');
 const AgentController = require('~/server/controllers/agents/request');
 const addTitle = require('~/server/services/Endpoints/agents/title');
 const { getRoleByName } = require('~/models');
+const { enforceManagedChatEndpoint } = require('~/server/middleware/enforceManagedChatEndpoint');
 
 const router = express.Router();
 
@@ -28,6 +29,7 @@ const checkAgentResourceAccess = canAccessAgentFromBody({
 router.use(createMessageFilterPii({ getConfig: (req) => req.config?.messageFilter?.pii }));
 router.use(moderateText);
 router.use(checkAgentAccess);
+router.use(enforceManagedChatEndpoint);
 router.use(checkAgentResourceAccess);
 router.use(validateConvoAccess);
 router.use(buildEndpointOption);

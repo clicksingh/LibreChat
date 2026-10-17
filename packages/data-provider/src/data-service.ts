@@ -1388,6 +1388,31 @@ export function listPersonalWorkspaceFiles(params?: {
   return request.get(endpoints.personalWorkspaceFiles(params));
 }
 
+export function downloadPersonalWorkspaceFile(
+  sessionId: string,
+  fileId: string,
+): Promise<AxiosResponse<Blob>> {
+  return request.getResponse(endpoints.personalWorkspaceFileDownload(sessionId, fileId), {
+    responseType: 'blob',
+    headers: { Accept: 'application/octet-stream' },
+  });
+}
+
+export function attachPersonalWorkspaceFile(payload: {
+  session_id: string;
+  file_id: string;
+  conversationId?: string;
+}): Promise<f.TFile> {
+  return request.post(endpoints.personalWorkspaceFileAttach(), payload);
+}
+
+export function attachProjectWorkspaceFile(
+  projectId: string,
+  payload: { session_id: string; file_id: string; conversationId?: string },
+): Promise<f.TFile> {
+  return request.post(endpoints.projectWorkspaceFileAttach(projectId), payload);
+}
+
 export function listPersonalWorkspaceTrash(params?: {
   cursor?: string;
   limit?: number;
@@ -1426,6 +1451,20 @@ export function listProjectWorkspaceFiles(
   params?: { cursor?: string; limit?: number },
 ): Promise<ws.TWorkspaceFileListResponse> {
   return request.get(endpoints.projectWorkspaceFiles(id, params));
+}
+
+export function downloadProjectWorkspaceFile(
+  workspaceId: string,
+  sessionId: string,
+  fileId: string,
+): Promise<AxiosResponse<Blob>> {
+  return request.getResponse(
+    endpoints.projectWorkspaceFileDownload(workspaceId, sessionId, fileId),
+    {
+      responseType: 'blob',
+      headers: { Accept: 'application/octet-stream' },
+    },
+  );
 }
 
 export function listProjectWorkspaceTrash(

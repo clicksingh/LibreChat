@@ -11,6 +11,10 @@ const { createAxiosInstance, logAxiosError, getCodeApiAuthHeaders } = require('@
 
 const axios = createAxiosInstance();
 
+// CodeAPI session/file identifiers are opaque storage keys, never paths.
+const safeFileKey = (key) =>
+  typeof key === 'string' && /^[A-Za-z0-9_.-]{1,180}$/.test(key) && key !== '.' && key !== '..';
+
 /**
  * @param {Express.Request} req
  * @param {'user'|'project'} kind
@@ -57,6 +61,97 @@ async function listFiles(req, kind, id, cursor, limit) {
     ...(cursor ? { cursor } : {}),
     ...(limit ? { limit } : {}),
   });
+}
+
+/**
+ * Stream a single listed workspace file from CodeAPI through the same authenticated
+ * boundary as the file browser. The caller must validate project ACL membership and
+ * set req.workspaceContext before requesting any project file.
+ */
+async function downloadFile(req, res, kind, id, sessionId, fileId) {
+  if (!safeFileKey(sessionId) || !safeFileKey(fileId)) {
+    const error = new Error('invalid file identifier');
+    error.status = 400;
+    throw error;
+  }
+  const baseURL = getCodeBaseURL();
+  const authHeaders = await getCodeApiAuthHeaders(req);
+  const query = new URLSearchParams({ kind, ...(id ? { id } : {}) }).toString();
+  const url = `${baseURL}/download/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileId)}?${query}`;
+  const upstream = await axios.get(url, {
+    headers: authHeaders,
+    responseType: 'stream',
+    maxRedirects: 0,
+    timeout: 30000,
+  });
+  res.status(200);
+  res.set({
+    'Content-Type': upstream.headers['content-type'] || 'application/octet-stream',
+    'Content-Disposition': upstream.headers['content-disposition'] || 'attachment',
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  if (upstream.headers['content-length']) {
+    res.set('Content-Length', upstream.headers['content-length']);
+  }
+  upstream.data.on('error', (error) => {
+    logger.warn(`[Workspace proxy] download stream failed: ${error.message}`);
+    if (!res.headersSent) return res.status(502).end();
+    res.destroy(error);
+  });
+  res.on('close', () => {
+    if (!upstream.data.destroyed) upstream.data.destroy();
+  });
+  upstream.data.pipe(res);
+}
+
+/**
+ * Server-only bounded read for attaching a previously published workspace
+ * object. Auth is the SAME per-request signed CodeAPI claim as downloads.
+ * Never expose this buffer to the browser or follow redirect URLs.
+ */
+async function readWorkspaceFile(req, kind, id, sessionId, fileId, maxBytes) {
+  if (!safeFileKey(sessionId) || !safeFileKey(fileId)) {
+    const error = new Error('invalid file identifier');
+    error.status = 400;
+    throw error;
+  }
+  const baseURL = getCodeBaseURL();
+  const headers = await getCodeApiAuthHeaders(req);
+  const query = new URLSearchParams({ kind, ...(id ? { id } : {}) }).toString();
+  const url =
+    baseURL +
+    '/download/' +
+    encodeURIComponent(sessionId) +
+    '/' +
+    encodeURIComponent(fileId) +
+    '?' +
+    query;
+  const upstream = await axios.get(url, {
+    headers,
+    responseType: 'stream',
+    maxRedirects: 0,
+    timeout: 30000,
+  });
+  const declared = Number(upstream.headers['content-length']);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    upstream.data.destroy();
+    throw Object.assign(new Error('Workspace file too large'), { status: 413 });
+  }
+  const chunks = [];
+  let size = 0;
+  try {
+    for await (const chunk of upstream.data) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        throw Object.assign(new Error('Workspace file too large'), { status: 413 });
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    upstream.data.destroy();
+  }
+  return Buffer.concat(chunks, size);
 }
 
 async function listTrash(req, kind, id, cursor, limit) {
@@ -107,6 +202,8 @@ module.exports = {
   getCleanupPreview,
   cleanup,
   listFiles,
+  downloadFile,
+  readWorkspaceFile,
   listTrash,
   trashFile,
   restoreFile,
