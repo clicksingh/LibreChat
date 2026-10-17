@@ -43,6 +43,7 @@ import { useApplyModelSpecEffects } from './Agents';
 import { usePauseGlobalAudio } from './Audio';
 import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
+import { getManagedNewChatPreset, applyManagedNewChatPreset } from '~/utils/managedDefault';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();
@@ -346,6 +347,14 @@ const useNewConvo = (index = 0) => {
       };
 
       let preset = _preset;
+      const managedPreset = getManagedNewChatPreset({
+        isManagedUser,
+        conversationId: conversation.conversationId,
+        template: _template,
+        startupConfig,
+        endpointsConfig,
+        modelsConfig: modelsData ?? modelsQuery.data,
+      });
       const result = getDefaultModelSpec(startupConfig, endpointsConfig);
       // CBHR regular USERs are managed: never let browser-local model history
       // win over the current admin-defined default when creating a new chat.
@@ -369,7 +378,17 @@ const useNewConvo = (index = 0) => {
             _preset?.assistant_id,
         );
 
-      if (isManagedUser && !explicitAgentOrAssistant) {
+      if (managedPreset) {
+        // Force the current company endpoint even when ChatRoute supplies
+        // a stale preset from localStorage, an old model spec, or URL params.
+        // Normalize endpointType as well: otherwise a saved provider type can
+        // survive buildDefaultConvo and dispatch to a personal-key provider.
+        preset = managedPreset;
+        Object.assign(
+          conversation,
+          applyManagedNewChatPreset(conversation, managedPreset, endpointsConfig),
+        );
+      } else if (isManagedUser && !explicitAgentOrAssistant) {
         defaultModelSpec = result?.default ?? result?.softDefault;
         shouldApplyModelSpec = defaultModelSpec != null;
       }
@@ -431,6 +450,7 @@ const useNewConvo = (index = 0) => {
       isManagedUser,
       saveBadgesState,
       endpointsConfig,
+      modelsQuery.data,
       getConversation,
       pauseGlobalAudio,
       switchToConversation,
@@ -439,11 +459,27 @@ const useNewConvo = (index = 0) => {
   );
 
   useEffect(() => {
-    if (!isManagedUser || !activeConversation || activeConversation.conversationId !== Constants.NEW_CONVO || activeConversation.endpoint) return;
-    const endpointsReady = Object.keys(endpointsConfig ?? {}).some((endpoint) => Boolean(endpointsConfig?.[endpoint]));
+    if (
+      !isManagedUser ||
+      !activeConversation ||
+      activeConversation.conversationId !== Constants.NEW_CONVO ||
+      activeConversation.endpoint
+    )
+      return;
+    const endpointsReady = Object.keys(endpointsConfig ?? {}).some((endpoint) =>
+      Boolean(endpointsConfig?.[endpoint]),
+    );
     const modelsReady = Object.keys(modelsQuery.data ?? {}).length > 0;
     if (!endpointsReady || !modelsReady) return;
-    newConversation({ template: { chatProjectId: activeConversation.chatProjectId, workspaceId: activeConversation.workspaceId }, buildDefault: true, keepAddedConvos: true, disableFocus: true });
+    newConversation({
+      template: {
+        chatProjectId: activeConversation.chatProjectId,
+        workspaceId: activeConversation.workspaceId,
+      },
+      buildDefault: true,
+      keepAddedConvos: true,
+      disableFocus: true,
+    });
   }, [activeConversation, endpointsConfig, isManagedUser, modelsQuery.data, newConversation]);
 
   return {
