@@ -28,6 +28,13 @@ function hasTenantMismatch(job, user) {
   return job.metadata?.tenantId != null && job.metadata.tenantId !== user.tenantId;
 }
 
+/** Missing job ownership and malformed authenticated identities fail closed. */
+function ownsGenerationJob(job, user) {
+  return Boolean(
+    job?.metadata?.userId && user?.id && job.metadata.userId === user.id
+  );
+}
+
 const router = express.Router();
 
 /**
@@ -72,7 +79,8 @@ router.get('/chat/stream/:streamId', async (req, res) => {
     });
   }
 
-  if (job.metadata?.userId && job.metadata.userId !== req.user.id) {
+  // Fail closed for jobs whose owner metadata is absent or malformed.
+  if (!ownsGenerationJob(job, req.user)) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -191,7 +199,7 @@ router.get('/chat/status/:conversationId', async (req, res) => {
     return res.json({ active: false });
   }
 
-  if (job.metadata.userId !== req.user.id) {
+  if (!ownsGenerationJob(job, req.user)) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -253,7 +261,8 @@ router.post('/chat/abort', async (req, res) => {
   logger.debug(`[AgentStream] Computed jobStreamId: ${jobStreamId}`);
 
   if (job && jobStreamId) {
-    if (job.metadata?.userId && job.metadata.userId !== userId) {
+    // A missing job owner is not an implicit permission to abort.
+    if (!ownsGenerationJob(job, req.user)) {
       logger.warn(`[AgentStream] Unauthorized abort attempt for ${jobStreamId} by user ${userId}`);
       return res.status(403).json({ error: 'Unauthorized' });
     }
