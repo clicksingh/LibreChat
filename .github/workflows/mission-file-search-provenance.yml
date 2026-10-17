@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Static syntax
         run: |
           node --check api/app/clients/tools/util/fileSearch.js

@@ -24,10 +24,16 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
       - name: Install exact locked dependencies
         run: npm ci
+      - name: Stage optional tsdown peer separately
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cbhr-unrun-peer"
+          npm install --prefix "$RUNNER_TEMP/cbhr-unrun-peer" --ignore-scripts --no-audit --no-fund unrun@0.3.1
+          ln -s "$RUNNER_TEMP/cbhr-unrun-peer/node_modules/unrun" packages/api/node_modules/unrun
       - name: Build dependent packages
         run: |
           npm run build:data-provider
