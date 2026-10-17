@@ -116,19 +116,38 @@ export async function primeSkillFiles(
    * skill is edited, the upsert clears the ref and forces a fresh
    * upload on the next prime. */
   if (getSessionInfo && checkIfActive && skillFiles.length > 0) {
-    const allHaveRefs = skillFiles.every((sf) => sf.codeEnvRef !== undefined);
+    // A cached storage session can stay live across SKILL.md edits, a
+    // bundled-file edit, or a stale metadata write. Freshness alone does
+    // NOT authorize reusing it: the reference must belong to precisely the
+    // current skill record and version. Otherwise a new SKILL.md can load
+    // old/foreign scripts while the live-session check still returns true.
+    const skillId = skill._id.toString();
+    const allHaveRefs = skillFiles.every((sf) => {
+      const ref = sf.codeEnvRef;
+      return (
+        ref?.kind === 'skill' &&
+        ref.id === skillId &&
+        ref.version === skill.version &&
+        typeof ref.file_id === 'string' &&
+        ref.file_id.length > 0 &&
+        typeof ref.storage_session_id === 'string' &&
+        ref.storage_session_id.length > 0
+      );
+    });
     if (allHaveRefs) {
-      const refsBySession = new Map<string, CodeEnvRef>();
+      // Live storage sessions may contain missing individual objects.
+      // Validate each object, not just the first in a shared session.
+      const refsByObject = new Map<string, CodeEnvRef>();
       for (const sf of skillFiles) {
         const ref = sf.codeEnvRef;
-        if (ref && !refsBySession.has(ref.storage_session_id)) {
-          refsBySession.set(ref.storage_session_id, ref);
+        if (ref) {
+          refsByObject.set(ref.storage_session_id + ':' + ref.file_id, ref);
         }
       }
 
       try {
         const checkResults = await Promise.all(
-          Array.from(refsBySession.values()).map(async (ref) => {
+          Array.from(refsByObject.values()).map(async (ref) => {
             const lastModified = await getSessionInfo(ref, req);
             return !!(lastModified && checkIfActive(lastModified));
           }),
@@ -159,7 +178,7 @@ export async function primeSkillFiles(
 
           if (files.length > 0) {
             logger.debug(
-              `[primeSkillFiles] All ${refsBySession.size} session(s) active for skill "${skill.name}", reusing ${files.length} files`,
+              `[primeSkillFiles] All ${refsByObject.size} file object(s) active for skill "${skill.name}", reusing ${files.length} files`,
             );
             return { storage_session_id: files[0].storage_session_id, files };
           }

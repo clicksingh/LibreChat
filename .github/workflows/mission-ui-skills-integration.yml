@@ -1,0 +1,58 @@
+name: CBHR workspace UI and skills integration
+
+on:
+  push:
+    branches:
+      - mission/workspace-ac-ui-skills-integrated-20261017
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'packages/api/**'
+      - 'api/server/services/Workspace/**'
+      - '.github/workflows/mission-ui-skills-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  review-tests-and-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Lockfile source installation
+        run: npm ci --no-audit --no-fund
+      - name: Install isolated optional bundler peer
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cbhr-unrun"
+          npm install --prefix "$RUNNER_TEMP/cbhr-unrun" --no-audit --no-fund --ignore-scripts unrun@0.3.1
+          for module in api data-provider data-schemas client; do
+            mkdir -p "packages/$module/node_modules"
+            ln -s "$RUNNER_TEMP/cbhr-unrun/node_modules/unrun" "packages/$module/node_modules/unrun"
+          done
+      - name: Build actual frontend and dependent packages
+        run: npm run frontend
+      - name: System instructions session and skill cache regressions
+        working-directory: packages/api
+        run: |
+          ../../node_modules/.bin/jest --ci --runInBand --coverage=false             src/agents/skillFiles.spec.ts             src/agents/staffWorkstationContract.spec.ts             src/agents/sessionRegistry.spec.ts             src/agents/resources.test.ts
+      - name: API file and workspace-attach authorization regressions
+        working-directory: api
+        run: |
+          ../node_modules/.bin/jest --ci --runInBand --coverage=false             server/services/Files/Code/process.spec.js             server/services/Files/Code/crud.spec.js             server/services/Workspace/attach.spec.js
+      - name: Client drag/drop and FileTable regressions
+        working-directory: client
+        run: |
+          ../node_modules/.bin/jest --ci --runInBand --coverage=false             src/components/SidePanel/Workspace/__tests__/FileTable.spec.tsx             src/utils/__tests__/workspaceAttachment.spec.ts
+      - name: File-search provenance and whitespace
+        run: |
+          node --test api/app/clients/tools/util/fileSearchResults.test.js
+          git diff --check
+          git rev-parse HEAD
