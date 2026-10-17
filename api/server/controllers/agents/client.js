@@ -50,6 +50,7 @@ const {
   buildInitialToolSessions,
   resolveExecutionSession,
   bindExecutionSession,
+  bindCodeApiExecutionScope,
 } = require('@librechat/api');
 const {
   Callback,
@@ -84,6 +85,7 @@ const BaseClient = require('~/app/clients/BaseClient');
 const { getMCPManager } = require('~/config');
 const db = require('~/models');
 const mongoose = require('mongoose');
+const { resolveAuthorizedFileGrants } = require('~/server/services/Files/Code/b1Grants');
 
 const loadAgent = (params) => loadAgentFn(params, { getAgent: db.getAgent, getMCPServerTools });
 
@@ -1209,6 +1211,24 @@ class AgentClient extends BaseClient {
           },
           { allowCreate: isNewConversation },
         );
+        // Agent tools use a function-valued authHeaders callback referencing
+        // this request, so bind the immutable authorization context only
+        // AFTER the durable registry and DB-backed file provenance checks.
+        // No req.body or agent-proposed ref is allowed to become JWT authority.
+        const fileGrants = await resolveAuthorizedFileGrants({
+          req,
+          initialSessions,
+          getFiles: db.getFiles,
+        });
+        bindCodeApiExecutionScope(req, {
+          userId: String(userId),
+          tenantId: String(req.user.tenantId ?? 'legacy'),
+          conversationId: this.conversationId,
+          sessionId,
+          workspaceKind: workspace?.kind === 'project' ? 'project' : 'personal',
+          workspaceId: workspace?.kind === 'project' ? workspace.workspaceId : String(userId),
+          fileGrants,
+        });
         initialSessions = bindExecutionSession(initialSessions, sessionId);
       }
 
