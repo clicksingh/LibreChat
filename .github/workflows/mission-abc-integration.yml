@@ -1,0 +1,65 @@
+name: CBHR agent workspace ABC integrated source
+
+on:
+  push:
+    branches:
+      - mission/workspace-abc-integrated-20261017
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'packages/api/**'
+      - 'packages/data-provider/**'
+      - 'packages/data-schemas/**'
+      - '.github/workflows/mission-abc-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integration-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Stage optional build peer outside source
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cbhr-unrun-peer"
+          npm install --prefix "$RUNNER_TEMP/cbhr-unrun-peer" --ignore-scripts --no-audit --no-fund unrun@0.3.1
+          for package in api data-provider data-schemas; do
+            mkdir -p "packages/$package/node_modules"
+            ln -s "$RUNNER_TEMP/cbhr-unrun-peer/node_modules/unrun" "packages/$package/node_modules/unrun"
+          done
+      - name: Build dependencies and API
+        run: |
+          npm run build:data-provider
+          npm run build:data-schemas
+          npm run build:api
+      - name: Agent/session/resource focused Jest
+        working-directory: packages/api
+        run: |
+          ../../node_modules/.bin/jest --ci --runInBand --coverage=false             src/agents/staffWorkstationContract.spec.ts             src/agents/sessionRegistry.spec.ts             src/agents/resources.test.ts
+      - name: Files/Code regressions
+        working-directory: api
+        run: |
+          ../node_modules/.bin/jest --ci --runInBand --coverage=false             server/services/Files/Code/process.spec.js
+      - name: Semantic provenance and syntax
+        run: |
+          node --test api/app/clients/tools/util/fileSearchResults.test.js
+          node --check api/app/clients/tools/util/fileSearch.js
+          node --check api/server/services/Files/Code/process.js
+          node --check api/server/controllers/agents/client.js
+      - name: Check exact source
+        run: |
+          git diff --check
+          git rev-parse HEAD
