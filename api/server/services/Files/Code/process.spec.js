@@ -1828,6 +1828,100 @@ describe('Code Process', () => {
     });
   });
 
+  describe('direct unindexed document staging', () => {
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { getFiles, updateFile } = require('~/models');
+
+    const input = (owner = 'user-123', size = 8192) => ({
+      file_id: 'unindexed-docx', user: owner, filename: 'manual.docx',
+      filepath: '/uploads/manual.docx', source: 'local',
+      context: FileContext.message_attachment, bytes: size,
+      embedded: false, metadata: {},
+    });
+    const prime = () => primeFiles({
+      req: { user: { id: 'user-123', role: 'USER' } },
+      tool_resources: { execute_code: { file_ids: ['unindexed-docx'], files: [] } },
+      agentId: 'agent-id',
+    });
+
+    beforeEach(() => {
+      const getDownloadStream = jest.fn().mockResolvedValue('synthetic-stream');
+      const handleFileUpload = jest.fn().mockResolvedValue({
+        storage_session_id: 'INPUT_BUCKET', file_id: 'INPUT_OBJECT',
+      });
+      getStrategyFunctions.mockImplementation((source) =>
+        source === 'execute_code' ? { handleFileUpload } : { getDownloadStream });
+      updateFile.mockResolvedValue({});
+    });
+
+    it('stages a DOCX without vector index and preserves source for next-turn reuse', async () => {
+      getFiles.mockResolvedValue([input()]);
+      const result = await prime();
+      expect(result.files).toEqual([{
+        id: 'INPUT_OBJECT', resource_id: 'user-123',
+        storage_session_id: 'INPUT_BUCKET', name: 'manual.docx', kind: 'user',
+      }]);
+      expect(result.toolContext).toContain('/mnt/data/manual.docx');
+      expect(updateFile).toHaveBeenCalledWith(expect.objectContaining({
+        file_id: 'unindexed-docx',
+        metadata: { codeEnvRef: {
+          kind: 'user', id: 'user-123',
+          storage_session_id: 'INPUT_BUCKET', file_id: 'INPUT_OBJECT',
+        } },
+      }));
+      const upload = getStrategyFunctions('execute_code').handleFileUpload;
+      expect(upload).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'user', id: 'user-123', filename: 'manual.docx',
+      }));
+    });
+
+    it('reuses an ACL-verified project Files reference without copying a second input', async () => {
+      getFiles.mockResolvedValue([{
+        ...input(),
+        metadata: { workspaceFileAttachment: true, codeEnvRef: {
+          kind: 'project', id: 'project-approved',
+          storage_session_id: 'project-bucket', file_id: 'project-object',
+        } },
+      }]);
+      mockAxios.mockResolvedValue({ data: { lastModified: new Date().toISOString() } });
+      const result = await prime();
+      expect(result.files).toEqual([{
+        id: 'project-object', resource_id: 'project-approved',
+        storage_session_id: 'project-bucket', name: 'manual.docx', kind: 'project',
+      }]);
+      expect(getStrategyFunctions('execute_code').handleFileUpload).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates a file present in both fetched IDs and resourceFiles', async () => {
+      const file = input();
+      getFiles.mockResolvedValue([file]);
+      const result = await primeFiles({
+        req: { user: { id: 'user-123', role: 'USER' } },
+        tool_resources: { execute_code: {
+          file_ids: ['unindexed-docx'], files: [file],
+        } },
+        agentId: 'agent-id',
+      });
+      expect(result.files).toHaveLength(1);
+      expect(getStrategyFunctions('execute_code').handleFileUpload).toHaveBeenCalledTimes(1);
+    });
+
+    it('stages unindexed XLSX with the same ownership and input contract', async () => {
+      getFiles.mockResolvedValue([{ ...input(), filename: 'accounts.xlsx' }]);
+      const result = await prime();
+      expect(result.files[0].name).toBe('accounts.xlsx');
+      expect(result.toolContext).toContain('/mnt/data/accounts.xlsx');
+    });
+
+    it('denies same-user-sibling implicit imports, foreign users and oversized files', async () => {
+      getFiles.mockResolvedValue([input('other-user')]);
+      expect((await prime()).files).toHaveLength(0);
+      getFiles.mockResolvedValue([input('user-123', 30 * 1024 * 1024)]);
+      expect((await prime()).files).toHaveLength(0);
+      expect(updateFile).not.toHaveBeenCalled();
+    });
+  });
+
   describe('primeFiles reupload pushes FRESH sandbox ids (Pass-N review P2)', () => {
     /**
      * Regression: when a primed code file is missing/expired in the
