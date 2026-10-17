@@ -1,5 +1,5 @@
 const { Constants, EModelEndpoint, SystemRoles } = require('librechat-data-provider');
-const { enforceManagedChatEndpoint, resolveFundedDefault } = require('./enforceManagedChatEndpoint');
+const { enforceManagedChatEndpoint, rejectManagedAssistantEndpoint, resolveFundedDefault } = require('./enforceManagedChatEndpoint');
 
 const COMPANY_ENDPOINT = 'CBHR AI';
 const COMPANY_MODEL = 'zai/glm-5.3-flash';
@@ -198,5 +198,29 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(resolveFundedDefault(makeConfig())).toEqual({
       endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL, spec: COMPANY_SPEC,
     });
+  });
+});
+
+
+describe('legacy assistants outside the ordinary managed chat route', () => {
+  it('rejects a USER assistant call before any personal key lookup', () => {
+    const req = makeReq({ endpoint: 'assistants', assistant_id: 'asst_1' });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    const next = jest.fn();
+    rejectManagedAssistantEndpoint(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Use CBHR AI to start a company-funded chat.',
+    }));
+  });
+
+  it('leaves ADMIN assistant endpoint access unchanged', () => {
+    const req = makeReq({ endpoint: 'assistants', assistant_id: 'asst_1' }, SystemRoles.ADMIN);
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    const next = jest.fn();
+    rejectManagedAssistantEndpoint(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
   });
 });

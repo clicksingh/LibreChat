@@ -139,4 +139,24 @@ function enforceManagedChatEndpoint(req, res, next) {
   next();
 }
 
-module.exports = { enforceManagedChatEndpoint, resolveFundedDefault };
+/**
+ * Legacy assistants use separate /api/assistants/v1|v2/chat handlers, so they
+ * never pass through the normal chat endpoint normalizer. An assistant ID
+ * cannot be safely converted into a CBHR AI model request; reject USER here
+ * instead of attempting a personal provider key. ADMIN remains unaffected.
+ */
+function rejectManagedAssistantEndpoint(req, res, next) {
+  if (req.user?.role === SystemRoles.USER) {
+    return res.status(403).json({
+      error: 'Company model required',
+      message: 'Use CBHR AI to start a company-funded chat.',
+    });
+  }
+  return next();
+}
+
+module.exports = {
+  enforceManagedChatEndpoint,
+  rejectManagedAssistantEndpoint,
+  resolveFundedDefault,
+};
