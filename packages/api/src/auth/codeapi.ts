@@ -42,10 +42,33 @@ interface CodeApiClaims {
   /** 8S3D.1: present only when req.workspaceContext was resolved+re-checked
    * this request (see resolveWorkspaceContext). CodeAPI trusts this signed
    * claim exclusively for project workspace access — never a client body. */
-  workspace_kind?: 'project';
+  workspace_kind?: 'personal' | 'project';
   workspace_id?: string;
   /** 8S3D.1: internal service-to-service claim only (mintInternalAdminToken). */
   admin?: true;
+  execution_session_id?: string;
+  execution_conversation_id?: string;
+  execution_file_grants?: CodeApiExecutionFileGrant[];
+}
+
+export interface CodeApiExecutionFileGrant {
+  kind: 'user' | 'project';
+  owner: string;
+  session_id: string;
+  file_id: string;
+  name: string;
+  bytes: number;
+  sha256: string;
+}
+
+interface CodeApiExecutionScope {
+  userId: string;
+  tenantId: string;
+  conversationId: string;
+  sessionId: string;
+  workspaceKind: 'personal' | 'project';
+  workspaceId: string;
+  fileGrants: ReadonlyArray<CodeApiExecutionFileGrant>;
 }
 
 interface SigningConfig {
@@ -361,6 +384,40 @@ function pruneTokenCache(now: number): void {
   }
 }
 
+const CODEAPI_CONVERSATION_RE = /^conv-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CODEAPI_SCOPE_KEY = Symbol('codeapi-server-validated-conversation-execution');
+
+/** Called ONLY after the server has resolved the durable session registry,
+ * verified chat ownership/current workspace and DB-validated every file grant.
+ * Stored outside req.body, immutable and nonenumerable: client-supplied JSON
+ * cannot overwrite it. A request cannot swap conversation scopes mid-run. */
+export function bindCodeApiExecutionScope(
+  req: ServerRequest,
+  scope: CodeApiExecutionScope,
+): void {
+  const user = resolveUser(req);
+  const uid = resolveUserId(user);
+  const tenant = resolveTenantId(user);
+  const kind = req.workspaceContext?.kind === 'project' ? 'project' : 'personal';
+  const wid = kind === 'project' ? req.workspaceContext?.workspaceId : uid;
+  if (scope.userId !== uid || !tenant || scope.tenantId !== tenant ||
+      scope.workspaceKind !== kind || scope.workspaceId !== wid ||
+      !CODEAPI_CONVERSATION_RE.test(scope.sessionId) ||
+      typeof scope.conversationId !== 'string' ||
+      !/^[A-Za-z0-9._-]{1,180}$/.test(scope.conversationId) ||
+      !Array.isArray(scope.fileGrants) || scope.fileGrants.length > 20) {
+    throw new Error('CODEAPI_EXECUTION_SCOPE_NOT_VERIFIED');
+  }
+  const owned = Object.freeze({
+    ...scope,
+    fileGrants: Object.freeze(scope.fileGrants.map((g) => Object.freeze({ ...g }))),
+  });
+  if (Object.prototype.hasOwnProperty.call(req, CODEAPI_SCOPE_KEY)) {
+    throw new Error('CODEAPI_EXECUTION_SCOPE_ALREADY_BOUND');
+  }
+  Object.defineProperty(req, CODEAPI_SCOPE_KEY, { value: owned, enumerable: false });
+}
+
 export async function mintCodeApiToken(req: ServerRequest): Promise<string> {
   if (!isCodeApiJwtAuthEnabled()) {
     return '';
@@ -370,6 +427,28 @@ export async function mintCodeApiToken(req: ServerRequest): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   pruneTokenCache(now);
   const claims = buildClaims(req, config, now);
+  const scope = (req as ServerRequest & {
+    [CODEAPI_SCOPE_KEY]?: Readonly<CodeApiExecutionScope>;
+  })[CODEAPI_SCOPE_KEY];
+  if (scope) {
+    // Every execution JWT is freshly signed. Do NOT cache scoped tokens using
+    // the legacy 300s user/workspace key, and re-check mutable workspace
+    // identity before minting. The signing key never crosses the boundary.
+    const tenant = resolveTenantId(resolveUser(req));
+    const currentKind = req.workspaceContext?.kind === 'project' ? 'project' : 'personal';
+    const currentWorkspace = currentKind === 'project' ? req.workspaceContext?.workspaceId : claims.sub;
+    if (scope.userId !== claims.sub || scope.tenantId !== tenant ||
+        scope.workspaceKind !== currentKind || scope.workspaceId !== currentWorkspace) {
+      throw new Error('CODEAPI_EXECUTION_SCOPE_STALE');
+    }
+    claims.exp = Math.min(claims.exp, now + 60);
+    claims.workspace_kind = currentKind;
+    if (currentKind === 'personal') delete claims.workspace_id;
+    claims.execution_session_id = scope.sessionId;
+    claims.execution_conversation_id = scope.conversationId;
+    claims.execution_file_grants = scope.fileGrants.map((g) => ({ ...g }));
+    return signJwt(config, claims);
+  }
   const key = cacheKey(config, claims);
   const cached = tokenCache.get(key);
   if (
