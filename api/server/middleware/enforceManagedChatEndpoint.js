@@ -35,6 +35,7 @@ function resolveFundedDefault(config) {
     : undefined;
   const apiKey = custom?.apiKey;
   const baseURL = custom?.baseURL;
+  const configuredModels = custom?.models?.default;
   if (
     !spec ||
     typeof apiKey !== 'string' ||
@@ -42,7 +43,9 @@ function resolveFundedDefault(config) {
     apiKey === 'user_provided' ||
     typeof baseURL !== 'string' ||
     !baseURL.trim() ||
-    baseURL === 'user_provided'
+    baseURL === 'user_provided' ||
+    !Array.isArray(configuredModels) ||
+    !configuredModels.includes(spec.preset.model)
   ) {
     return null;
   }
@@ -74,6 +77,12 @@ function enforceManagedChatEndpoint(req, res, next) {
   // Non-ephemeral agents are explicitly configured resources. Their VIEW ACL
   // is independently verified downstream; do not rewrite saved agent models.
   if (isExplicitPersistedAgent(body)) {
+    if (req.params?.endpoint && req.params.endpoint !== body.endpoint) {
+      return res.status(400).json({
+        error: 'Invalid agent request',
+        message: 'Agent endpoint route does not match the selected agent endpoint.',
+      });
+    }
     return next();
   }
 
@@ -110,6 +119,12 @@ function enforceManagedChatEndpoint(req, res, next) {
   body.model = funded.model;
   body.spec = funded.spec;
   body.agent_id = Constants.EPHEMERAL_AGENT_ID;
+  // The /chat/:endpoint route segment is client-controlled too. Keep both
+  // views synchronized so future route consumers cannot revive a stale BYOK
+  // selection after the body has been normalized.
+  if (req.params && Object.prototype.hasOwnProperty.call(req.params, 'endpoint')) {
+    req.params.endpoint = funded.endpoint;
+  }
 
   if (changed) {
     logger.info('[managed-endpoint] Corrected USER chat model selection', {

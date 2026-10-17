@@ -20,6 +20,7 @@ const makeConfig = () => ({
       name: COMPANY_ENDPOINT,
       apiKey: '$' + '{LITELLM_MASTER_KEY}',
       baseURL: 'http://litellm:4000/v1',
+      models: { default: [COMPANY_MODEL] },
     }],
   },
 });
@@ -84,6 +85,25 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     for (const key of ['apiKey', 'baseURL', 'provider', 'model_parameters']) {
       expect(req.body).not.toHaveProperty(key);
     }
+  });
+
+  it('synchronizes client-controlled route endpoint with the corrected body', () => {
+    const req = makeReq({ endpoint: 'openAI', model: 'gpt-4o', text: 'hi' });
+    req.params = { endpoint: 'openAI' };
+    const { next } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(req.params.endpoint).toBe(COMPANY_ENDPOINT);
+    expect(req.body.endpoint).toBe(COMPANY_ENDPOINT);
+    expect(req.body.model).toBe(COMPANY_MODEL);
+  });
+
+  it('refuses inconsistent explicit saved-agent route parameters', () => {
+    const req = makeReq({ endpoint: 'agents', agent_id: 'agent_protected', text: 'hi' });
+    req.params = { endpoint: 'openAI' };
+    const { res, next } = invoke(req);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(req.body.agent_id).toBe('agent_protected');
   });
 
   it('resynchronizes stale model/spec even on an already selected company endpoint', () => {
@@ -157,8 +177,16 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     [{ ...makeConfig(), endpoints: { custom: [] } }, 'no-managed-endpoint'],
     [{
       ...makeConfig(),
-      endpoints: { custom: [{ name: COMPANY_ENDPOINT, apiKey: 'user_provided', baseURL: 'http://litellm:4000/v1' }] },
+      endpoints: { custom: [{ name: COMPANY_ENDPOINT, apiKey: 'user_provided', baseURL: 'http://litellm:4000/v1', models: { default: [COMPANY_MODEL] } }] },
     }, 'BYOK-not-funded'],
+    [{
+      ...makeConfig(),
+      endpoints: { custom: [{
+        name: COMPANY_ENDPOINT, apiKey: '$' + '{LITELLM_MASTER_KEY}',
+        baseURL: 'http://litellm:4000/v1',
+        models: { default: ['another-model'] },
+      }] },
+    }, 'model-not-in-funded-catalog'],
   ])('fails closed when company funding is not configured: %s', (config) => {
     const req = makeReq({ endpoint: 'openAI', text: 'hi' }, SystemRoles.USER, config);
     const { res, next } = invoke(req);
