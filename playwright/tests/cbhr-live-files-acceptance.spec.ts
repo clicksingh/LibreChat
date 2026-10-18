@@ -5,8 +5,11 @@
  *
  * Required:
  *   CBHR_ACCEPTANCE_MODE=staging
- *   LC_BASE=<staging base URL>
- *   MONGO_HOST_OVERRIDE=<current staging MongoDB endpoint>
+ *   LC_BASE=<isolated staging base URL>
+ *   CBHR_E2E_HOST_ENV=<staging secret env file path>
+ *   MONGO_HOST_OVERRIDE=<isolated staging MongoDB endpoint>
+ *   CBHR_E2E_OWNER_ID=<24-hex fixture owner id>
+ *   CBHR_E2E_OUTSIDER_ID=<24-hex fixture nonmember id>
  * Run: playwright test playwright/tests/cbhr-live-files-acceptance.spec.ts
  *
  * This test is intentionally skipped in normal CI. Do NOT count skip as PASS.
@@ -14,7 +17,6 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { loginAs } from '../utils/browser';
-import { USERS } from '../utils/constants';
 import { accessToken } from '../utils/auth';
 
 test.describe('CBHR Files authenticated legacy reuse and ACL', () => {
@@ -23,11 +25,19 @@ test.describe('CBHR Files authenticated legacy reuse and ACL', () => {
   test('retained legacy file downloads, reattaches without upload; outsider is denied', async ({ browser }) => {
     test.skip(process.env.CBHR_ACCEPTANCE_MODE !== 'staging',
       'Requires authorized isolated staging and dedicated E2E account');
+    const ownerId = process.env.CBHR_E2E_OWNER_ID;
+    const outsiderId = process.env.CBHR_E2E_OUTSIDER_ID;
+    expect(process.env.LC_BASE, 'Explicit isolated staging URL is required').toBeTruthy();
+    expect(process.env.CBHR_E2E_HOST_ENV, 'Explicit staging signer environment is required').toBeTruthy();
+    expect(process.env.MONGO_HOST_OVERRIDE, 'Explicit staging Mongo endpoint is required').toBeTruthy();
+    expect(ownerId, 'Dedicated staging owner fixture ID is required').toMatch(/^[0-9a-f]{24}$/i);
+    expect(outsiderId, 'Dedicated staging outsider fixture ID is required').toMatch(/^[0-9a-f]{24}$/i);
+    expect(ownerId).not.toBe(outsiderId);
 
     const ownerCtx = await browser.newContext({ acceptDownloads: true });
     const otherCtx = await browser.newContext();
-    const ownerSession = await loginAs(ownerCtx, USERS.enabled.id);
-    const otherSession = await loginAs(otherCtx, USERS.nocode.id);
+    const ownerSession = await loginAs(ownerCtx, ownerId!);
+    const otherSession = await loginAs(otherCtx, outsiderId!);
     try {
       const owner = await ownerCtx.newPage();
       const outsider = await otherCtx.newPage();
@@ -90,11 +100,11 @@ test.describe('CBHR Files authenticated legacy reuse and ACL', () => {
         .toBeVisible({ timeout: 45_000 });
       const forbiddenDownload = await outsider.request.get(
         '/api/workspaces/personal/files/' + sessionId + '/' + fileId + '/download', {
-          headers: { Authorization: 'Bearer ' + accessToken(USERS.nocode.id) },
+          headers: { Authorization: 'Bearer ' + accessToken(outsiderId!) },
         });
       const forbiddenAttach = await outsider.request.post(
         '/api/workspaces/personal/files/attach', {
-          headers: { Authorization: 'Bearer ' + accessToken(USERS.nocode.id) },
+          headers: { Authorization: 'Bearer ' + accessToken(outsiderId!) },
           data: { session_id: sessionId, file_id: fileId },
         });
       expect([403,404], 'Other user download must deny, not return 500')
