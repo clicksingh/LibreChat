@@ -71,7 +71,11 @@ async function resolveListedArtifact(req, kind, projectId, sessionId, fileId) {
       if (!Number.isSafeInteger(match.size) || match.size <= 0 || match.size > MAX_ATTACH_BYTES) {
         throw attachmentError(413, 'Workspace file exceeds chat attachment size limit');
       }
-      if (match.role !== 'input' && match.role !== 'output') {
+      // The signed CodeAPI Files listing contains only visible, retained files.
+      // Pre-role-metadata legacy entries omit role, but remain owner-scoped,
+      // downloadable and explicitly chosen by the user. Do not deny their
+      // chat reuse. Explicit unsupported roles still fail closed.
+      if (match.role != null && match.role !== 'input' && match.role !== 'output') {
         throw attachmentError(403, 'Only published or uploaded workspace files may be attached');
       }
       return match;
