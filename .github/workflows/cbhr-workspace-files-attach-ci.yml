@@ -1,0 +1,53 @@
+name: CBHR workspace Files denial and attachment CI
+
+on:
+  push:
+    branches:
+      - fix/cbhr-legacy-files-attach-20261018
+  pull_request:
+    paths:
+      - 'api/server/services/Workspace/**'
+      - 'api/server/routes/workspaces.js'
+      - 'api/server/services/Endpoints/agents/**'
+      - 'api/server/routes/agents/**'
+      - '.github/workflows/cbhr-workspace-files-attach-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  focused-files-and-acl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build dependent packages
+        run: |
+          npm run build:data-provider
+          npm run build:data-schemas
+          npm run build:api
+      - name: Workspace proxy, attachment and tenant security regression
+        working-directory: api
+        run: |
+          ../node_modules/.bin/jest --ci --runInBand --coverage=false \
+            server/services/Workspace/attach.spec.js \
+            server/services/Workspace/proxy.spec.js \
+            server/services/Endpoints/agents/__tests__/authorization.workspace.spec.js \
+            server/routes/agents/__tests__/streamTenant.spec.js
+      - name: Syntax and source provenance
+        run: |
+          node --check api/server/services/Workspace/attach.js
+          node --check api/server/services/Workspace/proxy.js
+          node --check api/server/services/Workspace/proxy.spec.js
+          git diff --check
+          git rev-parse HEAD
