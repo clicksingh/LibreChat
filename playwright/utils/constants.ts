@@ -27,7 +27,7 @@ export const USERS = {
 export const CHAT_ENDPOINT = 'CBHR AI';
 
 /** Host .env for JWT_REFRESH_SECRET (session injection) + JWT_SECRET (host-side API). */
-export const HOST_ENV = '/opt/cbhr-ai/LibreChat/.env';
+export const HOST_ENV = process.env.CBHR_E2E_HOST_ENV ?? '/opt/cbhr-ai/LibreChat/.env';
 
 /** Chromium executable installed for the host Playwright (wt-r3 wants rev 1194;
  *  1234 is present and proven against this app by verify-browser-ui-path.js). */

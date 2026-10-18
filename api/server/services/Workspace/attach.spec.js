@@ -109,6 +109,30 @@ describe('Reuse CodeAPI workspace files in a chat (server-boundary)', () => {
     });
   });
 
+  it('attaches a role-less legacy file only after authorized CodeAPI list and read', async () => {
+    mockListFiles.mockResolvedValue({
+      items: [{ ...source, role: undefined }],
+      nextCursor: null,
+    });
+    const result = await attachWorkspaceFile(req, {
+      kind: 'user',
+      sessionId: 'session-a',
+      fileId: 'published-id',
+    });
+    expect(result).toMatchObject({ filename: 'Objective.docx', bytes: 7 });
+    expect(mockRead).toHaveBeenCalledWith(
+      req, 'user', undefined, 'session-a', 'published-id', MAX_ATTACH_BYTES,
+    );
+    expect(mockCreateFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          codeEnvRef: expect.objectContaining({ storage_session_id: 'session-a', file_id: 'published-id' }),
+        }),
+      }),
+      true,
+    );
+  });
+
   it('enforces the exact project scope from the current chat', async () => {
     mockGetConvo.mockResolvedValue({ workspaceId: 'another-project' });
     await expect(
@@ -150,7 +174,7 @@ describe('Reuse CodeAPI workspace files in a chat (server-boundary)', () => {
     await expect(
       resolveListedArtifact(req, 'user', undefined, '../etc', 'x'),
     ).rejects.toMatchObject({ status: 400 });
-    mockListFiles.mockResolvedValue({ items: [{ ...source, role: undefined }], nextCursor: null });
+    mockListFiles.mockResolvedValue({ items: [{ ...source, role: 'scratch' }], nextCursor: null });
     await expect(
       resolveListedArtifact(req, 'user', undefined, 'session-a', 'published-id'),
     ).rejects.toMatchObject({ status: 403 });
