@@ -191,10 +191,21 @@ async function purgeFile(req, kind, id, trashId) {
 
 function handleProxyError(res, error, fallbackMessage) {
   logAxiosError({ error, message: fallbackMessage });
-  const status = error?.response?.status || 502;
-  const data = error?.response?.data || { error: fallbackMessage };
+  const proposedStatus = Number(error?.response?.status ?? error?.status);
+  const status = Number.isInteger(proposedStatus) && proposedStatus >= 400 && proposedStatus <= 599
+    ? proposedStatus : 502;
+  const upstreamData = error?.response?.data;
+  // Axios with responseType:'stream' returns an IncomingMessage even for 4xx.
+  // Express JSON serialization of that stream is circular and turns an owner
+  // denial into HTTP 500. Never serialize or expose an upstream error stream.
+  if (upstreamData && typeof upstreamData.pipe === 'function') {
+    upstreamData.destroy?.();
+    logger.warn(`[Workspace proxy] ${fallbackMessage}: ${status}`);
+    return res.status(status).json({ error: fallbackMessage });
+  }
+  const data = upstreamData || { error: fallbackMessage };
   logger.warn(`[Workspace proxy] ${fallbackMessage}: ${status}`);
-  res.status(status).json(data);
+  return res.status(status).json(data);
 }
 
 module.exports = {
