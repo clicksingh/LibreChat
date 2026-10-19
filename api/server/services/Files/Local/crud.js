@@ -213,6 +213,8 @@ const unlinkFile = async (filepath) => {
  *          file path is invalid or if there is an error in deletion.
  */
 const deleteLocalFile = async (req, file) => {
+  // A reference does not own the underlying CodeAPI payload.
+  if (typeof file?.filepath === 'string' && file.filepath.startsWith('cbhrwsref:')) return;
   const appConfig = req.config;
   const { publicPath, uploads } = appConfig.paths;
 
@@ -311,6 +313,10 @@ async function uploadLocalFile({ req, file, file_id }) {
  */
 async function getLocalFileStream(req, filepath) {
   try {
+    if (typeof filepath === 'string' && filepath.startsWith('cbhrwsref:')) {
+      const { readWorkspaceRefStream } = require('~/server/services/Workspace/reference');
+      return readWorkspaceRefStream(req, filepath);
+    }
     const appConfig = req.config;
     if (filepath.includes('/uploads/')) {
       const basePath = filepath.split('/uploads/')[1];
