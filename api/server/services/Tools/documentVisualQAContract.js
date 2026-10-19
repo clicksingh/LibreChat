@@ -21,7 +21,10 @@ const CONTRACT_VERSION = 'document_visual_qa/1';
 const TOOL_NAME = 'document_visual_qa';
 
 /** Vision model routed through the EXISTING aibridge vision path. */
-const VISION_MODEL = 'glm-5v-turbo';
+// No implicit vision model: the previous hardcoded glm-5v-turbo is absent
+// from production LiteLLM and caused permanent HTTP 400 retry loops. An
+// administrator must explicitly pin a provisioned multimodal model.
+const VISION_MODEL = (process.env.CBHR_VQA_VISION_MODEL || '').trim();
 
 /**
  * aibridge base URL as seen from the LibreChat api container. The api
@@ -105,6 +108,14 @@ const ERR = Object.freeze({
   VQA_AUTH_UNRESOLVED: {
     code: 'VQA_AUTH_UNRESOLVED',
     message: 'aibridge auth key could not be resolved',
+  },
+  VQA_MODEL_UNCONFIGURED: {
+    code: 'VQA_MODEL_UNCONFIGURED',
+    message: 'no verified vision model is configured; do not retry; ask an administrator to provision and set CBHR_VQA_VISION_MODEL',
+  },
+  VQA_PROVIDER_REJECTED: {
+    code: 'VQA_PROVIDER_REJECTED',
+    message: 'vision provider rejected the request; do not retry with the same model/ref; ask an administrator to verify vision model registration',
   },
   VQA_AI_BRIDGE_ERROR: {
     code: 'VQA_AI_BRIDGE_ERROR',

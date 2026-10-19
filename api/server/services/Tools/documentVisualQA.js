@@ -7,7 +7,7 @@
  * from the codeapi session workspace through the EXISTING CodeAPI client
  * (`getCodeApiAuthHeaders` -> `GET {codeapi}/download/{session}/{file}?kind=&id=`),
  * downscales them, and sends them through the EXISTING aibridge vision path
- * (`POST http://aibridge:4103/v1/chat/completions`, model `glm-5v-turbo`).
+ * (POST to AIBridge using an explicitly configured vision-capable model).
  *
  * Isolation contract (unchanged — nothing here weakens codeapi/aibridge):
  *   - Child sandbox network isolation is untouched; no new egress is opened.
@@ -207,6 +207,12 @@ async function callAIBridge({ authHeader, payload }) {
       throw error;
     }
     const status = error?.response?.status;
+    if (status === 400 || status === 404) {
+      throw new contract.DocumentVisualQAError(
+        contract.ERR.VQA_PROVIDER_REJECTED,
+        `HTTP ${status}`,
+      );
+    }
     throw new contract.DocumentVisualQAError(
       contract.ERR.VQA_AI_BRIDGE_ERROR,
       status ? `HTTP ${status}` : (error?.message ?? String(error)),
@@ -309,6 +315,12 @@ async function runDocumentVisualQA({ req, session_id, file_ids, file_names, focu
   const authHeader = resolveAuthImpl();
   if (!authHeader) {
     throw new contract.DocumentVisualQAError(contract.ERR.VQA_AUTH_UNRESOLVED);
+  }
+
+  // Fail before any file I/O or network call when vision capability is not
+  // provisioned. Stubs may supply an explicit bridge in offline unit tests.
+  if (!contract.VISION_MODEL && !deps.callAIBridge) {
+    throw new contract.DocumentVisualQAError(contract.ERR.VQA_MODEL_UNCONFIGURED);
   }
 
   const batchSize = contract.normalizePageLimit(maxPages);

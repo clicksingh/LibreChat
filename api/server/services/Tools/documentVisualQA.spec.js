@@ -53,6 +53,25 @@ const ISSUES_JSON = JSON.stringify({
   summary: 'Page 1 has a clipped table.',
 });
 
+describe('vision provisioning is explicit and fail closed', () => {
+  it('has no unregistered implicit glm-5v-turbo default', () => {
+    if (!process.env.CBHR_VQA_VISION_MODEL) {
+      expect(contract.VISION_MODEL).toBe('');
+    }
+  });
+  it('does not fetch files or invoke a bridge when vision model is unconfigured', async () => {
+    if (contract.VISION_MODEL) return;
+    const downloadPage = jest.fn();
+    await expect(runDocumentVisualQA({
+      req: { user: { id: 'owner' } },
+      session_id: 'lc-test',
+      file_ids: ['qa-test-id'],
+      deps: { downloadPage, resolveAIBridgeAuth: () => 'Bearer synthetic-test' },
+    })).rejects.toMatchObject({code:'VQA_MODEL_UNCONFIGURED'});
+    expect(downloadPage).not.toHaveBeenCalled();
+  });
+});
+
 describe('VQA scope derived from the authenticated request', () => {
   it('preserves personal workspace identity when no project is selected', () => {
     expect(resolveCodePageScope({ user: { id: 'user-1' } })).toEqual({
