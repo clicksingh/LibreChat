@@ -243,9 +243,12 @@ describe('custom endpoint stream usage defaults', () => {
 // ---------------------------------------------------------------------------
 describe('CBHR context compaction policy', () => {
   const original = process.env.CBHR_AUTO_COMPACTION;
+  const previousRatio = process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
   afterEach(() => {
     if (original === undefined) delete process.env.CBHR_AUTO_COMPACTION;
     else process.env.CBHR_AUTO_COMPACTION = original;
+    if (previousRatio === undefined) delete process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
+    else process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = previousRatio;
   });
   it('compacts preemptively on the selected model', async () => {
     process.env.CBHR_AUTO_COMPACTION = 'true';
@@ -262,6 +265,16 @@ describe('CBHR context compaction policy', () => {
     });
     expect(agents[0].maxContextTokens).toBe(28160);
     expect(agents[0].contextPruningConfig).toMatchObject({ enabled: true });
+  });
+  it('supports bounded low-context canary thresholds without changing the model', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = '0.005';
+    let agents = await callAndCapture();
+    expect(agents[0].summarizationConfig.trigger).toEqual({ type: 'token_ratio', value: 0.005 });
+    process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = 'NaN';
+    jest.clearAllMocks();
+    agents = await callAndCapture();
+    expect(agents[0].summarizationConfig.trigger).toEqual({ type: 'token_ratio', value: 0.72 });
   });
   it('respects disabled admin summarization', async () => {
     process.env.CBHR_AUTO_COMPACTION = 'true';

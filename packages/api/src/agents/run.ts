@@ -572,10 +572,17 @@ function shapeSummarizationConfig(
   // Dedicated SDK summarization call, followed by continued SAME-chat execution.
   // No cross-provider route: use the agent's selected endpoint/model.
   const cbhrAutoCompact = process.env.CBHR_AUTO_COMPACTION === 'true';
+  // Tunable for dedicated low-context canaries; ordinary release defaults to 72%.
+  // Reject NaN, Infinity, zero and implausible ratios without changing policy.
+  const configuredRatio = process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
+  const parsedRatio = configuredRatio && /^0?\.\d+$/.test(configuredRatio)
+    ? Number(configuredRatio) : NaN;
+  const cbhrTriggerRatio = Number.isFinite(parsedRatio) &&
+    parsedRatio >= 0.005 && parsedRatio <= 0.85 ? parsedRatio : 0.72;
   const trigger =
     config?.trigger?.type && typeof config?.trigger?.value === 'number'
       ? { type: config.trigger.type, value: config.trigger.value }
-      : cbhrAutoCompact ? { type: 'token_ratio' as const, value: 0.72 } : undefined;
+      : cbhrAutoCompact ? { type: 'token_ratio' as const, value: cbhrTriggerRatio } : undefined;
   const reserveRatio = config?.reserveRatio ?? (cbhrAutoCompact ? 0.12 : undefined);
   const maxSummaryTokens = config?.maxSummaryTokens ?? (cbhrAutoCompact ? 4096 : undefined);
   const contextPruning = config?.contextPruning ?? (cbhrAutoCompact
