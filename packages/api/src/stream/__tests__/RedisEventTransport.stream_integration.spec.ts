@@ -402,7 +402,7 @@ describe('RedisEventTransport Integration Tests', () => {
       transport.destroy();
     });
 
-    test('should force-flush on timeout when gaps are not filled', async () => {
+    test('should fail explicitly when journal cannot repair missing sequences', async () => {
       jest.useFakeTimers();
 
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
@@ -421,9 +421,11 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = 'timeout-test';
       const receivedEvents: number[] = [];
+      const errors: string[] = [];
 
       transport.subscribe(streamId, {
         onChunk: (event) => receivedEvents.push((event as { index: number }).index),
+        onError: (e) => errors.push(e),
       });
 
       const messageHandler = mockSubscriber.on.mock.calls.find(
@@ -437,9 +439,10 @@ describe('RedisEventTransport Integration Tests', () => {
 
       expect(receivedEvents).toEqual([]);
 
-      jest.advanceTimersByTime(600);
+      await jest.advanceTimersByTimeAsync(1800);
 
-      expect(receivedEvents).toEqual([2, 3]);
+      expect(receivedEvents).toEqual([]);
+      expect(errors).toEqual([expect.stringContaining('STREAM_EVENT_GAP_UNRECOVERABLE')]);
 
       transport.destroy();
       jest.useRealTimers();

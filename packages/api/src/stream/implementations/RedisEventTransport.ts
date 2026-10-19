@@ -16,6 +16,7 @@ const CHANNELS = {
 const KEYS = {
   /** Atomic sequence counter: shared across all replicas for a given stream */
   sequence: (streamId: string) => `stream:{${streamId}}:seq`,
+  journal: (streamId: string) => `stream:{${streamId}}:journal`,
 };
 
 /**
@@ -47,12 +48,17 @@ interface ReorderBuffer {
   pending: Map<number, PubSubMessage>;
   /** Timeout handle for flushing stale messages */
   flushTimeout: ReturnType<typeof setTimeout> | null;
+  repairAttempts: number;
+  repairing: boolean;
+  failed: boolean;
 }
 
 /** Max time (ms) to wait for out-of-order messages before force-flushing */
 const REORDER_TIMEOUT_MS = 500;
 /** Max messages to buffer before force-flushing (prevents memory issues) */
 const MAX_BUFFER_SIZE = 100;
+/** Give slow publishers 3 bounded repair cycles; NEVER silently skip chunks. */
+const MAX_REPAIR_ATTEMPTS = 3;
 
 /**
  * Subscriber state for a stream
@@ -152,6 +158,9 @@ export class RedisEventTransport implements IEventTransport {
       }
       state.reorderBuffer.nextSeq = 0;
       state.reorderBuffer.pending.clear();
+      state.reorderBuffer.repairAttempts = 0;
+      state.reorderBuffer.repairing = false;
+      state.reorderBuffer.failed = false;
     }
   }
 
@@ -259,6 +268,7 @@ export class RedisEventTransport implements IEventTransport {
   ): void {
     const buffer = streamState.reorderBuffer;
     const seq = message.seq!;
+    if (buffer.failed) return;
 
     if (seq < buffer.nextSeq) {
       logger.debug(
@@ -288,6 +298,7 @@ export class RedisEventTransport implements IEventTransport {
   ): void {
     const buffer = streamState.reorderBuffer;
     const seq = message.seq!;
+    if (buffer.failed) return;
 
     if (seq === buffer.nextSeq) {
       this.deliverMessage(streamState, message);
@@ -299,7 +310,7 @@ export class RedisEventTransport implements IEventTransport {
 
       if (buffer.pending.size >= MAX_BUFFER_SIZE) {
         logger.warn(`[RedisEventTransport] Buffer overflow for stream ${streamId}, force-flushing`);
-        this.forceFlushBuffer(streamId, streamState);
+        void this.repairGapFromJournal(streamId, streamState);
       } else {
         this.scheduleFlushTimeout(streamId, streamState);
       }
@@ -321,58 +332,102 @@ export class RedisEventTransport implements IEventTransport {
       buffer.nextSeq++;
     }
 
+    if (buffer.pending.size === 0) buffer.repairAttempts = 0;
     if (buffer.pending.size === 0 && buffer.flushTimeout) {
       clearTimeout(buffer.flushTimeout);
       buffer.flushTimeout = null;
     }
   }
 
-  /** Force-flush all pending messages in order (used on timeout or overflow) */
-  private forceFlushBuffer(streamId: string, streamState: StreamSubscribers): void {
-    const buffer = streamState.reorderBuffer;
+  /**
+   * Durable, bounded gap repair. Redis pub/sub is lossy on reconnect. A
+   * 500ms timeout must NEVER fabricate a successful stream by skipping
+   * earlier chunks or a terminal event. Look up missing sequences from a
+   * short-lived server-only journal before giving up. INCR-before-HSET
+   * producer crashes can still leave holes: fail the run explicitly.
+   */
+  private async repairGapFromJournal(streamId: string, state: StreamSubscribers): Promise<void> {
+    const buffer = state.reorderBuffer;
+    if (buffer.repairing || buffer.failed || buffer.pending.size === 0 ||
+        this.streams.get(streamId) !== state) return;
+    buffer.repairing = true;
+    try {
+      const highest = Math.max(...buffer.pending.keys());
+      const from = buffer.nextSeq;
+      if (highest - from > MAX_BUFFER_SIZE * 2) {
+        this.failUnrecoverableGap(streamId, state);
+        return;
+      }
+      const missing: number[] = [];
+      for (let n = from; n <= highest; n++) {
+        if (!buffer.pending.has(n)) missing.push(n);
+      }
+      if (missing.length > 0) {
+        const recovered = await this.publisher.hmget(
+          KEYS.journal(streamId), ...missing.map(String),
+        );
+        if (this.streams.get(streamId) !== state || buffer.failed) return;
+        for (let i = 0; i < missing.length; i++) {
+          const payload = recovered[i];
+          if (payload == null) continue;
+          let event: PubSubMessage;
+          try { event = JSON.parse(payload) as PubSubMessage; }
+          catch { continue; }
+          if (event.seq !== missing[i] ||
+              ![EventTypes.CHUNK, EventTypes.DONE, EventTypes.ERROR].includes(event.type as
+                (typeof EventTypes)[keyof typeof EventTypes])) continue;
+          buffer.pending.set(missing[i], event);
+        }
+      }
+      this.flushPendingMessages(streamId, state);
+      if (buffer.pending.size > 0) {
+        buffer.repairAttempts++;
+        if (buffer.repairAttempts >= MAX_REPAIR_ATTEMPTS) {
+          this.failUnrecoverableGap(streamId, state);
+        } else {
+          this.scheduleFlushTimeout(streamId, state);
+        }
+      }
+    } catch (error) {
+      logger.error(`[RedisEventTransport] Journal replay failed for ${streamId}`, error);
+      buffer.repairAttempts++;
+      if (buffer.repairAttempts >= MAX_REPAIR_ATTEMPTS) {
+        this.failUnrecoverableGap(streamId, state);
+      } else {
+        this.scheduleFlushTimeout(streamId, state);
+      }
+    } finally {
+      buffer.repairing = false;
+    }
+  }
 
+  private failUnrecoverableGap(streamId: string, state: StreamSubscribers): void {
+    const buffer = state.reorderBuffer;
+    if (buffer.failed) return;
+    buffer.failed = true;
     if (buffer.flushTimeout) {
       clearTimeout(buffer.flushTimeout);
       buffer.flushTimeout = null;
     }
-
-    if (buffer.pending.size === 0) {
-      return;
+    const pendingCount = buffer.pending.size;
+    buffer.pending.clear();
+    logger.error(
+      `[RedisEventTransport] Stream ${streamId}: ${pendingCount} events held; missing sequence ${buffer.nextSeq} could not be recovered`,
+    );
+    // A missing stream event is an interrupted response, never success.
+    for (const handlers of state.handlers.values()) {
+      handlers.onError?.('STREAM_EVENT_GAP_UNRECOVERABLE: response interrupted; reconnect to recover saved conversation state');
     }
-
-    const sortedSeqs = [...buffer.pending.keys()].sort((a, b) => a - b);
-    const skipped = sortedSeqs[0] - buffer.nextSeq;
-
-    if (skipped > 0) {
-      logger.warn(
-        `[RedisEventTransport] Stream ${streamId}: skipping ${skipped} missing messages (seq ${buffer.nextSeq}-${sortedSeqs[0] - 1})`,
-      );
-    }
-
-    for (const seq of sortedSeqs) {
-      const message = buffer.pending.get(seq)!;
-      buffer.pending.delete(seq);
-      this.deliverMessage(streamState, message);
-    }
-
-    buffer.nextSeq = sortedSeqs[sortedSeqs.length - 1] + 1;
   }
 
-  /** Schedule a timeout to force-flush if gaps aren't filled */
-  private scheduleFlushTimeout(streamId: string, streamState: StreamSubscribers): void {
-    const buffer = streamState.reorderBuffer;
-
-    if (buffer.flushTimeout) {
-      return;
-    }
-
+  /** Wait for an ordered journal replay, not a lossy forced flush. */
+  private scheduleFlushTimeout(streamId: string, state: StreamSubscribers): void {
+    const buffer = state.reorderBuffer;
+    if (buffer.flushTimeout || buffer.failed) return;
     buffer.flushTimeout = setTimeout(() => {
       buffer.flushTimeout = null;
       if (buffer.pending.size > 0) {
-        logger.warn(
-          `[RedisEventTransport] Stream ${streamId}: timeout waiting for seq ${buffer.nextSeq}, force-flushing ${buffer.pending.size} messages`,
-        );
-        this.forceFlushBuffer(streamId, streamState);
+        void this.repairGapFromJournal(streamId, state);
       }
     }, REORDER_TIMEOUT_MS);
   }
@@ -434,6 +489,7 @@ export class RedisEventTransport implements IEventTransport {
           nextSeq: 0,
           pending: new Map(),
           flushTimeout: null,
+          repairAttempts: 0, repairing: false, failed: false,
         },
       });
     }
@@ -518,12 +574,21 @@ export class RedisEventTransport implements IEventTransport {
    * Performance: each emit requires two sequential Redis round-trips (INCR + PUBLISH).
    * This is the unavoidable cost of cross-replica sequence coordination.
    */
+  private async publishJournaled(streamId: string, message: PubSubMessage): Promise<void> {
+    const journal = KEYS.journal(streamId);
+    await this.publisher.hset(journal, String(message.seq), JSON.stringify(message));
+    if (message.seq === 0) {
+      await this.publisher.expire(journal, RedisEventTransport.SEQUENCE_TTL_SECONDS);
+    }
+    await this.publisher.publish(CHANNELS.events(streamId), JSON.stringify(message));
+  }
+
   async emitChunk(streamId: string, event: unknown): Promise<void> {
     try {
       const channel = CHANNELS.events(streamId);
       const seq = await this.getNextSequence(streamId);
       const message: PubSubMessage = { type: EventTypes.CHUNK, seq, data: event };
-      await this.publisher.publish(channel, JSON.stringify(message));
+      await this.publishJournaled(streamId, message);
     } catch (err) {
       logger.error(`[RedisEventTransport] Failed to publish chunk:`, err);
     }
@@ -539,7 +604,7 @@ export class RedisEventTransport implements IEventTransport {
     const message: PubSubMessage = { type: EventTypes.DONE, seq, data: event };
 
     try {
-      await this.publisher.publish(channel, JSON.stringify(message));
+      await this.publishJournaled(streamId, message);
     } catch (err) {
       logger.error(`[RedisEventTransport] Failed to publish done:`, err);
       throw err;
@@ -556,7 +621,7 @@ export class RedisEventTransport implements IEventTransport {
     const message: PubSubMessage = { type: EventTypes.ERROR, seq, error };
 
     try {
-      await this.publisher.publish(channel, JSON.stringify(message));
+      await this.publishJournaled(streamId, message);
     } catch (err) {
       logger.error(`[RedisEventTransport] Failed to publish error:`, err);
       throw err;
@@ -598,6 +663,7 @@ export class RedisEventTransport implements IEventTransport {
           nextSeq: 0,
           pending: new Map(),
           flushTimeout: null,
+          repairAttempts: 0, repairing: false, failed: false,
         },
       });
     }
@@ -638,6 +704,7 @@ export class RedisEventTransport implements IEventTransport {
           nextSeq: 0,
           pending: new Map(),
           flushTimeout: null,
+          repairAttempts: 0, repairing: false, failed: false,
         },
       };
       this.streams.set(streamId, state);
@@ -682,6 +749,9 @@ export class RedisEventTransport implements IEventTransport {
     // Delete the shared sequence key — safe because cleanup() is only called
     // when the stream's job is complete (no more publishes will happen).
     const seqKey = KEYS.sequence(streamId);
+    this.publisher.del(KEYS.journal(streamId)).catch((err) => {
+      logger.error(`[RedisEventTransport] Failed to delete journal for ${streamId}:`, err);
+    });
     this.publisher.del(seqKey).catch((err) => {
       logger.error(`[RedisEventTransport] Failed to delete sequence key ${seqKey}:`, err);
     });
