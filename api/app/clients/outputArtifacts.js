@@ -42,4 +42,18 @@ function missingFinalArtifactResponse(message) {
   }
   return true;
 }
-module.exports = { latestAttachments, missingFinalArtifactResponse };
+/** A finished but empty agent turn is an interrupted response, not success.
+ * Aryn's October 19 chat saved two entirely blank assistant turns after SSE
+ * trouble. Do not invent completion or delete existing sandbox work. */
+function ensureVisibleEmptyFinalResponse(message) {
+  if (typeof message.text === 'string' && message.text.trim()) return false;
+  if (Array.isArray(message.content) && message.content.some((part) =>
+    (typeof part === 'string' && part.trim()) ||
+    (part?.type === 'text' && typeof part.text === 'string' && part.text.trim())
+  )) return false;
+  if (message.error || message.isCreatedByUser) return false;
+  message.text = 'This response ended before I could give you a usable answer. Your previously saved work and files are preserved. Ask me to continue from the existing work rather than restarting.';
+  if (Array.isArray(message.content)) message.content.push({type:'text',text:message.text});
+  return true;
+}
+module.exports = { latestAttachments, missingFinalArtifactResponse, ensureVisibleEmptyFinalResponse };

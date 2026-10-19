@@ -28,7 +28,7 @@ const {
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { logViolation } = require('~/cache');
 const TextStream = require('./TextStream');
-const {latestAttachments,missingFinalArtifactResponse}=require('./outputArtifacts');
+const {latestAttachments,missingFinalArtifactResponse,ensureVisibleEmptyFinalResponse}=require('./outputArtifacts');
 const db = require('~/models');
 
 class BaseClient {
@@ -685,6 +685,9 @@ class BaseClient {
       // save an apparently blank answer when reviewed files were delivered.
       missingFinalArtifactResponse(responseMessage);
     }
+
+    // Never persist an empty finished assistant turn after an agent stream abort.
+    ensureVisibleEmptyFinalResponse(responseMessage);
 
     if (this.options.attachments) {
       try {

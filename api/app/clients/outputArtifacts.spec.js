@@ -1,5 +1,25 @@
-const {latestAttachments,missingFinalArtifactResponse}=require('./outputArtifacts');
+const {latestAttachments,missingFinalArtifactResponse,ensureVisibleEmptyFinalResponse}=require('./outputArtifacts');
 describe('Durable agent deliverables',()=>{
+ it('Aryn: previously blank completed turn receives truthful visible recovery text',()=>{
+  const msg={text:'',content:[],attachments:[]};
+  expect(ensureVisibleEmptyFinalResponse(msg)).toBe(true);
+  expect(msg.text).toMatch(/ended before/);
+  expect(msg.content).toEqual([{type:'text',text:msg.text}]);
+  expect(ensureVisibleEmptyFinalResponse(msg)).toBe(false);
+ });
+ it('tool-only final without files is not persisted as an invisible turn',()=>{
+  const tool={type:'tool_call',name:'bash_tool'};
+  const msg={text:'',content:[tool]};
+  expect(ensureVisibleEmptyFinalResponse(msg)).toBe(true);
+  expect(msg.content[0]).toBe(tool);
+  expect(msg.content[1].text).toBe(msg.text);
+ });
+ it('valid structured assistant text is kept without duplication',()=>{
+  const msg={text:'',content:[{type:'text',text:'Document available for review'}]};
+  expect(ensureVisibleEmptyFinalResponse(msg)).toBe(false);
+  expect(msg.content).toHaveLength(1);
+ });
+
  it('persists one latest revision per file_id even across many tool calls',()=>{
   const result=latestAttachments([
    {file_id:'doc',filename:'Manual.docx',bytes:100,status:'pending'},
