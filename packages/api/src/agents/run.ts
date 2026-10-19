@@ -542,6 +542,13 @@ function resolveSummarizationProvider(
   }
 }
 
+function isCompactionCanaryUser(user: IUser | undefined): boolean {
+  const expected = process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID;
+  if (!expected || !/^[0-9a-f]{24}$/.test(expected)) return false;
+  const actor = user?.id ?? user?._id;
+  return actor != null && String(actor) === expected;
+}
+
 /** Shapes a SummarizationConfig into the format expected by AgentInputs. */
 function shapeSummarizationConfig(
   config: SummarizationConfig | undefined,
@@ -574,7 +581,7 @@ function shapeSummarizationConfig(
   const cbhrAutoCompact = process.env.CBHR_AUTO_COMPACTION === 'true';
   // Tunable for dedicated low-context canaries; ordinary release defaults to 72%.
   // Reject NaN, Infinity, zero and implausible ratios without changing policy.
-  const configuredRatio = process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
+  const configuredRatio = isCompactionCanaryUser(headerContext.user) ? process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO : undefined;
   const parsedRatio = configuredRatio && /^0?\.\d+$/.test(configuredRatio)
     ? Number(configuredRatio) : NaN;
   const cbhrTriggerRatio = Number.isFinite(parsedRatio) &&
@@ -637,6 +644,7 @@ function computeEffectiveMaxContextTokens(
   reserveRatio: number | undefined,
   baseContextTokens: number | undefined,
   maxContextTokens: number | undefined,
+  isCanary = false,
 ): number | undefined {
   if (reserveRatio == null || reserveRatio <= 0 || reserveRatio >= 1 || baseContextTokens == null) {
     return maxContextTokens;
@@ -648,7 +656,7 @@ function computeEffectiveMaxContextTokens(
   // Do NOT configure this in staff production; default is always normal.
   const rawCap = process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
   const cap = rawCap && /^\d+$/.test(rawCap) ? Number(rawCap) : NaN;
-  return process.env.CBHR_AUTO_COMPACTION === 'true' &&
+  return isCanary && process.env.CBHR_AUTO_COMPACTION === 'true' &&
     Number.isSafeInteger(cap) && cap >= 4096 && cap <= 32768
     ? Math.min(normal, cap) : normal;
 }
@@ -1036,6 +1044,7 @@ export async function createRun({
       summarization.reserveRatio,
       agent.baseContextTokens,
       agent.maxContextTokens,
+      isCompactionCanaryUser(user),
     );
 
     const reasoningKey = getReasoningKey(provider, llmConfig, agent.endpoint, agent.reasoningKey);
