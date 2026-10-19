@@ -30,6 +30,8 @@ const {
   callAIBridge,
   resolveAIBridgeAuth,
   pageFromName,
+  resolveCodePageScope,
+  downloadCodePage,
 } = require('./documentVisualQA');
 
 /** Tiny valid PNG so the sharp downscale path is exercised. */
@@ -49,6 +51,44 @@ const ISSUES_JSON = JSON.stringify({
     },
   ],
   summary: 'Page 1 has a clipped table.',
+});
+
+describe('VQA scope derived from the authenticated request', () => {
+  it('preserves personal workspace identity when no project is selected', () => {
+    expect(resolveCodePageScope({ user: { id: 'user-1' } })).toEqual({
+      kind: 'user', id: 'user-1',
+    });
+  });
+  it('uses the freshly authorized project claim, not the user bucket', () => {
+    expect(resolveCodePageScope({
+      user: { id: 'user-1' },
+      workspaceContext: { kind: 'project', workspaceId: 'project-1' },
+    })).toEqual({ kind: 'project', id: 'project-1' });
+  });
+  it('rejects malformed project scope instead of falling back to personal', () => {
+    expect(() => resolveCodePageScope({
+      user: { id: 'user-1' }, workspaceContext: { kind: 'project' },
+    })).toThrow(/invalid server-verified project scope/);
+    expect(() => resolveCodePageScope({
+      user: { id: 'user-1' }, workspaceContext: { kind: 'user', workspaceId: 'other' },
+    })).toThrow(/invalid server-verified project scope/);
+  });
+  it('sends the project download to the signed project bucket (not personal)', async () => {
+    mockAxios.mockResolvedValueOnce({ data: Buffer.from('rendered-page') });
+    const req = {
+      user: { id: 'user-1' },
+      workspaceContext: { kind: 'project', workspaceId: 'project-1' },
+    };
+    const result = await downloadCodePage(req, 'lc-exec-1', 'qa-private-1');
+    expect(result.toString()).toBe('rendered-page');
+    expect(mockAxios).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'get',
+      url: expect.stringContaining('/download/lc-exec-1/qa-private-1?kind=project&id=project-1'),
+    }));
+  });
+  it('requires an authenticated user on unscoped calls', () => {
+    expect(() => resolveCodePageScope({})).toThrow(/missing authenticated user/);
+  });
 });
 
 beforeAll(async () => {
