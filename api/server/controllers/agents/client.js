@@ -86,7 +86,7 @@ const { getMCPManager } = require('~/config');
 const db = require('~/models');
 const mongoose = require('mongoose');
 const { resolveAuthorizedFileGrants } = require('~/server/services/Files/Code/b1Grants');
-const { shouldUseScopedExecution } = require('~/server/services/Files/Code/b1Cutover');
+const { shouldUseScopedExecution, verifyExecutionConversation } = require('~/server/services/Files/Code/b1Cutover');
 
 const loadAgent = (params) => loadAgentFn(params, { getAgent: db.getAgent, getMCPServerTools });
 
@@ -1192,14 +1192,15 @@ class AgentClient extends BaseClient {
           throw new Error('An authenticated conversation is required for code execution');
         }
         const requestedId = req.body?.conversationId;
-        const isNewConversation = !requestedId || requestedId === 'new';
-        if (!isNewConversation && requestedId !== this.conversationId) {
-          throw new Error('Conversation execution identity mismatch');
-        }
         const owned = await db.getConvo(userId, this.conversationId);
-        if (!isNewConversation && !owned) {
-          throw new Error('Conversation execution access denied');
-        }
+        await verifyExecutionConversation({
+          userId: String(userId),
+          conversationId: this.conversationId,
+          requestedId,
+          ownedConversation: owned,
+          lookupGlobalConversation: id => mongoose.connection
+            .collection('conversations').findOne({conversationId: id}, {projection:{_id:1}}),
+        });
         // B1 is mandatory for chats created after the admin rollout time,
         // while prior conversations continue their original runtime until
         // explicitly migrated. No client-supplied timestamp is consulted.
