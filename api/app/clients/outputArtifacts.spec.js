@@ -23,6 +23,20 @@ describe('Durable agent deliverables',()=>{
   const blank={text:'',attachments:[{file_id:'t',filename:'trace.log'}]};
   expect(missingFinalArtifactResponse(blank)).toBe(false);
  });
+ it('adds visible text to tool-only content and preserves tool parts',()=>{
+  const tool={type:'tool_call',name:'bash_tool',tool_call_id:'abc'};
+  const msg={text:'',content:[tool],attachments:[{file_id:'manual',filename:'Manual.docx'}]};
+  expect(missingFinalArtifactResponse(msg)).toBe(true);
+  expect(msg.content).toHaveLength(2);
+  expect(msg.content[0]).toBe(tool);
+  expect(msg.content[1]).toEqual({type:'text',text:msg.text});
+  expect(missingFinalArtifactResponse(msg)).toBe(false);
+ });
+ it('keeps meaningful structured text and avoids duplicate fallback',()=>{
+  const msg={text:'',content:[{type:'text',text:'Here is the manual.'}],
+    attachments:[{file_id:'manual',filename:'Manual.docx'}]};
+  expect(missingFinalArtifactResponse(msg)).toBe(false);
+ });
  it('adds only a truthful review instruction to an otherwise blank delivered file response',()=>{
   const msg={text:'',attachments:[{file_id:'x',filename:'Manual.docx',bytes:125}]};
   expect(missingFinalArtifactResponse(msg)).toBe(true);
