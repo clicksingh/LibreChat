@@ -85,10 +85,29 @@ function resolveAIBridgeAuth(req) {
  * Downloads one rendered page from the codeapi session workspace using the
  * EXISTING codeapi client (same auth/transport as Files/Code/crud.js).
  */
+function resolveCodePageScope(req) {
+  const scope = req?.workspaceContext;
+  if (scope != null) {
+    // This object is set only after resolveWorkspaceContext re-checks active
+    // membership on the server. Never accept kind/id from the model or URL.
+    if (scope.kind !== 'project' ||
+        typeof scope.workspaceId !== 'string' || !scope.workspaceId.trim()) {
+      throw new contract.DocumentVisualQAError(
+        contract.ERR.VQA_INVALID_INPUT, 'invalid server-verified project scope');
+    }
+    return { kind: 'project', id: scope.workspaceId };
+  }
+  if (!req?.user?.id) {
+    throw new contract.DocumentVisualQAError(
+      contract.ERR.VQA_INVALID_INPUT, 'missing authenticated user');
+  }
+  return { kind: 'user', id: String(req.user.id) };
+}
+
 async function downloadCodePage(req, sessionId, fileId) {
   try {
     const baseURL = getCodeBaseURL();
-    const query = buildCodeEnvDownloadQuery({ kind: 'user', id: req?.user?.id });
+    const query = buildCodeEnvDownloadQuery(resolveCodePageScope(req));
     const authHeaders = await getCodeApiAuthHeaders(req);
     const response = await axios({
       method: 'get',
@@ -411,6 +430,7 @@ module.exports = {
   downscalePage,
   callAIBridge,
   resolveFileRefs,
+  resolveCodePageScope,
   pageFromName,
   TOOL_DESCRIPTION,
 };
