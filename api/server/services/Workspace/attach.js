@@ -106,41 +106,22 @@ async function verifyChatScope(req, kind, projectId, conversationId) {
 async function attachWorkspaceFile(req, { kind, projectId, sessionId, fileId, conversationId }) {
   await verifyChatScope(req, kind, projectId, conversationId);
   const file = await resolveListedArtifact(req, kind, projectId, sessionId, fileId);
-  const buffer = await proxy.readWorkspaceFile(
-    req,
-    kind,
-    projectId,
-    sessionId,
-    fileId,
-    MAX_ATTACH_BYTES,
-  );
-  if (buffer.length !== file.size) {
-    throw attachmentError(409, 'Workspace file changed during attachment; retry');
-  }
+  // A chat association is a metadata reference, NOT a second upload.
+  // CodeAPI owns the bytes; reads are checked against current signed scope.
   const file_id = v4();
-  // A distinct record per chat prevents mutating another conversation's
-  // attachments; the content remains the same CodeAPI artifact.
   const cleanName = file.name.replace(/[\/\\\0-\x1f]/g, '_').slice(0, 180);
   const mimeType = workspaceMimeType(cleanName);
-  // Project attachments use authenticated local downloads rather than CDN URLs.
-  const source = kind === 'project' ? 'local' : req.config?.fileStrategy || 'local';
-  const { saveBuffer } = getStrategyFunctions(source);
-  if (!saveBuffer) throw attachmentError(501, 'File storage unavailable');
-  const filepath = await saveBuffer({
-    userId: req.user.id,
-    buffer,
-    fileName: file_id + '__' + cleanName,
-    basePath: 'uploads',
-    tenantId: req.user.tenantId,
-  });
+  const source = 'local';
+  const filepath = 'cbhrwsref://' + [
+    kind, kind === 'project' ? projectId : req.user.id, sessionId, fileId,
+  ].join('/');
   const newFile = {
     file_id,
     filename: cleanName,
     filepath,
-    ...getStorageMetadata({ filepath, source }),
     object: 'file',
     type: mimeType,
-    bytes: buffer.length,
+    bytes: file.size,
     usage: 1,
     context: FileContext.message_attachment,
     source,

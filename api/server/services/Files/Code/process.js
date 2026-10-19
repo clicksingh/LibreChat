@@ -1047,12 +1047,25 @@ const primeFiles = async (options) => {
       }
     };
     const uploadTime = await getSessionInfo(ref, req);
+    if (!uploadTime && file.metadata?.workspaceFileAttachment) {
+      logger.warn('[primeCodeFiles] retained workspace reference missing: ' + file.file_id);
+      skippedNoRef += 1;
+      continue;
+    }
     if (!uploadTime) {
       logger.debug(
         `[primeCodeFiles] file=${file.file_id} path=reupload reason=no-uploadtime ` +
           `storage_session_id=${session_id}`,
       );
       await reuploadFile();
+      continue;
+    }
+    // A retained Files reference is not an expiring transient upload. The
+    // owner-scoped session lookup above proves its underlying file is live.
+    if (file.metadata?.workspaceFileAttachment) {
+      logger.debug('[primeCodeFiles] workspace-ref-reuse file=' + file.file_id);
+      sessions.set(session_id, true);
+      pushFile();
       continue;
     }
     if (!checkIfActive(uploadTime)) {

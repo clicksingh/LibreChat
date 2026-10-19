@@ -61,51 +61,31 @@ describe('Reuse CodeAPI workspace files in a chat (server-boundary)', () => {
     mockGetConvo.mockResolvedValue({ workspaceId: null });
   });
 
-  it('performs an authenticated server-side lookup+read, persists a distinct chat file with original CodeAPI reference', async () => {
+  it('creates a per-chat metadata-only pointer without moving file bytes', async () => {
     const result = await attachWorkspaceFile(req, {
-      kind: 'user',
-      sessionId: 'session-a',
-      fileId: 'published-id',
+      kind: 'user', sessionId: 'session-a', fileId: 'published-id',
       conversationId: 'conversation-1',
     });
-    expect(mockGetConvo).toHaveBeenCalledWith('user-owner', 'conversation-1');
-    expect(mockListFiles).toHaveBeenCalledWith(req, 'user', undefined, undefined, 500);
-    expect(mockRead).toHaveBeenCalledWith(
-      req,
-      'user',
-      undefined,
-      'session-a',
-      'published-id',
-      MAX_ATTACH_BYTES,
-    );
-    expect(mockSaveBuffer).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'user-owner', buffer: Buffer.from('test123') }),
-    );
+    expect(mockGetConvo).toHaveBeenCalledWith('user-owner','conversation-1');
+    expect(mockListFiles).toHaveBeenCalledWith(req,'user',undefined,undefined,500);
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockSaveBuffer).not.toHaveBeenCalled();
     expect(mockCreateFile).toHaveBeenCalledWith(
       expect.objectContaining({
-        user: 'user-owner',
-        conversationId: 'conversation-1',
-        metadata: expect.objectContaining({
-          codeEnvRef: {
-            kind: 'user',
-            id: 'user-owner',
-            storage_session_id: 'session-a',
-            file_id: 'published-id',
+        user:'user-owner', source:'local',
+        filepath:'cbhrwsref://user/user-owner/session-a/published-id',
+        bytes:7, conversationId:'conversation-1',
+        metadata:expect.objectContaining({
+          workspaceFileAttachment:true,
+          codeEnvRef:{
+            kind:'user',id:'user-owner',storage_session_id:'session-a',file_id:'published-id',
           },
         }),
-      }),
-      true,
-    );
-    expect(mockCreateFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadata: expect.objectContaining({ workspaceFileAttachment: true }),
-      }),
-      true,
+      }),true,
     );
     expect(result).toMatchObject({
-      filename: 'Objective.docx',
-      bytes: 7,
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filename:'Objective.docx',bytes:7,
+      filepath:'cbhrwsref://user/user-owner/session-a/published-id',
     });
   });
 
@@ -120,9 +100,8 @@ describe('Reuse CodeAPI workspace files in a chat (server-boundary)', () => {
       fileId: 'published-id',
     });
     expect(result).toMatchObject({ filename: 'Objective.docx', bytes: 7 });
-    expect(mockRead).toHaveBeenCalledWith(
-      req, 'user', undefined, 'session-a', 'published-id', MAX_ATTACH_BYTES,
-    );
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockSaveBuffer).not.toHaveBeenCalled();
     expect(mockCreateFile).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -147,14 +126,8 @@ describe('Reuse CodeAPI workspace files in a chat (server-boundary)', () => {
       fileId: 'published-id',
       conversationId: 'conversation-1',
     });
-    expect(mockRead).toHaveBeenCalledWith(
-      req,
-      'project',
-      'project-a',
-      'session-a',
-      'published-id',
-      MAX_ATTACH_BYTES,
-    );
+    expect(mockRead).not.toHaveBeenCalled();
+    expect(mockSaveBuffer).not.toHaveBeenCalled();
     expect(mockCreateFile).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
@@ -195,15 +168,11 @@ describe('Reuse CodeAPI workspace files in a chat (server-boundary)', () => {
     ).rejects.toMatchObject({ status: 413 });
   });
 
-  it('fails closed on source change before storing metadata', async () => {
-    mockRead.mockResolvedValue(Buffer.from('changed-file'));
-    await expect(
-      attachWorkspaceFile(req, {
-        kind: 'user',
-        sessionId: 'session-a',
-        fileId: 'published-id',
-      }),
-    ).rejects.toMatchObject({ status: 409 });
+  it('refuses removed files without ever storing a new copy', async () => {
+    mockListFiles.mockResolvedValue({items:[],nextCursor:null});
+    await expect(attachWorkspaceFile(req,{
+      kind:'user',sessionId:'session-a',fileId:'published-id',
+    })).rejects.toMatchObject({status:404});
     expect(mockSaveBuffer).not.toHaveBeenCalled();
     expect(mockCreateFile).not.toHaveBeenCalled();
   });
