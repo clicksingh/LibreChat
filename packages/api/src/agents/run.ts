@@ -583,7 +583,10 @@ function shapeSummarizationConfig(
     config?.trigger?.type && typeof config?.trigger?.value === 'number'
       ? { type: config.trigger.type, value: config.trigger.value }
       : cbhrAutoCompact ? { type: 'token_ratio' as const, value: cbhrTriggerRatio } : undefined;
-  const reserveRatio = config?.reserveRatio ?? (cbhrAutoCompact ? 0.12 : undefined);
+  // The SDK can summarize only messages it has selected for refinement.
+  // At a 72% trigger with an 88% working window nothing is prunable until
+  // ~88%, so reserve 25% by default to make that selection safely early.
+  const reserveRatio = config?.reserveRatio ?? (cbhrAutoCompact ? 0.25 : undefined);
   const maxSummaryTokens = config?.maxSummaryTokens ?? (cbhrAutoCompact ? 4096 : undefined);
   const contextPruning = config?.contextPruning ?? (cbhrAutoCompact
     ? { enabled: true, keepLastAssistants: 2, softTrimRatio: 0.60,
@@ -639,7 +642,15 @@ function computeEffectiveMaxContextTokens(
     return maxContextTokens;
   }
   const ratioComputed = Math.max(1024, Math.round(baseContextTokens * (1 - reserveRatio)));
-  return Math.min(maxContextTokens ?? ratioComputed, ratioComputed);
+  const normal = Math.min(maxContextTokens ?? ratioComputed, ratioComputed);
+  // Synthetic-only acceptance knob: force the *working* context window low
+  // without modifying provider/model selection or the underlying messages.
+  // Do NOT configure this in staff production; default is always normal.
+  const rawCap = process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
+  const cap = rawCap && /^\d+$/.test(rawCap) ? Number(rawCap) : NaN;
+  return process.env.CBHR_AUTO_COMPACTION === 'true' &&
+    Number.isSafeInteger(cap) && cap >= 4096 && cap <= 32768
+    ? Math.min(normal, cap) : normal;
 }
 
 /** Identifier for the self-spawn subagent (reuses parent's AgentInputs in an isolated child graph). */

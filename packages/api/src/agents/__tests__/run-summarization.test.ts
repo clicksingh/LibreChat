@@ -244,11 +244,14 @@ describe('custom endpoint stream usage defaults', () => {
 describe('CBHR context compaction policy', () => {
   const original = process.env.CBHR_AUTO_COMPACTION;
   const previousRatio = process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
+  const previousCap = process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
   afterEach(() => {
     if (original === undefined) delete process.env.CBHR_AUTO_COMPACTION;
     else process.env.CBHR_AUTO_COMPACTION = original;
     if (previousRatio === undefined) delete process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
     else process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = previousRatio;
+    if (previousCap === undefined) delete process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
+    else process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = previousCap;
   });
   it('compacts preemptively on the selected model', async () => {
     process.env.CBHR_AUTO_COMPACTION = 'true';
@@ -261,9 +264,9 @@ describe('CBHR context compaction policy', () => {
     expect(agents[0].summarizationConfig).toMatchObject({
       model: 'zai/glm-5.3-flash',
       trigger: { type: 'token_ratio', value: 0.72 },
-      maxSummaryTokens: 4096, reserveRatio: 0.12,
+      maxSummaryTokens: 4096, reserveRatio: 0.25,
     });
-    expect(agents[0].maxContextTokens).toBe(28160);
+    expect(agents[0].maxContextTokens).toBe(24000);
     expect(agents[0].contextPruningConfig).toMatchObject({ enabled: true });
   });
   it('supports bounded low-context canary thresholds without changing the model', async () => {
@@ -275,6 +278,16 @@ describe('CBHR context compaction policy', () => {
     jest.clearAllMocks();
     agents = await callAndCapture();
     expect(agents[0].summarizationConfig.trigger).toEqual({ type: 'token_ratio', value: 0.72 });
+  });
+  it('can lower effective context only under the explicit synthetic canary gate', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = '9000';
+    let agents = await callAndCapture({ agents:[makeAgent({ maxContextTokens:32000,baseContextTokens:32000 })] });
+    expect(agents[0].maxContextTokens).toBe(9000);
+    jest.clearAllMocks();
+    process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = 'unsafe';
+    agents = await callAndCapture({ agents:[makeAgent({ maxContextTokens:32000,baseContextTokens:32000 })] });
+    expect(agents[0].maxContextTokens).toBe(24000);
   });
   it('respects disabled admin summarization', async () => {
     process.env.CBHR_AUTO_COMPACTION = 'true';
