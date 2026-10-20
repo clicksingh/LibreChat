@@ -1,4 +1,5 @@
 const { logger } = require('@librechat/data-schemas');
+const { normalizeAgentFailure } = require('./agentFailure');
 const { Constants, ViolationTypes, isEphemeralAgentId } = require('librechat-data-provider');
 const {
   sendEvent,
@@ -684,15 +685,19 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         resolveConvoReady();
 
         // Check if this was an abort (not a real error)
-        const wasAborted = job.abortController.signal.aborted || error.message?.includes('abort');
+        // Only the actual user/job Stop signal counts as a cancellation.
+        // A provider AbortError or network timeout is a real failed turn and
+        // MUST emit a durable terminal event instead of vanishing silently.
+        const wasAborted = job.abortController.signal.aborted;
 
         if (wasAborted) {
           logger.debug(`[ResumableAgentController] Generation aborted for ${streamId}`);
           // abortJob already handled emitDone and completeJob
         } else {
           logger.error(`[ResumableAgentController] Generation error for ${streamId}:`, error);
-          await GenerationJobManager.emitError(streamId, error.message || 'Generation failed');
-          GenerationJobManager.completeJob(streamId, error.message);
+          const publicFailure = normalizeAgentFailure(error);
+          await GenerationJobManager.emitError(streamId, publicFailure);
+          GenerationJobManager.completeJob(streamId, publicFailure);
         }
 
         await finishResumableRequest(req, userId);
