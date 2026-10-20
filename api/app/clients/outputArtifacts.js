@@ -25,13 +25,35 @@ function latestAttachments(items) {
   return output;
 }
 function missingFinalArtifactResponse(message) {
-  if (typeof message.text !== 'string' || message.text.trim() ||
-      (Array.isArray(message.content) && message.content.length)) return false;
+  // Tool-only content is not a final user-facing answer. The UI prefers
+  // structured content over message.text, so append a visible text part too.
+  if (typeof message.text !== 'string' || message.text.trim()) return false;
+  if (Array.isArray(message.content) && message.content.some((part) =>
+    (typeof part === 'string' && part.trim()) ||
+    (part?.type === 'text' && typeof part.text === 'string' && part.text.trim())
+  )) return false;
   const files = (message.attachments || []).filter(x => x.file_id && x.filename);
   if (!files.length) return false;
   const docs = files.filter(x => /\.(docx?|pdf|xlsx?|pptx?)$/i.test(x.filename));
   if (!docs.length) return false;
   message.text = 'I prepared document files for review. Please check the attached deliverables and verify their content before using them as finalized procedures.';
+  if (Array.isArray(message.content)) {
+    message.content.push({ type: 'text', text: message.text });
+  }
   return true;
 }
-module.exports = { latestAttachments, missingFinalArtifactResponse };
+/** A finished but empty agent turn is an interrupted response, not success.
+ * Aryn's October 19 chat saved two entirely blank assistant turns after SSE
+ * trouble. Do not invent completion or delete existing sandbox work. */
+function ensureVisibleEmptyFinalResponse(message) {
+  if (typeof message.text === 'string' && message.text.trim()) return false;
+  if (Array.isArray(message.content) && message.content.some((part) =>
+    (typeof part === 'string' && part.trim()) ||
+    (part?.type === 'text' && typeof part.text === 'string' && part.text.trim())
+  )) return false;
+  if (message.error || message.isCreatedByUser) return false;
+  message.text = 'This response ended before I could give you a usable answer. Your previously saved work and files are preserved. Ask me to continue from the existing work rather than restarting.';
+  if (Array.isArray(message.content)) message.content.push({type:'text',text:message.text});
+  return true;
+}
+module.exports = { latestAttachments, missingFinalArtifactResponse, ensureVisibleEmptyFinalResponse };

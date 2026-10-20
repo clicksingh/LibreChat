@@ -14,6 +14,8 @@ import {
   replaceSpecialVars,
   isAssistantsEndpoint,
   getDefaultParamsEndpoint,
+  PermissionTypes,
+  Permissions,
 } from 'librechat-data-provider';
 import type {
   TMessage,
@@ -39,7 +41,7 @@ import useGetSender from '~/hooks/Conversations/useGetSender';
 import store, { useGetEphemeralAgent } from '~/store';
 import { startupConfigKey } from '~/data-provider';
 import useUserKey from '~/hooks/Input/useUserKey';
-import { useAuthContext } from '~/hooks';
+import { useAuthContext, useHasAccess } from '~/hooks';
 
 const logChatRequest = (request: Record<string, unknown>) => {
   logger.log('=====================================\nAsk function called with:');
@@ -207,6 +209,13 @@ export default function useChatFunctions({
   const navigate = useNavigate();
   const getSender = useGetSender();
   const { user } = useAuthContext();
+  // UX request-intent ceiling. A stale model spec or localStorage preference
+  // must not advertise code/vision tools to users who cannot run code.
+  // Backend resolveEffectiveCodeEnv remains the actual authorization gate.
+  const canRunCode = useHasAccess({
+    permissionType: PermissionTypes.RUN_CODE,
+    permission: Permissions.USE,
+  });
   const queryClient = useQueryClient();
   const setFilesToDelete = useSetFilesToDelete();
   const getEphemeralAgent = useGetEphemeralAgent();
@@ -302,7 +311,13 @@ export default function useChatFunctions({
      * `document_visual_qa` (see applyVisualQaToRequest). Intent coupling only;
      * the server (`codeEnvAvailable` + explicit agent request) stays the gate.
      */
-    const ephemeralAgent = applyVisualQaToRequest(storedEphemeralAgent);
+    const ephemeralAgent = canRunCode
+      ? applyVisualQaToRequest(storedEphemeralAgent)
+      : {
+          ...(storedEphemeralAgent ?? {}),
+          execute_code: false,
+          document_visual_qa: false,
+        };
     /**
      * Manual skill selection resolution:
      *  - Explicit `overrideManualSkills` wins (regenerate / save-and-submit

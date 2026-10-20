@@ -580,7 +580,9 @@ function getDefaultHandlers({
  */
 function writeAttachment(res, streamId, attachment) {
   if (streamId) {
-    GenerationJobManager.emitChunk(streamId, { event: 'attachment', data: attachment });
+    GenerationJobManager.emitChunk(streamId, { event: 'attachment', data: attachment }).catch((err) => {
+      logger.error('[Agent SSE] Unable to publish attachment event; resumable state may be incomplete', err);
+    });
   } else {
     res.write(`event: attachment\ndata: ${JSON.stringify(attachment)}\n\n`);
   }

@@ -402,7 +402,7 @@ describe('RedisEventTransport Integration Tests', () => {
       transport.destroy();
     });
 
-    test('should force-flush on timeout when gaps are not filled', async () => {
+    test('should fail explicitly when journal cannot repair missing sequences', async () => {
       jest.useFakeTimers();
 
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
@@ -421,9 +421,11 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = 'timeout-test';
       const receivedEvents: number[] = [];
+      const errors: string[] = [];
 
       transport.subscribe(streamId, {
         onChunk: (event) => receivedEvents.push((event as { index: number }).index),
+        onError: (e) => errors.push(e),
       });
 
       const messageHandler = mockSubscriber.on.mock.calls.find(
@@ -437,9 +439,10 @@ describe('RedisEventTransport Integration Tests', () => {
 
       expect(receivedEvents).toEqual([]);
 
-      jest.advanceTimersByTime(600);
+      await jest.advanceTimersByTimeAsync(1800);
 
-      expect(receivedEvents).toEqual([2, 3]);
+      expect(receivedEvents).toEqual([]);
+      expect(errors).toEqual([expect.stringContaining('STREAM_EVENT_GAP_UNRECOVERABLE')]);
 
       transport.destroy();
       jest.useRealTimers();
@@ -943,7 +946,7 @@ describe('RedisEventTransport Integration Tests', () => {
   });
 
   describe('Publish Error Propagation', () => {
-    test('should swallow emitChunk publish errors (callers fire-and-forget)', async () => {
+    test('should reject emitChunk publish errors instead of silently losing deltas', async () => {
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
 
       const mockPublisher = createMockPublisher();
@@ -961,14 +964,16 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = `error-prop-chunk-${Date.now()}`;
 
-      // emitChunk swallows errors because callers often fire-and-forget (no await).
-      // Throwing would cause unhandled promise rejections.
-      await expect(transport.emitChunk(streamId, { data: 'test' })).resolves.toBeUndefined();
+      // The stream publisher cannot silently lose an event and then deliver
+      // a deceptive terminal done. Callers that deliberately fire-and-forget
+      // must attach an explicit catch to surface the failure.
+      await expect(transport.emitChunk(streamId, { data: 'test' }))
+        .rejects.toThrow('Redis connection lost');
 
       transport.destroy();
     });
 
-    test('should swallow emitChunk incr errors (sequence allocation failure)', async () => {
+    test('should reject emitChunk incr errors (sequence allocation failure)', async () => {
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
 
       const mockPublisher = createMockPublisher();
@@ -986,7 +991,7 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = `error-prop-incr-${Date.now()}`;
 
-      await expect(transport.emitChunk(streamId, { data: 'test' })).resolves.toBeUndefined();
+      await expect(transport.emitChunk(streamId, { data: 'test' })).rejects.toThrow('INCR failed');
       expect(mockPublisher.publish).not.toHaveBeenCalled();
 
       transport.destroy();

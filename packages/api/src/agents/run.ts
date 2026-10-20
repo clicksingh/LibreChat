@@ -542,6 +542,13 @@ function resolveSummarizationProvider(
   }
 }
 
+function isCompactionCanaryUser(user: IUser | undefined): boolean {
+  const expected = process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID;
+  if (!expected || !/^[0-9a-f]{24}$/.test(expected)) return false;
+  const actor = user?.id ?? user?._id;
+  return actor != null && String(actor) === expected;
+}
+
 /** Shapes a SummarizationConfig into the format expected by AgentInputs. */
 function shapeSummarizationConfig(
   config: SummarizationConfig | undefined,
@@ -569,10 +576,29 @@ function shapeSummarizationConfig(
     : resolveSummarizationProvider(rawProvider, appConfig, headerContext);
 
   const model = config?.model ?? fallbackModel;
+  // Dedicated SDK summarization call, followed by continued SAME-chat execution.
+  // No cross-provider route: use the agent's selected endpoint/model.
+  const cbhrAutoCompact = process.env.CBHR_AUTO_COMPACTION === 'true';
+  // Tunable for dedicated low-context canaries; ordinary release defaults to 72%.
+  // Reject NaN, Infinity, zero and implausible ratios without changing policy.
+  const configuredRatio = isCompactionCanaryUser(headerContext.user) ? process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO : undefined;
+  const parsedRatio = configuredRatio && /^0?\.\d+$/.test(configuredRatio)
+    ? Number(configuredRatio) : NaN;
+  const cbhrTriggerRatio = Number.isFinite(parsedRatio) &&
+    parsedRatio >= 0.005 && parsedRatio <= 0.85 ? parsedRatio : 0.72;
   const trigger =
     config?.trigger?.type && typeof config?.trigger?.value === 'number'
       ? { type: config.trigger.type, value: config.trigger.value }
-      : undefined;
+      : cbhrAutoCompact ? { type: 'token_ratio' as const, value: cbhrTriggerRatio } : undefined;
+  // The SDK can summarize only messages it has selected for refinement.
+  // At a 72% trigger with an 88% working window nothing is prunable until
+  // ~88%, so reserve 25% by default to make that selection safely early.
+  const reserveRatio = config?.reserveRatio ?? (cbhrAutoCompact ? 0.25 : undefined);
+  const maxSummaryTokens = config?.maxSummaryTokens ?? (cbhrAutoCompact ? 4096 : undefined);
+  const contextPruning = config?.contextPruning ?? (cbhrAutoCompact
+    ? { enabled: true, keepLastAssistants: 2, softTrimRatio: 0.60,
+        hardClearRatio: 0.85, minPrunableToolChars: 3000 }
+    : undefined);
 
   /**
    * Custom-endpoint overrides are merged into `parameters` so the SDK's
@@ -602,11 +628,11 @@ function shapeSummarizationConfig(
       parameters,
       prompt: config?.prompt,
       updatePrompt: config?.updatePrompt,
-      reserveRatio: config?.reserveRatio,
-      maxSummaryTokens: config?.maxSummaryTokens,
+      reserveRatio,
+      maxSummaryTokens,
     } satisfies AgentSummarizationConfig,
-    contextPruning: config?.contextPruning as ContextPruningConfig | undefined,
-    reserveRatio: config?.reserveRatio,
+    contextPruning: contextPruning as ContextPruningConfig | undefined,
+    reserveRatio,
   };
 }
 
@@ -618,12 +644,21 @@ function computeEffectiveMaxContextTokens(
   reserveRatio: number | undefined,
   baseContextTokens: number | undefined,
   maxContextTokens: number | undefined,
+  isCanary = false,
 ): number | undefined {
   if (reserveRatio == null || reserveRatio <= 0 || reserveRatio >= 1 || baseContextTokens == null) {
     return maxContextTokens;
   }
   const ratioComputed = Math.max(1024, Math.round(baseContextTokens * (1 - reserveRatio)));
-  return Math.min(maxContextTokens ?? ratioComputed, ratioComputed);
+  const normal = Math.min(maxContextTokens ?? ratioComputed, ratioComputed);
+  // Synthetic-only acceptance knob: force the *working* context window low
+  // without modifying provider/model selection or the underlying messages.
+  // Do NOT configure this in staff production; default is always normal.
+  const rawCap = process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
+  const cap = rawCap && /^\d+$/.test(rawCap) ? Number(rawCap) : NaN;
+  return isCanary && process.env.CBHR_AUTO_COMPACTION === 'true' &&
+    Number.isSafeInteger(cap) && cap >= 4096 && cap <= 32768
+    ? Math.min(normal, cap) : normal;
 }
 
 /** Identifier for the self-spawn subagent (reuses parent's AgentInputs in an isolated child graph). */
@@ -1009,6 +1044,7 @@ export async function createRun({
       summarization.reserveRatio,
       agent.baseContextTokens,
       agent.maxContextTokens,
+      isCompactionCanaryUser(user),
     );
 
     const reasoningKey = getReasoningKey(provider, llmConfig, agent.endpoint, agent.reasoningKey);
