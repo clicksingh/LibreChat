@@ -24,4 +24,23 @@ function normalizeAgentFailure(error) {
   return 'MODEL_REQUEST_INTERRUPTED: This response stopped before completion. Existing saved files are preserved. Continue in this chat from the last completed step; tool actions have not been automatically replayed.';
 }
 
-module.exports = { normalizeAgentFailure };
+/**
+ * Persist the failure regardless of Redis pub/sub availability. Do not
+ * falsely complete and delete a failed job when the SSE error cannot publish.
+ * Both methods are awaited: late subscribers can inspect jobStore.status/error.
+ */
+async function persistAgentFailure(manager, streamId, error, onPublishError = () => {}) {
+  const message = normalizeAgentFailure(error);
+  let eventDelivered = false;
+  try {
+    await manager.emitError(streamId, message);
+    eventDelivered = true;
+  } catch (publishError) {
+    onPublishError(publishError);
+  } finally {
+    await manager.completeJob(streamId, message);
+  }
+  return { message, eventDelivered };
+}
+
+module.exports = { normalizeAgentFailure, persistAgentFailure };

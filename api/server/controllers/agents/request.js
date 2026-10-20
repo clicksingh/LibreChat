@@ -1,5 +1,5 @@
 const { logger } = require('@librechat/data-schemas');
-const { normalizeAgentFailure } = require('./agentFailure');
+const { normalizeAgentFailure, persistAgentFailure } = require('./agentFailure');
 const { Constants, ViolationTypes, isEphemeralAgentId } = require('librechat-data-provider');
 const {
   sendEvent,
@@ -695,9 +695,9 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
           // abortJob already handled emitDone and completeJob
         } else {
           logger.error(`[ResumableAgentController] Generation error for ${streamId}:`, error);
-          const publicFailure = normalizeAgentFailure(error);
-          await GenerationJobManager.emitError(streamId, publicFailure);
-          GenerationJobManager.completeJob(streamId, publicFailure);
+          await persistAgentFailure(GenerationJobManager, streamId, error, (publishError) => {
+            logger.error('[ResumableAgentController] Unable to deliver terminal error SSE', publishError);
+          });
         }
 
         await finishResumableRequest(req, userId);
@@ -723,19 +723,27 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       logger.error(
         `[ResumableAgentController] Unhandled error in background generation: ${err.message}`,
       );
-      GenerationJobManager.completeJob(streamId, err.message);
-      await finishResumableRequest(req, userId);
+      try {
+        await persistAgentFailure(GenerationJobManager, streamId, err, (publishError) => {
+          logger.error('[ResumableAgentController] Final error delivery failed', publishError);
+        });
+      } finally {
+        await finishResumableRequest(req, userId);
+      }
     });
   } catch (error) {
     logger.error('[ResumableAgentController] Initialization error:', error);
+    const publicFailure = normalizeAgentFailure(error);
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || 'Failed to start generation' });
-    } else {
-      // JSON already sent, emit error to stream so client can receive it
-      await GenerationJobManager.emitError(streamId, error.message || 'Failed to start generation');
+      res.status(500).json({ error: publicFailure });
     }
-    GenerationJobManager.completeJob(streamId, error.message);
-    await finishResumableRequest(req, userId);
+    try {
+      await persistAgentFailure(GenerationJobManager, streamId, error, (publishError) => {
+        logger.error('[ResumableAgentController] Initialization error SSE delivery failed', publishError);
+      });
+    } finally {
+      await finishResumableRequest(req, userId);
+    }
     if (client) {
       disposeClient(client);
     }
