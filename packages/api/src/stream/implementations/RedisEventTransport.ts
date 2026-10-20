@@ -591,6 +591,10 @@ export class RedisEventTransport implements IEventTransport {
       await this.publishJournaled(streamId, message);
     } catch (err) {
       logger.error(`[RedisEventTransport] Failed to publish chunk:`, err);
+      // Never turn a failed Redis HSET/PUBLISH into a successful model run.
+      // The generation job must own this failure and persist its terminal
+      // state; silently swallowing it loses tool and text deltas.
+      throw err;
     }
   }
 

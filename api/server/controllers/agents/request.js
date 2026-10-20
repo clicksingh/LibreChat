@@ -446,6 +446,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
             created: true,
             message: userMessage,
             streamId,
+          }).catch((err) => {
+            logger.error('[Agent SSE] Unable to publish initial message event', err);
           });
         };
 

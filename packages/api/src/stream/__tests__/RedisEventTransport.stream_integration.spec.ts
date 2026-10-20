@@ -946,7 +946,7 @@ describe('RedisEventTransport Integration Tests', () => {
   });
 
   describe('Publish Error Propagation', () => {
-    test('should swallow emitChunk publish errors (callers fire-and-forget)', async () => {
+    test('should reject emitChunk publish errors instead of silently losing deltas', async () => {
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
 
       const mockPublisher = createMockPublisher();
@@ -964,14 +964,16 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = `error-prop-chunk-${Date.now()}`;
 
-      // emitChunk swallows errors because callers often fire-and-forget (no await).
-      // Throwing would cause unhandled promise rejections.
-      await expect(transport.emitChunk(streamId, { data: 'test' })).resolves.toBeUndefined();
+      // The stream publisher cannot silently lose an event and then deliver
+      // a deceptive terminal done. Callers that deliberately fire-and-forget
+      // must attach an explicit catch to surface the failure.
+      await expect(transport.emitChunk(streamId, { data: 'test' }))
+        .rejects.toThrow('Redis connection lost');
 
       transport.destroy();
     });
 
-    test('should swallow emitChunk incr errors (sequence allocation failure)', async () => {
+    test('should reject emitChunk incr errors (sequence allocation failure)', async () => {
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
 
       const mockPublisher = createMockPublisher();
@@ -989,7 +991,7 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = `error-prop-incr-${Date.now()}`;
 
-      await expect(transport.emitChunk(streamId, { data: 'test' })).resolves.toBeUndefined();
+      await expect(transport.emitChunk(streamId, { data: 'test' })).rejects.toThrow('INCR failed');
       expect(mockPublisher.publish).not.toHaveBeenCalled();
 
       transport.destroy();

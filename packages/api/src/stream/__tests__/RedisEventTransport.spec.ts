@@ -21,6 +21,18 @@ function getMessageHandler(mockSubscriber: ReturnType<typeof createMockSubscribe
 }
 
 describe('RedisEventTransport', () => {
+  it('Aryn: unavailable Redis journal fails the publisher instead of silently losing the SSE delta', async () => {
+    const publisher = createMockPublisher();
+    publisher.hset.mockRejectedValueOnce(new Error('SIMULATED_REDIS_WRITE_FAILURE'));
+    const subscriber = createMockSubscriber();
+    const transport = new RedisEventTransport(publisher as unknown as Redis,
+      subscriber as unknown as Redis);
+    await expect(transport.emitChunk('aryn-injected-redis-write-fail', { text: 'important' }))
+      .rejects.toThrow('SIMULATED_REDIS_WRITE_FAILURE');
+    expect(publisher.publish).not.toHaveBeenCalled();
+    transport.destroy();
+  });
+
   it('Aryn: recovers missing pubsub chunks from journal before terminal success', async () => {
     jest.useFakeTimers();
     try {
