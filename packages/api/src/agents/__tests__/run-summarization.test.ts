@@ -146,6 +146,7 @@ async function callAndCapture(
     summarizationConfig?: SummarizationConfig;
     initialSummary?: { text: string; tokenCount: number };
     appConfig?: AppConfig;
+    user?: Parameters<typeof createRun>[0]['user'];
   } = {},
 ) {
   const agents = opts.agents ?? [makeAgent()];
@@ -155,6 +156,7 @@ async function callAndCapture(
     agents: agents as never,
     signal,
     summarizationConfig: opts.summarizationConfig,
+    user: opts.user,
     initialSummary: opts.initialSummary,
     appConfig: opts.appConfig,
     streaming: true,
@@ -235,6 +237,92 @@ describe('custom endpoint stream usage defaults', () => {
 
     expect(clientOptions.streamUsage).toBe(true);
     expect(clientOptions.usage).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CBHR opt-in context compaction: selected model, independent summary call
+// ---------------------------------------------------------------------------
+describe('CBHR context compaction policy', () => {
+  const original = process.env.CBHR_AUTO_COMPACTION;
+  const previousRatio = process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
+  const previousCap = process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
+  const previousUser = process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID;
+  afterEach(() => {
+    if (original === undefined) delete process.env.CBHR_AUTO_COMPACTION;
+    else process.env.CBHR_AUTO_COMPACTION = original;
+    if (previousRatio === undefined) delete process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO;
+    else process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = previousRatio;
+    if (previousCap === undefined) delete process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS;
+    else process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = previousCap;
+    if (previousUser === undefined) delete process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID;
+    else process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID = previousUser;
+  });
+  it('compacts preemptively on the selected model', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    const agents = await callAndCapture({
+      agents: [makeAgent({ endpoint: 'LiteLLM',
+        model_parameters: { model: 'zai/glm-5.3-flash' },
+        maxContextTokens: 32000, baseContextTokens: 32000 })],
+    });
+    expect(agents[0].summarizationEnabled).toBe(true);
+    expect(agents[0].summarizationConfig).toMatchObject({
+      model: 'zai/glm-5.3-flash',
+      trigger: { type: 'token_ratio', value: 0.72 },
+      maxSummaryTokens: 4096, reserveRatio: 0.25,
+    });
+    expect(agents[0].maxContextTokens).toBe(24000);
+    expect(agents[0].contextPruningConfig).toMatchObject({ enabled: true });
+  });
+  it('supports bounded low-context canary thresholds without changing the model', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = '0.005';
+    let agents = await callAndCapture({ user: {id:'aaaaaaaaaaaaaaaaaaaaaaaa'} as never });
+    expect(agents[0].summarizationConfig.trigger).toEqual({ type: 'token_ratio', value: 0.005 });
+    process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = 'NaN';
+    jest.clearAllMocks();
+    agents = await callAndCapture({ user: {id:'aaaaaaaaaaaaaaaaaaaaaaaa'} as never });
+    expect(agents[0].summarizationConfig.trigger).toEqual({ type: 'token_ratio', value: 0.72 });
+  });
+  it('can lower effective context only under the explicit synthetic canary gate', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = '9000';
+    let agents = await callAndCapture({ user: {id:'aaaaaaaaaaaaaaaaaaaaaaaa'} as never, agents:[makeAgent({ maxContextTokens:32000,baseContextTokens:32000 })] });
+    expect(agents[0].maxContextTokens).toBe(9000);
+    jest.clearAllMocks();
+    process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = 'unsafe';
+    agents = await callAndCapture({ user: {id:'aaaaaaaaaaaaaaaaaaaaaaaa'} as never, agents:[makeAgent({ maxContextTokens:32000,baseContextTokens:32000 })] });
+    expect(agents[0].maxContextTokens).toBe(24000);
+  });
+  it('never applies synthetic cap or trigger to another staff user', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    process.env.CBHR_AUTO_COMPACTION_CANARY_USER_ID = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+    process.env.CBHR_AUTO_COMPACTION_CANARY_CONTEXT_TOKENS = '9000';
+    process.env.CBHR_AUTO_COMPACTION_TRIGGER_RATIO = '0.005';
+    const agents = await callAndCapture({ user: {id:'bbbbbbbbbbbbbbbbbbbbbbbb'} as never,
+      agents:[makeAgent({ maxContextTokens:32000,baseContextTokens:32000 })] });
+    expect(agents[0].maxContextTokens).toBe(24000);
+    expect(agents[0].summarizationConfig.trigger).toEqual({type:'token_ratio',value:0.72});
+  });
+  it('respects disabled admin summarization', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    const agents = await callAndCapture({ summarizationConfig: { enabled: false } });
+    expect(agents[0].summarizationEnabled).toBe(false);
+  });
+  it('respects explicit trigger, budget and pruning', async () => {
+    process.env.CBHR_AUTO_COMPACTION = 'true';
+    const agents = await callAndCapture({ summarizationConfig: {
+      trigger: { type: 'remaining_tokens', value: 8000 },
+      reserveRatio: 0.2, maxSummaryTokens: 2500,
+      contextPruning: { enabled: false },
+    } });
+    expect(agents[0].summarizationConfig).toMatchObject({
+      trigger: { type: 'remaining_tokens', value: 8000 },
+      reserveRatio: 0.2, maxSummaryTokens: 2500,
+    });
+    expect(agents[0].contextPruningConfig).toEqual({ enabled: false });
   });
 });
 

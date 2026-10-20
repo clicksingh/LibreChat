@@ -1,4 +1,5 @@
 const { logger } = require('@librechat/data-schemas');
+const { normalizeAgentFailure, persistAgentFailure } = require('./agentFailure');
 const { Constants, ViolationTypes, isEphemeralAgentId } = require('librechat-data-provider');
 const {
   sendEvent,
@@ -446,6 +447,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
             created: true,
             message: userMessage,
             streamId,
+          }).catch((err) => {
+            logger.error('[Agent SSE] Unable to publish initial message event', err);
           });
         };
 
@@ -682,15 +685,19 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         resolveConvoReady();
 
         // Check if this was an abort (not a real error)
-        const wasAborted = job.abortController.signal.aborted || error.message?.includes('abort');
+        // Only the actual user/job Stop signal counts as a cancellation.
+        // A provider AbortError or network timeout is a real failed turn and
+        // MUST emit a durable terminal event instead of vanishing silently.
+        const wasAborted = job.abortController.signal.aborted;
 
         if (wasAborted) {
           logger.debug(`[ResumableAgentController] Generation aborted for ${streamId}`);
           // abortJob already handled emitDone and completeJob
         } else {
           logger.error(`[ResumableAgentController] Generation error for ${streamId}:`, error);
-          await GenerationJobManager.emitError(streamId, error.message || 'Generation failed');
-          GenerationJobManager.completeJob(streamId, error.message);
+          await persistAgentFailure(GenerationJobManager, streamId, error, (publishError) => {
+            logger.error('[ResumableAgentController] Unable to deliver terminal error SSE', publishError);
+          });
         }
 
         await finishResumableRequest(req, userId);
@@ -716,19 +723,27 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       logger.error(
         `[ResumableAgentController] Unhandled error in background generation: ${err.message}`,
       );
-      GenerationJobManager.completeJob(streamId, err.message);
-      await finishResumableRequest(req, userId);
+      try {
+        await persistAgentFailure(GenerationJobManager, streamId, err, (publishError) => {
+          logger.error('[ResumableAgentController] Final error delivery failed', publishError);
+        });
+      } finally {
+        await finishResumableRequest(req, userId);
+      }
     });
   } catch (error) {
     logger.error('[ResumableAgentController] Initialization error:', error);
+    const publicFailure = normalizeAgentFailure(error);
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || 'Failed to start generation' });
-    } else {
-      // JSON already sent, emit error to stream so client can receive it
-      await GenerationJobManager.emitError(streamId, error.message || 'Failed to start generation');
+      res.status(500).json({ error: publicFailure });
     }
-    GenerationJobManager.completeJob(streamId, error.message);
-    await finishResumableRequest(req, userId);
+    try {
+      await persistAgentFailure(GenerationJobManager, streamId, error, (publishError) => {
+        logger.error('[ResumableAgentController] Initialization error SSE delivery failed', publishError);
+      });
+    } finally {
+      await finishResumableRequest(req, userId);
+    }
     if (client) {
       disposeClient(client);
     }

@@ -50,6 +50,7 @@ const {
   buildInitialToolSessions,
   resolveExecutionSession,
   bindExecutionSession,
+  bindCodeApiExecutionScope,
 } = require('@librechat/api');
 const {
   Callback,
@@ -84,6 +85,8 @@ const BaseClient = require('~/app/clients/BaseClient');
 const { getMCPManager } = require('~/config');
 const db = require('~/models');
 const mongoose = require('mongoose');
+const { resolveAuthorizedFileGrants } = require('~/server/services/Files/Code/b1Grants');
+const { shouldUseScopedExecution, verifyExecutionConversation } = require('~/server/services/Files/Code/b1Cutover');
 
 const loadAgent = (params) => loadAgentFn(params, { getAgent: db.getAgent, getMCPServerTools });
 
@@ -1189,14 +1192,22 @@ class AgentClient extends BaseClient {
           throw new Error('An authenticated conversation is required for code execution');
         }
         const requestedId = req.body?.conversationId;
-        const isNewConversation = !requestedId || requestedId === 'new';
-        if (!isNewConversation) {
-          if (requestedId !== this.conversationId) {
-            throw new Error('Conversation execution identity mismatch');
-          }
-          const owned = await db.getConvo(userId, this.conversationId);
-          if (!owned) throw new Error('Conversation execution access denied');
-        }
+        const owned = await db.getConvo(userId, this.conversationId);
+        await verifyExecutionConversation({
+          userId: String(userId),
+          conversationId: this.conversationId,
+          requestedId,
+          ownedConversation: owned,
+          lookupGlobalConversation: id => mongoose.connection
+            .collection('conversations').findOne({conversationId: id}, {projection:{_id:1}}),
+        });
+        // B1 is mandatory for chats created after the admin rollout time,
+        // while prior conversations continue their original runtime until
+        // explicitly migrated. No client-supplied timestamp is consulted.
+        const scoped = shouldUseScopedExecution({
+          cutoverUtc: process.env.CBHR_B1_CUTOVER_UTC, conversation: owned,
+        });
+        if (scoped) {
         const workspace = req.workspaceContext;
         const sessionId = await resolveExecutionSession(
           mongoose.connection.collection('code_execution_sessions'),
@@ -1207,9 +1218,28 @@ class AgentClient extends BaseClient {
             workspaceKind: workspace?.kind === 'project' ? 'project' : 'personal',
             workspaceId: workspace?.kind === 'project' ? workspace.workspaceId : String(userId),
           },
-          { allowCreate: isNewConversation },
+          { allowCreate: true },
         );
+        // Agent tools use a function-valued authHeaders callback referencing
+        // this request, so bind the immutable authorization context only
+        // AFTER the durable registry and DB-backed file provenance checks.
+        // No req.body or agent-proposed ref is allowed to become JWT authority.
+        const fileGrants = await resolveAuthorizedFileGrants({
+          req,
+          initialSessions,
+          getFiles: db.getFiles,
+        });
+        bindCodeApiExecutionScope(req, {
+          userId: String(userId),
+          tenantId: String(req.user.tenantId ?? 'legacy'),
+          conversationId: this.conversationId,
+          sessionId,
+          workspaceKind: workspace?.kind === 'project' ? 'project' : 'personal',
+          workspaceId: workspace?.kind === 'project' ? workspace.workspaceId : String(userId),
+          fileGrants,
+        });
         initialSessions = bindExecutionSession(initialSessions, sessionId);
+        }
       }
 
       /** Spoof `Providers.DEEPSEEK` so the SDK preserves `reasoning_content` on tool turns (#13366). */

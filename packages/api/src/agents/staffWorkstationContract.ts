@@ -34,6 +34,8 @@ export function buildStaffWorkstationContract({
   if (canCode) {
     lines.push(
       '- The execution workspace is for private intermediate work. Save finished requested deliverables under outputs/ for automatic publication. For a verified finished file elsewhere in the working directory, create .cbhr-publish.json with {"version":1,"files":[{"path":"relative/file.ext","name":"file.ext"}]}. The manifest is private and nothing is auto-published by extension.',
+      '- At the START of every code/document task, use pwd and ls -la to locate attached inputs in the current working directory. This private sandbox does NOT have /mnt/data; never assume files are there or browse host paths. Prior same-chat work is preserved in the current working directory; other chats scratch is inaccessible.',
+      '- When a tool errors from a guessed file path, first list the current directory and retry the confirmed filename. Do not tell the user the attachment is missing before checking actual local files.',
       '- Inspect the actual runtime capabilities before running conversions; validate DOCX/PDF/XLSX/PPTX and render outputs for quality when supported. Do not install office packages unnecessarily or claim they are present without a probe.',
     );
   }

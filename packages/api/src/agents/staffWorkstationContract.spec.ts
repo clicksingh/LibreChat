@@ -7,6 +7,8 @@ describe('CBHR AI staff workstation prompt', () => {
       toolNames: ['bash_tool', 'read_file', 'file_search', 'skill'],
     });
     expect(prompt).toContain('outputs/');
+    expect(prompt).toContain('does NOT have /mnt/data');
+    expect(prompt).toContain('pwd and ls -la');
     expect(prompt).toContain('.cbhr-publish.json');
     expect(prompt).toContain('multiple distinct requested outputs');
     expect(prompt).toContain('indexed/embedded');
