@@ -39,6 +39,36 @@ interface CodeApiClaims {
   chc_user_id?: string;
   plan_id?: string;
   auth_context_hash: string;
+  /** 8S3D.1: present only when req.workspaceContext was resolved+re-checked
+   * this request (see resolveWorkspaceContext). CodeAPI trusts this signed
+   * claim exclusively for project workspace access — never a client body. */
+  workspace_kind?: 'personal' | 'project';
+  workspace_id?: string;
+  /** 8S3D.1: internal service-to-service claim only (mintInternalAdminToken). */
+  admin?: true;
+  execution_session_id?: string;
+  execution_conversation_id?: string;
+  execution_file_grants?: CodeApiExecutionFileGrant[];
+}
+
+export interface CodeApiExecutionFileGrant {
+  kind: 'user' | 'project';
+  owner: string;
+  session_id: string;
+  file_id: string;
+  name: string;
+  bytes: number;
+  sha256: string;
+}
+
+interface CodeApiExecutionScope {
+  userId: string;
+  tenantId: string;
+  conversationId: string;
+  sessionId: string;
+  workspaceKind: 'personal' | 'project';
+  workspaceId: string;
+  fileGrants: ReadonlyArray<CodeApiExecutionFileGrant>;
 }
 
 interface SigningConfig {
@@ -237,6 +267,7 @@ function canonicalContextHash(input: {
   orgId?: string;
   serviceId?: string;
   chcUserId?: string;
+  workspaceId?: string;
 }): string {
   const canonical = {
     chc_user_id: input.chcUserId ?? '',
@@ -246,6 +277,10 @@ function canonicalContextHash(input: {
     service_id: input.serviceId ?? '',
     sub: input.userId,
     tenant_id: input.tenantId,
+    // 8S3D.1: MUST be part of the context hash, not just the claim body — a
+    // token minted for workspace A must never be reusable (from cache) for
+    // workspace B requests.
+    workspace_id: input.workspaceId ?? '',
   };
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
@@ -264,6 +299,10 @@ function buildClaims(req: ServerRequest, config: SigningConfig, now: number): Co
   const serviceId = stringifyClaimValue(user.serviceId);
   const chcUserId = stringifyClaimValue(user.chcUserId) ?? stringifyClaimValue(user.idOnTheSource);
   const planId = stringifyClaimValue(user.planId) ?? stringifyClaimValue(user.subscription?.planId);
+  // 8S3D.1: only a request-scoped, freshly re-checked workspace context is
+  // ever honored here (see resolveWorkspaceContext) — this function never
+  // resolves membership itself, it only reads what was already validated.
+  const workspaceContext = req.workspaceContext;
   const authContextHash = canonicalContextHash({
     userId,
     tenantId,
@@ -272,6 +311,7 @@ function buildClaims(req: ServerRequest, config: SigningConfig, now: number): Co
     orgId,
     serviceId,
     chcUserId,
+    workspaceId: workspaceContext?.workspaceId,
   });
 
   return {
@@ -289,6 +329,9 @@ function buildClaims(req: ServerRequest, config: SigningConfig, now: number): Co
     ...(serviceId ? { service_id: serviceId } : {}),
     ...(chcUserId ? { chc_user_id: chcUserId } : {}),
     ...(planId ? { plan_id: planId } : {}),
+    ...(workspaceContext
+      ? { workspace_kind: workspaceContext.kind, workspace_id: workspaceContext.workspaceId }
+      : {}),
     auth_context_hash: authContextHash,
   };
 }
@@ -320,6 +363,7 @@ function cacheKey(config: SigningConfig, claims: CodeApiClaims): string {
     claims.service_id ?? '',
     claims.chc_user_id ?? '',
     claims.plan_id ?? '',
+    claims.workspace_id ?? '',
     claims.auth_context_hash,
   ].join(':');
 }
@@ -340,6 +384,44 @@ function pruneTokenCache(now: number): void {
   }
 }
 
+const CODEAPI_CONVERSATION_RE =
+  /^conv-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CODEAPI_SCOPE_KEY = Symbol('codeapi-server-validated-conversation-execution');
+
+/** Called ONLY after the server has resolved the durable session registry,
+ * verified chat ownership/current workspace and DB-validated every file grant.
+ * Stored outside req.body, immutable and nonenumerable: client-supplied JSON
+ * cannot overwrite it. A request cannot swap conversation scopes mid-run. */
+export function bindCodeApiExecutionScope(req: ServerRequest, scope: CodeApiExecutionScope): void {
+  const user = resolveUser(req);
+  const uid = resolveUserId(user);
+  const tenant = resolveTenantId(user);
+  const kind = req.workspaceContext?.kind === 'project' ? 'project' : 'personal';
+  const wid = kind === 'project' ? req.workspaceContext?.workspaceId : uid;
+  if (
+    scope.userId !== uid ||
+    !tenant ||
+    scope.tenantId !== tenant ||
+    scope.workspaceKind !== kind ||
+    scope.workspaceId !== wid ||
+    !CODEAPI_CONVERSATION_RE.test(scope.sessionId) ||
+    typeof scope.conversationId !== 'string' ||
+    !/^[A-Za-z0-9._-]{1,180}$/.test(scope.conversationId) ||
+    !Array.isArray(scope.fileGrants) ||
+    scope.fileGrants.length > 20
+  ) {
+    throw new Error('CODEAPI_EXECUTION_SCOPE_NOT_VERIFIED');
+  }
+  const owned = Object.freeze({
+    ...scope,
+    fileGrants: Object.freeze(scope.fileGrants.map((g) => Object.freeze({ ...g }))),
+  });
+  if (Object.prototype.hasOwnProperty.call(req, CODEAPI_SCOPE_KEY)) {
+    throw new Error('CODEAPI_EXECUTION_SCOPE_ALREADY_BOUND');
+  }
+  Object.defineProperty(req, CODEAPI_SCOPE_KEY, { value: owned, enumerable: false });
+}
+
 export async function mintCodeApiToken(req: ServerRequest): Promise<string> {
   if (!isCodeApiJwtAuthEnabled()) {
     return '';
@@ -349,6 +431,35 @@ export async function mintCodeApiToken(req: ServerRequest): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   pruneTokenCache(now);
   const claims = buildClaims(req, config, now);
+  const scope = (
+    req as ServerRequest & {
+      [CODEAPI_SCOPE_KEY]?: Readonly<CodeApiExecutionScope>;
+    }
+  )[CODEAPI_SCOPE_KEY];
+  if (scope) {
+    // Every execution JWT is freshly signed. Do NOT cache scoped tokens using
+    // the legacy 300s user/workspace key, and re-check mutable workspace
+    // identity before minting. The signing key never crosses the boundary.
+    const tenant = resolveTenantId(resolveUser(req));
+    const currentKind = req.workspaceContext?.kind === 'project' ? 'project' : 'personal';
+    const currentWorkspace =
+      currentKind === 'project' ? req.workspaceContext?.workspaceId : claims.sub;
+    if (
+      scope.userId !== claims.sub ||
+      scope.tenantId !== tenant ||
+      scope.workspaceKind !== currentKind ||
+      scope.workspaceId !== currentWorkspace
+    ) {
+      throw new Error('CODEAPI_EXECUTION_SCOPE_STALE');
+    }
+    claims.exp = Math.min(claims.exp, now + 60);
+    claims.workspace_kind = currentKind;
+    if (currentKind === 'personal') delete claims.workspace_id;
+    claims.execution_session_id = scope.sessionId;
+    claims.execution_conversation_id = scope.conversationId;
+    claims.execution_file_grants = scope.fileGrants.map((g) => ({ ...g }));
+    return signJwt(config, claims);
+  }
   const key = cacheKey(config, claims);
   const cached = tokenCache.get(key);
   if (
@@ -377,4 +488,35 @@ export async function getCodeApiAuthHeaders(req?: ServerRequest): Promise<Record
   }
   const token = await mintCodeApiToken(req);
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * 8S3D.1 — service-to-service token for CodeAPI's internal quota-sync
+ * endpoint ONLY. Carries `admin: true`, never derived from user input, never
+ * cached alongside per-user tokens. Used exclusively by the server-side
+ * quota-policy resolver to keep the helper's hard limit in sync with policy
+ * (default/group/user/project precedence) — see
+ * api/server/services/Workspace/quotaPolicy.js.
+ */
+export async function mintInternalAdminToken(): Promise<string> {
+  if (!isCodeApiJwtAuthEnabled()) {
+    return '';
+  }
+  const config = getSigningConfig();
+  const now = Math.floor(Date.now() / 1000);
+  const claims: CodeApiClaims = {
+    iss: config.issuer,
+    aud: config.audience,
+    sub: 'librechat-system',
+    iat: now,
+    nbf: now,
+    exp: now + 60,
+    jti: randomUUID(),
+    tenant_id: resolveSingleTenantId(),
+    role: 'SYSTEM',
+    principal_source: 'librechat_jwt',
+    auth_context_hash: createHash('sha256').update('internal-quota-sync').digest('hex'),
+    admin: true,
+  };
+  return signJwt(config, claims);
 }

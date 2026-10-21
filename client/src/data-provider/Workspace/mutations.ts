@@ -1,0 +1,189 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { QueryKeys, dataService } from 'librechat-data-provider';
+import type { UseMutationResult } from '@tanstack/react-query';
+import type {
+  TWorkspace,
+  TCreateWorkspaceRequest,
+  TWorkspaceMemberGrantRequest,
+  TWorkspaceCleanupResult,
+  TQuotaPolicy,
+  TQuotaPolicyScope,
+} from 'librechat-data-provider';
+
+export const useCreateWorkspaceMutation = (): UseMutationResult<
+  TWorkspace,
+  unknown,
+  TCreateWorkspaceRequest
+> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.createWorkspace(payload), {
+    onSuccess: () => queryClient.invalidateQueries([QueryKeys.workspaces]),
+  });
+};
+
+export const useRenameWorkspaceMutation = (): UseMutationResult<
+  TWorkspace,
+  unknown,
+  { id: string; name: string }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(({ id, name }) => dataService.renameWorkspace(id, name), {
+    onSuccess: () => queryClient.invalidateQueries([QueryKeys.workspaces]),
+  });
+};
+
+export const useArchiveWorkspaceMutation = (): UseMutationResult<TWorkspace, unknown, string> => {
+  const queryClient = useQueryClient();
+  return useMutation((id) => dataService.archiveWorkspace(id), {
+    onSuccess: () => queryClient.invalidateQueries([QueryKeys.workspaces]),
+  });
+};
+
+export const useAddWorkspaceMemberMutation = (
+  workspaceId: string,
+): UseMutationResult<unknown, unknown, TWorkspaceMemberGrantRequest> => {
+  return useMutation((payload) => dataService.addWorkspaceMember(workspaceId, payload));
+};
+
+export const useRemoveWorkspaceMemberMutation = (
+  workspaceId: string,
+): UseMutationResult<unknown, unknown, { principalType: string; principalId: string }> => {
+  return useMutation(({ principalType, principalId }) =>
+    dataService.removeWorkspaceMember(workspaceId, principalType, principalId),
+  );
+};
+
+export const useCleanupPersonalWorkspaceMutation = (): UseMutationResult<
+  TWorkspaceCleanupResult,
+  unknown,
+  void
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(() => dataService.cleanupPersonalWorkspace(), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'personal']);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'cleanup', 'personal']);
+    },
+  });
+};
+
+export const useCleanupProjectWorkspaceMutation = (
+  workspaceId: string,
+): UseMutationResult<TWorkspaceCleanupResult, unknown, void> => {
+  const queryClient = useQueryClient();
+  return useMutation(() => dataService.cleanupProjectWorkspace(workspaceId), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'project', workspaceId]);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'cleanup', 'project', workspaceId]);
+    },
+  });
+};
+
+/* ---- personal workspace trash lifecycle ---- */
+
+export const useTrashPersonalFileMutation = (): UseMutationResult<
+  unknown,
+  unknown,
+  { session_id: string; file_id: string }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.trashPersonalWorkspaceFile(payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceFiles, 'personal']);
+      queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'personal']);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'personal']);
+    },
+  });
+};
+
+export const useRestorePersonalFileMutation = (): UseMutationResult<
+  unknown,
+  unknown,
+  { trash_id: string; newName?: string }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.restorePersonalWorkspaceFile(payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceFiles, 'personal']);
+      queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'personal']);
+    },
+  });
+};
+
+export const usePurgePersonalFileMutation = (): UseMutationResult<
+  unknown,
+  unknown,
+  { trash_id: string }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.purgePersonalWorkspaceFile(payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'personal']);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'personal']);
+    },
+  });
+};
+
+/* ---- project workspace trash lifecycle ---- */
+
+export const useTrashProjectFileMutation = (
+  workspaceId: string,
+): UseMutationResult<unknown, unknown, { session_id: string; file_id: string }> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.trashProjectWorkspaceFile(workspaceId, payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceFiles, 'project', workspaceId]);
+      queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'project', workspaceId]);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'project', workspaceId]);
+    },
+  });
+};
+
+export const useRestoreProjectFileMutation = (
+  workspaceId: string,
+): UseMutationResult<unknown, unknown, { trash_id: string; newName?: string }> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.restoreProjectWorkspaceFile(workspaceId, payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceFiles, 'project', workspaceId]);
+      queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'project', workspaceId]);
+    },
+  });
+};
+
+export const usePurgeProjectFileMutation = (
+  workspaceId: string,
+): UseMutationResult<unknown, unknown, { trash_id: string }> => {
+  const queryClient = useQueryClient();
+  return useMutation((payload) => dataService.purgeProjectWorkspaceFile(workspaceId, payload), {
+    onSuccess: () => {
+      queryClient.invalidateQueries([QueryKeys.workspaceTrash, 'project', workspaceId]);
+      queryClient.invalidateQueries([QueryKeys.workspaceUsage, 'project', workspaceId]);
+    },
+  });
+};
+
+/* ---- admin quota policy (8S3D.1, issue #16) ---- */
+
+export const useUpsertQuotaPolicyMutation = (): UseMutationResult<
+  TQuotaPolicy,
+  unknown,
+  { scope: TQuotaPolicyScope; scopeId: string | null; quotaBytes: number }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    ({ scope, scopeId, quotaBytes }) => dataService.upsertQuotaPolicy(scope, scopeId, quotaBytes),
+    { onSuccess: () => queryClient.invalidateQueries([QueryKeys.quotaPolicies]) },
+  );
+};
+
+export const useDeleteQuotaPolicyMutation = (): UseMutationResult<
+  { deleted: boolean },
+  unknown,
+  { scope: TQuotaPolicyScope; scopeId: string | null }
+> => {
+  const queryClient = useQueryClient();
+  return useMutation(({ scope, scopeId }) => dataService.deleteQuotaPolicy(scope, scopeId), {
+    onSuccess: () => queryClient.invalidateQueries([QueryKeys.quotaPolicies]),
+  });
+};

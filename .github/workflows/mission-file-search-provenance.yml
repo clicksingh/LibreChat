@@ -1,0 +1,36 @@
+name: CBHR file-search provenance checks
+
+on:
+  pull_request:
+    paths:
+      - 'api/app/clients/tools/util/fileSearch.js'
+      - 'api/app/clients/tools/util/fileSearchResults.js'
+      - 'api/app/clients/tools/util/fileSearchResults.test.js'
+      - '.github/workflows/mission-file-search-provenance.yml'
+  push:
+    branches:
+      - 'mission/workspace-b2-file-search-provenance-remote-20261017'
+
+permissions:
+  contents: read
+
+jobs:
+  file-search-origin-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Static syntax
+        run: |
+          node --check api/app/clients/tools/util/fileSearch.js
+          node --check api/app/clients/tools/util/fileSearchResults.js
+          node --check api/app/clients/tools/util/fileSearchResults.test.js
+      - name: Origin and indexing diagnostics regressions
+        run: node --test api/app/clients/tools/util/fileSearchResults.test.js
+      - name: Whitespace verification
+        run: git diff --check

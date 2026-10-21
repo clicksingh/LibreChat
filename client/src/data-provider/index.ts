@@ -2,6 +2,7 @@ export * from './Auth';
 export * from './Agents';
 export * from './Endpoints';
 export * from './Skills';
+export * from './Workspace';
 export * from './Files';
 export * from './Langfuse';
 /* Memories */

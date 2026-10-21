@@ -1,5 +1,5 @@
 import { memo, useRef, useMemo, useCallback, Fragment } from 'react';
-import { ContentTypes } from 'librechat-data-provider';
+import { ContentTypes, SystemRoles } from 'librechat-data-provider';
 import type {
   TMessageContentParts,
   SearchResultData,
@@ -10,6 +10,7 @@ import type { ReactNode, ReactElement } from 'react';
 import type { ToolCallGroupExpansionState } from './ToolCallGroup';
 import { mapAttachments, filterAttachmentsForPart, groupSequentialToolCalls } from '~/utils';
 import { groupActivityPhases, lastVisibleContentIdx } from '~/utils/activityLabels';
+import { useAuthContext } from '~/hooks';
 import { ParallelContentRenderer, type PartWithIndex } from './ParallelContent';
 import { EditTextPart, EmptyText, AgentUpdate } from './Parts';
 import { MessageContext, SearchContext } from '~/Providers';
@@ -187,6 +188,8 @@ const ContentParts = memo(function ContentParts({
   resumeAuthors,
   toolGroupExpansionState,
 }: ContentPartsProps) {
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const attachmentMap = useMemo(() => mapAttachments(attachments ?? []), [attachments]);
   const effectiveIsSubmitting = isLatestMessage ? isSubmitting : false;
   const localToolGroupExpansionRef = useRef(new Map<string, ToolCallGroupExpansionState>());
@@ -378,7 +381,8 @@ const ContentParts = memo(function ContentParts({
 
   const groupedParts = useMemo(
     () =>
-      groupSequentialToolCalls(sequentialParts).map((group) => {
+      // Managed users get one compact work row even for a single tool; admins keep the 2+ grouping threshold.
+      groupSequentialToolCalls(sequentialParts, isManagedUser ? 1 : 2).map((group) => {
         if (group.type === 'single') {
           return group;
         }
@@ -390,7 +394,54 @@ const ContentParts = memo(function ContentParts({
         );
         return { ...group, groupId, groupAttachments };
       }),
-    [sequentialParts, attachmentMap, fallbackScope],
+    [sequentialParts, attachmentMap, fallbackScope, isManagedUser],
+  );
+
+  const renderManagedPartSequence = useCallback(
+    (parts: PartWithIndex[]) => {
+      const groups = groupSequentialToolCalls(parts, 1).map((group) => {
+        if (group.type === 'single') {
+          return group;
+        }
+        const groupId = getToolGroupId(group.parts, fallbackScope);
+        const groupAttachments = group.parts.flatMap(
+          ({ part }) => attachmentMap[getToolCallId(part)] ?? [],
+        );
+        return { ...group, groupId, groupAttachments };
+      });
+
+      return groups.map((group) => {
+        if (group.type === 'single') {
+          const { part, idx } = group.part;
+          return renderPart(part, idx, idx === (content?.length ?? 0) - 1);
+        }
+        const { groupId } = group;
+        const lastContentIdx = (content?.length ?? 0) - 1;
+        return (
+          <ToolCallGroup
+            key={`parallel-tool-group-${groupId}`}
+            parts={group.parts}
+            isSubmitting={effectiveIsSubmitting}
+            isLast={group.parts.some((p) => p.idx === lastContentIdx)}
+            renderPart={renderGroupedPart}
+            lastContentIdx={lastContentIdx}
+            groupAttachments={group.groupAttachments}
+            initialExpansionState={expansionState.get(groupId)}
+            onExpansionChange={(state) => handleGroupExpansionChange(groupId, state)}
+          />
+        );
+      });
+    },
+    [
+      attachmentMap,
+      content,
+      effectiveIsSubmitting,
+      expansionState,
+      fallbackScope,
+      handleGroupExpansionChange,
+      renderGroupedPart,
+      renderPart,
+    ],
   );
 
   /** The re-attribution node for a part resuming after a steer block, shared
@@ -553,6 +604,7 @@ const ContentParts = memo(function ContentParts({
           isSubmitting={effectiveIsSubmitting}
           renderPart={renderPart}
           renderResumeAttribution={renderResumeAttribution}
+          renderPartSequence={isManagedUser ? renderManagedPartSequence : undefined}
           showDecorations={!nestedActivityPhase}
           contentIndexOffset={contentIndexOffset}
         />

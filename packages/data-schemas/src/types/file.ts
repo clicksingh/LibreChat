@@ -63,6 +63,7 @@ export interface IMongoFile extends Omit<Document, 'model'> {
   width?: number;
   height?: number;
   metadata?: {
+    workspaceFileAttachment?: boolean;
     /**
      * Code-environment cache pointer for files re-uploadable to
      * codeapi (chat attachments, agent tool resources, code-output

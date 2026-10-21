@@ -16,7 +16,7 @@
  *   requesting user from auth context. Used for chat attachments
  *   and code-output artifacts.
  */
-export const CODE_ENV_KINDS = ['skill', 'agent', 'user'] as const;
+export const CODE_ENV_KINDS = ['skill', 'agent', 'user', 'project'] as const;
 export type CodeEnvKind = (typeof CODE_ENV_KINDS)[number];
 
 /**
@@ -56,4 +56,5 @@ interface CodeEnvRefBase {
 export type CodeEnvRef =
   | (CodeEnvRefBase & { kind: 'skill'; version: number })
   | (CodeEnvRefBase & { kind: 'agent' })
-  | (CodeEnvRefBase & { kind: 'user' });
+  | (CodeEnvRefBase & { kind: 'user' })
+  | (CodeEnvRefBase & { kind: 'project' });

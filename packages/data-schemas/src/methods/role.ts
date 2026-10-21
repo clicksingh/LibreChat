@@ -75,6 +75,7 @@ export function createRoleMethods(
    */
   async function initializeRoles(): Promise<void> {
     const Role = mongoose.models.Role;
+    await Role.init();
 
     for (const roleName of [SystemRoles.ADMIN, SystemRoles.USER]) {
       // Strict mode hides off-schema SHARED_GLOBAL and won't $unset it on save; migrate it via the raw driver.
@@ -105,7 +106,17 @@ export function createRoleMethods(
       const defaultPerms = roleDefaults[roleName].permissions;
 
       if (!role) {
-        role = new Role({ ...roleDefaults[roleName], description: '' });
+        try {
+          role = await Role.findOneAndUpdate(
+            { name: roleName },
+            { $setOnInsert: { ...roleDefaults[roleName], description: '' } },
+            { upsert: true, new: true },
+          );
+        } catch (error) {
+          if ((error as { code?: number }).code !== 11000) throw error;
+          role = await Role.findOne({ name: roleName });
+          if (!role) throw error;
+        }
       } else {
         if (role.description == null) {
           role.description = '';

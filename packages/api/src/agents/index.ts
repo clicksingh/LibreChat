@@ -32,6 +32,7 @@ export * from './startup';
 export * from './skillConfigurable';
 export * from './skillFiles';
 export * from './codeFilesSession';
+export * from './sessionRegistry';
 export * from './run';
 export * from './testHook';
 export * from './tools';

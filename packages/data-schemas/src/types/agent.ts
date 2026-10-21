@@ -54,5 +54,9 @@ export interface IAgent extends Omit<Document, 'model'> {
   subagents?: AgentSubagentsConfig;
   /** Memory partition: 'agent' isolates memories per (user, agent); default shared pool */
   memory_scope?: MemoryScope;
+  /** 8S5: lifecycle state — see schema/agent.ts for semantics. */
+  lifecycle_state?: 'active' | 'archived';
+  archivedAt?: Date;
+  archivedBy?: Types.ObjectId;
   tenantId?: string;
 }

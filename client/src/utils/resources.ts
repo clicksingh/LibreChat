@@ -81,6 +81,17 @@ export const RESOURCE_CONFIGS: Record<ResourceType, ResourceConfig> = {
     getManageMessage: (name?: string) => `Manage access for ${name || 'shared link'}`,
     getCopyUrlMessage: () => 'Share link copied',
   },
+  [ResourceType.WORKSPACE]: {
+    resourceType: ResourceType.WORKSPACE,
+    defaultViewerRoleId: AccessRoleIds.WORKSPACE_VIEWER,
+    defaultEditorRoleId: AccessRoleIds.WORKSPACE_EDITOR,
+    defaultOwnerRoleId: AccessRoleIds.WORKSPACE_OWNER,
+    getResourceName: (name?: string) => (name && name !== '' ? name : 'workspace'),
+    getShareMessage: (name?: string) => (name && name !== '' ? name : 'workspace'),
+    getManageMessage: (name?: string) =>
+      `Manage permissions for ${name && name !== '' ? name : 'workspace'}`,
+    getCopyUrlMessage: () => 'Workspace URL copied',
+  },
 };
 
 export const getResourceConfig = (resourceType: ResourceType): ResourceConfig | undefined => {

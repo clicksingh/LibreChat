@@ -1355,6 +1355,113 @@ describe('Code Process', () => {
           expect.stringContaining('failed to persist preview result'),
         );
       });
+
+      describe('syncMessageAttachment (mirrors the terminal status onto the message attachment)', () => {
+        /* Regression for React #185: the immediate-persist step stamps
+         * the MESSAGE attachment at status:'pending' and finalizePreview
+         * used to update only the `files` record — leaving the message
+         * `pending` forever, which drives the client's file-status hook
+         * into an unbounded poll + cache-write loop. These tests lock in
+         * that a committed finalize also mirrors status/text/error onto
+         * the message attachment(s) matching the file_id. */
+        let collectionSpy;
+
+        beforeEach(() => {
+          const mongoose = require('mongoose');
+          collectionSpy = jest
+            .spyOn(mongoose.connection, 'collection')
+            .mockReturnValue({ updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }) });
+        });
+
+        afterEach(() => {
+          collectionSpy.mockRestore();
+        });
+
+        it('mirrors ready+text onto the message attachment on a successful finalize', async () => {
+          mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
+          determineFileType.mockResolvedValue({
+            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          });
+          mockExtractCodeArtifactText.mockResolvedValueOnce('<table><tr><td>1</td></tr></table>');
+          mockGetExtractedTextFormat.mockReturnValueOnce('html');
+
+          const { finalize } = await processCodeOutput({ ...baseParams, name: 'data.xlsx' });
+          await finalize();
+
+          expect(collectionSpy).toHaveBeenCalledWith('messages');
+          const updateMany = collectionSpy.mock.results[0].value.updateMany;
+          expect(updateMany).toHaveBeenCalledWith(
+            { 'attachments.file_id': 'mock-uuid-1234' },
+            {
+              $set: {
+                'attachments.$[a].status': 'ready',
+                'attachments.$[a].text': '<table><tr><td>1</td></tr></table>',
+                'attachments.$[a].textFormat': 'html',
+                'attachments.$[a].previewError': null,
+              },
+            },
+            { arrayFilters: [{ 'a.file_id': 'mock-uuid-1234' }] },
+          );
+        });
+
+        it('mirrors failed+previewError onto the message attachment on a failed finalize', async () => {
+          mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
+          determineFileType.mockResolvedValue({
+            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          });
+          mockExtractCodeArtifactText.mockResolvedValueOnce(null);
+
+          const { finalize } = await processCodeOutput({ ...baseParams, name: 'data.xlsx' });
+          await finalize();
+
+          const updateMany = collectionSpy.mock.results[0].value.updateMany;
+          expect(updateMany).toHaveBeenCalledWith(
+            { 'attachments.file_id': 'mock-uuid-1234' },
+            expect.objectContaining({
+              $set: expect.objectContaining({
+                'attachments.$[a].status': 'failed',
+                'attachments.$[a].text': null,
+                'attachments.$[a].previewError': 'parser-error',
+              }),
+            }),
+            { arrayFilters: [{ 'a.file_id': 'mock-uuid-1234' }] },
+          );
+        });
+
+        it('does NOT mirror when the previewRevision guard rejects the write (stale render)', async () => {
+          updateFile.mockResolvedValueOnce(null);
+          mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
+          determineFileType.mockResolvedValue({
+            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          });
+          mockExtractCodeArtifactText.mockResolvedValueOnce('<table></table>');
+          mockGetExtractedTextFormat.mockReturnValueOnce('html');
+
+          const { finalize } = await processCodeOutput({ ...baseParams, name: 'data.xlsx' });
+          await finalize();
+
+          /* Stale render discarded — the message must NOT be touched. */
+          expect(collectionSpy).not.toHaveBeenCalled();
+        });
+
+        it('survives a message-sync failure without affecting the finalize result', async () => {
+          collectionSpy.mockImplementationOnce(() => {
+            throw new Error('Calling mongoose.connection.collection() requires a connection');
+          });
+          mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
+          determineFileType.mockResolvedValue({
+            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          });
+          mockExtractCodeArtifactText.mockResolvedValueOnce('<table></table>');
+          mockGetExtractedTextFormat.mockReturnValueOnce('html');
+
+          const { finalize } = await processCodeOutput({ ...baseParams, name: 'data.xlsx' });
+          await expect(finalize()).resolves.toMatchObject({ status: 'ready' });
+          expect(logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('syncMessageAttachment'),
+          );
+        });
+      });
     });
 
     describe('legacy single-phase flow (non-office files)', () => {
@@ -1854,6 +1961,138 @@ describe('Code Process', () => {
       await expect(writeSandboxFile({ file_path: '/root/nope.txt', content: 'x' })).rejects.toThrow(
         'Permission denied',
       );
+    });
+  });
+
+  describe('direct unindexed document staging', () => {
+    const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+    const { getFiles, updateFile } = require('~/models');
+
+    const input = (owner = 'user-123', size = 8192) => ({
+      file_id: 'unindexed-docx',
+      user: owner,
+      filename: 'manual.docx',
+      filepath: '/uploads/manual.docx',
+      source: 'local',
+      context: FileContext.message_attachment,
+      bytes: size,
+      embedded: false,
+      metadata: {},
+    });
+    const prime = () =>
+      primeFiles({
+        req: { user: { id: 'user-123', role: 'USER' } },
+        tool_resources: { execute_code: { file_ids: ['unindexed-docx'], files: [] } },
+        agentId: 'agent-id',
+      });
+
+    beforeEach(() => {
+      const getDownloadStream = jest.fn().mockResolvedValue('synthetic-stream');
+      const handleFileUpload = jest.fn().mockResolvedValue({
+        storage_session_id: 'INPUT_BUCKET',
+        file_id: 'INPUT_OBJECT',
+      });
+      getStrategyFunctions.mockImplementation((source) =>
+        source === 'execute_code' ? { handleFileUpload } : { getDownloadStream },
+      );
+      updateFile.mockResolvedValue({});
+    });
+
+    it('stages a DOCX without vector index and preserves source for next-turn reuse', async () => {
+      getFiles.mockResolvedValue([input()]);
+      const result = await prime();
+      expect(result.files).toEqual([
+        {
+          id: 'INPUT_OBJECT',
+          resource_id: 'user-123',
+          storage_session_id: 'INPUT_BUCKET',
+          name: 'manual.docx',
+          kind: 'user',
+        },
+      ]);
+      expect(result.toolContext).toContain('/mnt/data/manual.docx');
+      expect(updateFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file_id: 'unindexed-docx',
+          metadata: {
+            codeEnvRef: {
+              kind: 'user',
+              id: 'user-123',
+              storage_session_id: 'INPUT_BUCKET',
+              file_id: 'INPUT_OBJECT',
+            },
+          },
+        }),
+      );
+      const upload = getStrategyFunctions('execute_code').handleFileUpload;
+      expect(upload).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'user',
+          id: 'user-123',
+          filename: 'manual.docx',
+        }),
+      );
+    });
+
+    it('reuses an ACL-verified project Files reference without copying a second input', async () => {
+      getFiles.mockResolvedValue([
+        {
+          ...input(),
+          metadata: {
+            workspaceFileAttachment: true,
+            codeEnvRef: {
+              kind: 'project',
+              id: 'project-approved',
+              storage_session_id: 'project-bucket',
+              file_id: 'project-object',
+            },
+          },
+        },
+      ]);
+      mockAxios.mockResolvedValue({ data: { lastModified: new Date().toISOString() } });
+      const result = await prime();
+      expect(result.files).toEqual([
+        {
+          id: 'project-object',
+          resource_id: 'project-approved',
+          storage_session_id: 'project-bucket',
+          name: 'manual.docx',
+          kind: 'project',
+        },
+      ]);
+      expect(getStrategyFunctions('execute_code').handleFileUpload).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates a file present in both fetched IDs and resourceFiles', async () => {
+      const file = input();
+      getFiles.mockResolvedValue([file]);
+      const result = await primeFiles({
+        req: { user: { id: 'user-123', role: 'USER' } },
+        tool_resources: {
+          execute_code: {
+            file_ids: ['unindexed-docx'],
+            files: [file],
+          },
+        },
+        agentId: 'agent-id',
+      });
+      expect(result.files).toHaveLength(1);
+      expect(getStrategyFunctions('execute_code').handleFileUpload).toHaveBeenCalledTimes(1);
+    });
+
+    it('stages unindexed XLSX with the same ownership and input contract', async () => {
+      getFiles.mockResolvedValue([{ ...input(), filename: 'accounts.xlsx' }]);
+      const result = await prime();
+      expect(result.files[0].name).toBe('accounts.xlsx');
+      expect(result.toolContext).toContain('/mnt/data/accounts.xlsx');
+    });
+
+    it('denies same-user-sibling implicit imports, foreign users and oversized files', async () => {
+      getFiles.mockResolvedValue([input('other-user')]);
+      expect((await prime()).files).toHaveLength(0);
+      getFiles.mockResolvedValue([input('user-123', 30 * 1024 * 1024)]);
+      expect((await prime()).files).toHaveLength(0);
+      expect(updateFile).not.toHaveBeenCalled();
     });
   });
 

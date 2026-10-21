@@ -46,6 +46,11 @@ function hasTenantMismatch(job, user) {
   return job.metadata?.tenantId != null && job.metadata.tenantId !== user.tenantId;
 }
 
+/** Missing generation job ownership fails closed, including absent/malformed identities. */
+function ownsGenerationJob(job, user) {
+  return Boolean(job?.metadata?.userId && user?.id && job.metadata.userId === user.id);
+}
+
 /** Protocol selected before a job has been authorized/read. This is used for
  * validation, not-found, and authorization envelopes; it never leaks an
  * existing job's marker to an unauthorized caller. */
@@ -172,7 +177,7 @@ router.get('/chat/stream/:streamId', async (req, res) => {
   // Every job has an owner at creation time. Treat a missing/corrupt owner as
   // unauthorized instead of turning malformed store state into a public
   // stream for anyone who knows the conversation id.
-  if (job.metadata?.userId !== req.user.id) {
+  if (!ownsGenerationJob(job, req.user)) {
     return sendGenerationJson(res, 403, { error: 'Unauthorized' }, requestProtocolVersion);
   }
 
@@ -415,7 +420,7 @@ router.get('/chat/status/:conversationId', async (req, res) => {
    * B's content. Verify the epoch after each read and discard mismatched
    * snapshots; every replacement snapshot is re-authorized before use. */
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (job.metadata?.userId !== req.user.id || hasTenantMismatch(job, req.user)) {
+    if (!ownsGenerationJob(job, req.user) || hasTenantMismatch(job, req.user)) {
       return sendGenerationJson(res, 403, { error: 'Unauthorized' }, requestProtocolVersion);
     }
     if (!Number.isSafeInteger(job.createdAt) || job.createdAt < 0) {
@@ -614,7 +619,7 @@ router.post('/chat/abort', configMiddleware, async (req, res, next) => {
     logger.debug(`[AgentStream] Computed jobStreamId: ${jobStreamId}`);
 
     if (job && jobStreamId) {
-      if (job.metadata?.userId !== userId) {
+      if (!ownsGenerationJob(job, req.user)) {
         logger.warn(
           `[AgentStream] Unauthorized abort attempt for ${jobStreamId} by user ${userId}`,
         );

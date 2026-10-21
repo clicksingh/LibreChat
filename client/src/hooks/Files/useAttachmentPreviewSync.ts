@@ -163,25 +163,9 @@ export default function useAttachmentPreviewSync(
     if (!polled || polled.status === 'pending' || !messageId || !fileId || !attachment) {
       return;
     }
-    /* Idempotency gate. `useAttachments` re-derives `attachment` with a
-     * fresh object identity on every messageAttachmentsMap write, and
-     * `attachment` is in this effect's deps — so without a gate the
-     * write-back ping-pongs forever (setAttachmentsMap → re-derive →
-     * effect → setAttachmentsMap …), tripping React's "Maximum update
-     * depth exceeded" (#185) once the preview resolves on a loaded
-     * conversation. Once the merged attachment already carries the
-     * resolved fields, there's nothing to write — stop. */
-    const current = attachment as Partial<TFile> & TAttachment;
-    const nextText = polled.text ?? current.text ?? null;
-    const nextTextFormat = polled.textFormat ?? current.textFormat ?? null;
-    if (
-      current.status === polled.status &&
-      current.text === nextText &&
-      current.textFormat === nextTextFormat &&
-      current.previewError === polled.previewError
-    ) {
-      return;
-    }
+    /* The updater, rather than the prop, checks every matching entry.
+     * Re-derived props can already be terminal while a sibling is pending.
+     * Returning the SAME prevMap when no entry changed avoids React #185. */
     setAttachmentsMap((prevMap) => {
       const messageAttachments =
         (prevMap as Record<string, TAttachment[] | undefined>)[messageId] || [];
@@ -191,26 +175,35 @@ export default function useAttachmentPreviewSync(
         textFormat: polled.textFormat ?? null,
         previewError: polled.previewError,
       };
-      /* Fan out to EVERY entry sharing this file_id: sibling tool calls
-       * (or handoff agents) can legitimately hold the same claimed file,
-       * and the preview is a per-file result — patching only the first
-       * match would leave the other cards stuck on `pending`. */
+      /* One preview outcome belongs to every sibling with this file_id. */
       let found = false;
-      const merged = messageAttachments.map((a) => {
-        if ((a as Partial<TFile>).file_id !== fileId) {
-          return a;
+      let changed = false;
+      const merged = messageAttachments.map((entry) => {
+        if ((entry as Partial<TFile>).file_id !== fileId) {
+          return entry;
         }
         found = true;
-        const existing = a as Partial<TFile> & TAttachment;
+        const existing = entry as Partial<TFile> & TAttachment;
+        const nextText = polled.text ?? existing.text ?? null;
+        const nextFormat = polled.textFormat ?? existing.textFormat ?? null;
+        if (
+          existing.status === polled.status &&
+          existing.text === nextText &&
+          existing.textFormat === nextFormat &&
+          existing.previewError === polled.previewError
+        ) {
+          return entry;
+        }
+        changed = true;
         return {
           ...existing,
           ...resolvedFields,
-          text: polled.text ?? existing.text ?? null,
-          textFormat: polled.textFormat ?? existing.textFormat ?? null,
+          text: nextText,
+          textFormat: nextFormat,
         } as TAttachment;
       });
       if (found) {
-        return { ...prevMap, [messageId]: merged };
+        return changed ? { ...prevMap, [messageId]: merged } : prevMap;
       }
       const inserted = { ...attachment, ...resolvedFields } as TAttachment;
       return { ...prevMap, [messageId]: [...messageAttachments, inserted] };

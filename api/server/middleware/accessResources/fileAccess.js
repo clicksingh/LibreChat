@@ -1,6 +1,6 @@
 const { logger } = require('@librechat/data-schemas');
 const { PermissionBits, hasPermissions, ResourceType } = require('librechat-data-provider');
-const { getEffectivePermissions } = require('~/server/services/PermissionService');
+const { checkPermission, getEffectivePermissions } = require('~/server/services/PermissionService');
 const { getAgents, getFiles } = require('~/models');
 
 /**
@@ -116,6 +116,21 @@ const fileAccess = async (req, res, next) => {
         `[fileAccess] User ${userId} denied cross-tenant access to file ${fileId} (route ${req.originalUrl})`,
       );
       return denyFileAccess(res);
+    }
+
+    // A file imported from a PROJECT workspace is an ACL-bound borrowed
+    // artifact, even though its private chat copy is owned by this user.
+    // Revocation must prevent future downloads/preview access.
+    const ref = file.metadata?.codeEnvRef;
+    if (file.metadata?.workspaceFileAttachment === true && ref?.kind === 'project') {
+      const allowed = await checkPermission({
+        userId,
+        role: userRole,
+        resourceType: ResourceType.WORKSPACE,
+        resourceId: ref.id,
+        requiredPermission: PermissionBits.EDIT,
+      });
+      if (!allowed) return denyFileAccess(res);
     }
 
     if (file.user && file.user.toString() === userId) {

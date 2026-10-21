@@ -582,6 +582,8 @@ export type TOptionSettings = {
 };
 
 export interface ExtendedFile {
+  /** Opaque CodeAPI workspace identity used only for deduping composer chips. */
+  workspaceReference?: string;
   file?: File;
   file_id: string;
   temp_file_id?: string;

@@ -533,3 +533,57 @@ export const getAllEffectivePermissions = (resourceType: ResourceType) =>
 // SharePoint Graph API Token
 export const graphToken = (scopes: string) =>
   `${BASE_URL}/api/auth/graph-token?scopes=${encodeURIComponent(scopes)}`;
+
+/* 8S3D.1 — Workspace OS */
+export const workspaces = () => `${BASE_URL}/api/workspaces`;
+export const workspace = (id: string) => `${workspaces()}/${encodeURIComponent(id)}`;
+export const workspaceMembers = (id: string) => `${workspace(id)}/members`;
+export const workspaceMember = (id: string, principalType: string, principalId: string) =>
+  `${workspaceMembers(id)}/${encodeURIComponent(principalType)}/${encodeURIComponent(principalId)}`;
+
+const workspaceQuery = (params?: Record<string, string | number | undefined | null>) => {
+  const cleaned = Object.entries(params ?? {}).reduce(
+    (acc, [key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        acc[key] = String(value);
+      }
+      return acc;
+    },
+    {} as Record<string, string>,
+  );
+  const qs = Object.keys(cleaned).length > 0 ? `?${new URLSearchParams(cleaned).toString()}` : '';
+  return qs;
+};
+
+export const personalWorkspaceUsage = () => `${workspaces()}/personal/usage`;
+export const personalWorkspaceCleanupPreview = () => `${workspaces()}/personal/cleanup-preview`;
+export const personalWorkspaceCleanup = () => `${workspaces()}/personal/cleanup`;
+export const personalWorkspaceFiles = (params?: { cursor?: string; limit?: number }) =>
+  `${workspaces()}/personal/files${workspaceQuery(params)}`;
+export const personalWorkspaceFileDownload = (sessionId: string, fileId: string) =>
+  `${workspaces()}/personal/files/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileId)}/download`;
+export const personalWorkspaceFileAttach = () => workspaces() + '/personal/files/attach';
+export const personalWorkspaceTrash = (params?: { cursor?: string; limit?: number }) =>
+  `${workspaces()}/personal/trash${workspaceQuery(params)}`;
+export const personalWorkspaceTrashCreate = () => `${workspaces()}/personal/trash`;
+export const personalWorkspaceRestore = () => `${workspaces()}/personal/restore`;
+export const personalWorkspacePurge = () => `${workspaces()}/personal/purge`;
+
+export const projectWorkspaceUsage = (id: string) => `${workspace(id)}/usage`;
+export const projectWorkspaceCleanupPreview = (id: string) => `${workspace(id)}/cleanup-preview`;
+export const projectWorkspaceCleanup = (id: string) => `${workspace(id)}/cleanup`;
+export const projectWorkspaceFiles = (id: string, params?: { cursor?: string; limit?: number }) =>
+  `${workspace(id)}/files${workspaceQuery(params)}`;
+export const projectWorkspaceFileDownload = (id: string, sessionId: string, fileId: string) =>
+  `${workspace(id)}/files/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileId)}/download`;
+export const projectWorkspaceFileAttach = (id: string) => workspace(id) + '/files/attach';
+export const projectWorkspaceTrash = (id: string, params?: { cursor?: string; limit?: number }) =>
+  `${workspace(id)}/trash${workspaceQuery(params)}`;
+export const projectWorkspaceTrashCreate = (id: string) => `${workspace(id)}/trash`;
+export const projectWorkspaceRestore = (id: string) => `${workspace(id)}/restore`;
+export const projectWorkspacePurge = (id: string) => `${workspace(id)}/purge`;
+
+// Admin quota policy (8S3D.1)
+export const adminQuotaPolicies = () => `${BASE_URL}/api/admin/quota-policy`;
+export const adminQuotaPolicy = (scope: string, scopeId?: string | null) =>
+  `${adminQuotaPolicies()}/${encodeURIComponent(scope)}${scopeId ? `/${encodeURIComponent(scopeId)}` : ''}`;

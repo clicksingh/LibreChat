@@ -1,4 +1,5 @@
 const path = require('path');
+const mongoose = require('mongoose');
 const { v4 } = require('uuid');
 const { logger } = require('@librechat/data-schemas');
 const { getCodeBaseURL } = require('@librechat/agents');
@@ -88,6 +89,58 @@ const createDownloadFallback = ({
  * with `previewError: 'timeout'` and the UI shows download-only.
  */
 const PREVIEW_FINALIZE_TIMEOUT_MS = 60_000;
+
+/**
+ * Best-effort mirror of a finalized preview onto the message
+ * attachment(s) that reference `file_id`.
+ *
+ * The immediate-persist step (`processCodeOutput`) stamps the message
+ * attachment at `status: 'pending'`, and `finalizePreview` updates only
+ * the `files` record. Without this mirror, a conversation that is
+ * re-opened after the deferred render finished (the SSE stream has
+ * already closed, so the `attachment` update event was dropped) keeps
+ * the attachment `pending` forever — the client's file-status hook then
+ * polls `/api/files/:file_id/preview` indefinitely, and its no-guard
+ * cache write loops into React #185 ("Maximum update depth exceeded").
+ *
+ * Fire-and-forget and failure-tolerant: the `files` record is the
+ * source of truth, so a message-sync error is logged and swallowed and
+ * never surfaces to the finalize caller.
+ *
+ * @param {Object} params
+ * @param {string} params.file_id - DB key of the finalized file.
+ * @param {'ready' | 'failed'} params.status - Terminal status to apply.
+ * @param {string | null} [params.text] - Resolved preview text.
+ * @param {string | null} [params.textFormat] - Format hint (`'html'` | `'text'`).
+ * @param {string | null} [params.previewError] - Failure reason when `failed`.
+ */
+const syncMessageAttachment = async ({ file_id, status, text, textFormat, previewError }) => {
+  try {
+    const result = await mongoose.connection.collection('messages').updateMany(
+      { 'attachments.file_id': file_id },
+      {
+        $set: {
+          'attachments.$[a].status': status,
+          'attachments.$[a].text': text ?? null,
+          'attachments.$[a].textFormat': textFormat ?? null,
+          'attachments.$[a].previewError': previewError ?? null,
+        },
+      },
+      { arrayFilters: [{ 'a.file_id': file_id }] },
+    );
+    if (result?.modifiedCount) {
+      logger.debug(
+        `[syncMessageAttachment] ${file_id}: mirrored ${result.modifiedCount} message attachment(s) -> ${status}`,
+      );
+    }
+  } catch (error) {
+    logger.error(
+      `[syncMessageAttachment] ${file_id}: failed to mirror status onto message attachment: ${
+        error?.message ?? error
+      }`,
+    );
+  }
+};
 
 /**
  * Render the inline HTML preview for a code-execution file (or plain
@@ -184,6 +237,19 @@ const finalizePreview = async ({
       logger.debug(
         `[finalizePreview] ${file_id}: stale render skipped — newer emit has superseded revision ${previewRevision}`,
       );
+    }
+    /* Mirror the resolved status onto the message attachment(s) so a
+     * re-opened conversation never keeps `status: 'pending'` (see
+     * `syncMessageAttachment`). Only on a committed update — a
+     * revision-guard rejection means a newer emit superseded this one. */
+    if (updated) {
+      void syncMessageAttachment({
+        file_id,
+        status,
+        text,
+        textFormat,
+        previewError: failed ? previewError : null,
+      });
     }
     return updated;
   } catch (error) {
@@ -927,6 +993,7 @@ const primeFiles = async (options) => {
 
   const files = [];
   const sessions = new Map();
+  const seenFileIds = new Set();
   let toolContext = '';
 
   /* Per-file path counters — emitted at the bottom so a single
@@ -939,14 +1006,69 @@ const primeFiles = async (options) => {
 
   for (let i = 0; i < dbFiles.length; i++) {
     const file = dbFiles[i];
-    if (!file) {
+    if (!file || (file.file_id && seenFileIds.has(file.file_id))) {
       continue;
     }
+    if (file.file_id) seenFileIds.add(file.file_id);
 
     const ref = file.metadata?.codeEnvRef;
     if (!ref) {
-      skippedNoRef += 1;
-      logger.debug(`[primeCodeFiles] file=${file.file_id} path=skip reason=no-codeenvref`);
+      // Direct-files fallback. Treat unindexed uploads as input resources,
+      // never as generated output; enforce source ownership before staging.
+      const directInput =
+        file.user?.toString() === req?.user?.id?.toString() &&
+        file.context !== FileContext.execute_code &&
+        /\.(docx|pdf|odt|txt|md|xlsx|xls|xlsm|csv|ods)$/i.test(file.filename ?? '') &&
+        Number.isFinite(file.bytes) &&
+        file.bytes > 0 &&
+        file.bytes <= 25 * 1024 * 1024;
+      if (!directInput) {
+        skippedNoRef += 1;
+        continue;
+      }
+      try {
+        const { getDownloadStream } = getStrategyFunctions(file.source);
+        if (typeof getDownloadStream !== 'function') throw new Error('No input stream');
+        const stream = await getDownloadStream(req, file.filepath);
+        const { handleFileUpload } = getStrategyFunctions(FileSources.execute_code);
+        const uploaded = await handleFileUpload({
+          req,
+          stream,
+          filename: file.filename,
+          kind: 'user',
+          id: req.user.id,
+        });
+        if (!uploaded?.storage_session_id || !uploaded.file_id) {
+          throw new Error('Code input staging returned no object');
+        }
+        const stagedRef = {
+          kind: 'user',
+          id: req.user.id,
+          storage_session_id: uploaded.storage_session_id,
+          file_id: uploaded.file_id,
+        };
+        await updateFile({
+          file_id: file.file_id,
+          metadata: { ...file.metadata, codeEnvRef: stagedRef },
+        });
+        files.push({
+          id: stagedRef.file_id,
+          resource_id: stagedRef.id,
+          storage_session_id: stagedRef.storage_session_id,
+          name: file.filename,
+          kind: 'user',
+        });
+        toolContext = appendVisibleCodeFileContext(
+          toolContext,
+          getVisibleCodeFileContextLine(file, agentResourceIds),
+        );
+        sessions.set(stagedRef.storage_session_id, true);
+      } catch (error) {
+        reuploadFailures += 1;
+        logger.warn(
+          `[primeCodeFiles] Direct input staging failed for file=${file.file_id}: ${error.message}`,
+        );
+      }
       continue;
     }
     requiredCodeFiles += 1;
@@ -1067,12 +1189,25 @@ const primeFiles = async (options) => {
       }
     };
     const uploadTime = await getSessionInfo(ref, req);
+    if (!uploadTime && file.metadata?.workspaceFileAttachment) {
+      logger.warn('[primeCodeFiles] retained workspace reference missing: ' + file.file_id);
+      skippedNoRef += 1;
+      continue;
+    }
     if (!uploadTime) {
       logger.debug(
         `[primeCodeFiles] file=${file.file_id} path=reupload reason=no-uploadtime ` +
           `storage_session_id=${session_id}`,
       );
       await reuploadFile();
+      continue;
+    }
+    // A retained Files reference is not an expiring transient upload. The
+    // owner-scoped session lookup above proves its underlying file is live.
+    if (file.metadata?.workspaceFileAttachment) {
+      logger.debug('[primeCodeFiles] workspace-ref-reuse file=' + file.file_id);
+      sessions.set(session_id, true);
+      pushFile();
       continue;
     }
     if (!checkIfActive(uploadTime)) {

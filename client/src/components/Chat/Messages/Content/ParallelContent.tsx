@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { Fragment, memo, useMemo } from 'react';
 import { ContentTypes } from 'librechat-data-provider';
 import type { TMessageContentParts, SearchResultData, TAttachment } from 'librechat-data-provider';
 import {
@@ -150,6 +150,7 @@ type ParallelColumnsProps = {
   lastContentIdx: number;
   conversationId?: string | null;
   renderPart: (part: TMessageContentParts, idx: number, isLastPart: boolean) => React.ReactNode;
+  renderPartSequence?: (parts: PartWithIndex[]) => React.ReactNode;
 };
 
 /**
@@ -164,6 +165,7 @@ export const ParallelColumns = memo(function ParallelColumns({
   isSubmitting,
   lastContentIdx,
   renderPart,
+  renderPartSequence,
 }: ParallelColumnsProps) {
   return (
     <div className={cn('flex w-full flex-col gap-3 md:flex-row', 'sibling-content-group')}>
@@ -193,17 +195,19 @@ export const ParallelColumns = memo(function ParallelColumns({
               isSubmitting={isSubmitting}
               conversationId={conversationId}
             />
-            {showLoadingCursor ? (
+            {showLoadingCursor && (
               <Container>
                 <EmptyText />
               </Container>
-            ) : (
-              columnParts.map(({ part, idx }) => {
-                const isLastInColumn = idx === columnParts[columnParts.length - 1]?.idx;
-                const isLastContent = idx === lastContentIdx;
-                return renderPart(part, idx, isLastInColumn && isLastContent);
-              })
             )}
+            {!showLoadingCursor &&
+              (renderPartSequence
+                ? renderPartSequence(columnParts)
+                : columnParts.map(({ part, idx }) => {
+                    const isLastInColumn = idx === columnParts[columnParts.length - 1]?.idx;
+                    const isLastContent = idx === lastContentIdx;
+                    return renderPart(part, idx, isLastInColumn && isLastContent);
+                  }))}
           </div>
         );
       })}
@@ -227,6 +231,7 @@ type ParallelContentRendererProps = {
    * carries per-agent identity.
    */
   renderResumeAttribution?: (idx: number) => React.ReactNode;
+  renderPartSequence?: (parts: PartWithIndex[]) => React.ReactNode;
   showDecorations?: boolean;
   /** Absolute transcript index represented by `content[0]` in a phase slice. */
   contentIndexOffset?: number;
@@ -246,6 +251,7 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
   isSubmitting,
   renderPart,
   renderResumeAttribution,
+  renderPartSequence,
   showDecorations = true,
   contentIndexOffset = 0,
 }: ParallelContentRendererProps) {
@@ -279,6 +285,38 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
     };
   }, [parallelSections, sequentialParts]);
 
+  const renderSequence = (parts: PartWithIndex[], afterParallel: boolean) => {
+    if (!renderPartSequence) {
+      return parts.flatMap(({ part, idx }) => {
+        const attribution = renderResumeAttribution?.(idx);
+        const rendered = renderPart(part, idx, afterParallel && idx === lastContentIdx);
+        return attribution != null ? [attribution, rendered] : [rendered];
+      });
+    }
+    // Preserve inline steer author changes while grouping contiguous managed
+    // tool calls in the sequential stretches on either side of parallel lanes.
+    const nodes: React.ReactNode[] = [];
+    let pending: PartWithIndex[] = [];
+    const flush = () => {
+      if (!pending.length) return;
+      const segment = pending;
+      pending = [];
+      nodes.push(
+        <Fragment key={`sequence-${segment[0].idx}`}>{renderPartSequence(segment)}</Fragment>,
+      );
+    };
+    for (const item of parts) {
+      const attribution = renderResumeAttribution?.(item.idx);
+      if (attribution != null) {
+        flush();
+        nodes.push(<Fragment key={`author-${item.idx}`}>{attribution}</Fragment>);
+      }
+      pending.push(item);
+    }
+    flush();
+    return nodes;
+  };
+
   return (
     <SearchContext.Provider value={{ searchResults }}>
       {showDecorations && <MemoryArtifacts attachments={attachments} />}
@@ -287,11 +325,7 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
       )}
 
       {/* Sequential content BEFORE parallel sections */}
-      {before.flatMap(({ part, idx }) => {
-        const attribution = renderResumeAttribution?.(idx);
-        const rendered = renderPart(part, idx, false);
-        return attribution != null ? [attribution, rendered] : [rendered];
-      })}
+      {renderSequence(before, false)}
 
       {/* Parallel sections - each group renders as columns */}
       {parallelSections.map(({ groupId, columns }) => (
@@ -302,6 +336,7 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
           messageId={messageId}
           createdAt={createdAt}
           renderPart={renderPart}
+          renderPartSequence={renderPartSequence}
           isSubmitting={isSubmitting}
           conversationId={conversationId}
           lastContentIdx={lastContentIdx}
@@ -309,11 +344,7 @@ export const ParallelContentRenderer = memo(function ParallelContentRenderer({
       ))}
 
       {/* Sequential content AFTER parallel sections */}
-      {after.flatMap(({ part, idx }) => {
-        const attribution = renderResumeAttribution?.(idx);
-        const rendered = renderPart(part, idx, idx === lastContentIdx);
-        return attribution != null ? [attribution, rendered] : [rendered];
-      })}
+      {renderSequence(after, true)}
     </SearchContext.Provider>
   );
 });

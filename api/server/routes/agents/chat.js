@@ -20,6 +20,7 @@ const AgentController = require('~/server/controllers/agents/request');
 const ResumeController = require('~/server/controllers/agents/resume');
 const addTitle = require('~/server/services/Endpoints/agents/title');
 const { getRoleByName } = require('~/models');
+const { enforceManagedChatEndpoint } = require('~/server/middleware/enforceManagedChatEndpoint');
 
 const router = express.Router();
 
@@ -75,6 +76,7 @@ router.use(restoreResumeContext);
 router.use(createMessageFilterPii({ getConfig: (req) => req.config?.messageFilter?.pii }));
 router.use(moderateText);
 router.use(checkAgentAccess);
+router.use(enforceManagedChatEndpoint);
 router.use(checkAgentResourceAccess);
 router.use(validateConvoAccess);
 router.use(buildEndpointOption);

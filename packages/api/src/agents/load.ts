@@ -74,6 +74,9 @@ export async function loadEphemeralAgent(
   if (ephemeralAgent?.execute_code === true || modelSpec?.executeCode === true) {
     tools.push(Tools.execute_code);
   }
+  if (ephemeralAgent?.document_visual_qa === true || modelSpec?.documentVisualQA === true) {
+    tools.push(Tools.document_visual_qa);
+  }
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
     tools.push(Tools.file_search);
   }
@@ -89,6 +92,10 @@ export async function loadEphemeralAgent(
   if (ephemeralAgent?.ask_user_question === true || modelSpec?.askUserQuestion === true) {
     tools.push(ASK_USER_QUESTION_TOOL_NAME);
   }
+
+  // Offer agent management in default chat; individual action and load-time
+  // AGENTS.USE checks in ToolService still gate every runnable operation.
+  tools.push(Tools.agent_management);
 
   const addedServers = new Set<string>();
   if (mcpServers.size > 0) {

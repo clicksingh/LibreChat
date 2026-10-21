@@ -43,6 +43,7 @@ jest.mock('~/hooks/Conversations/useGetSender', () => () => mockGetSender);
 jest.mock('~/hooks/Input/useUserKey', () => () => ({ getExpiry: mockGetExpiry }));
 jest.mock('~/hooks', () => ({
   useAuthContext: () => ({ user: null }),
+  useHasAccess: () => false,
 }));
 jest.mock('~/store', () => ({
   __esModule: true,

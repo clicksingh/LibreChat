@@ -23,11 +23,23 @@ jest.mock('@librechat/agents', () => ({
   BashExecutionToolDefinition: {
     name: 'bash_tool',
     description: 'bash',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description:
+            'The bash command or script to execute. The environment is stateless; variables and state do not persist between executions. Prior /mnt/data files are available and can be modified in place.',
+        },
+      },
+      required: ['command'],
+    },
   },
   /**
    * Deterministic stub mirroring the SDK's `buildBashExecutionToolDescription`:
-   * appends an LLM-facing reference-syntax marker only when
+   * carries the same Cloud `/mnt/data` guidance phrases the published package
+   * embeds (so the S7 normalization actually has something to rewrite), and
+   * appends the LLM-facing reference-syntax marker only when
    * `enableToolOutputReferences` is true.
    */
   buildBashExecutionToolDescription: ({
@@ -35,7 +47,16 @@ jest.mock('@librechat/agents', () => ({
   }: {
     enableToolOutputReferences?: boolean;
   } = {}): string =>
-    enableToolOutputReferences === true ? 'bash {{tool<idx>turn<turn>}}' : 'bash',
+    [
+      'Runs bash commands and returns stdout/stderr output from a stateless execution environment.',
+      '',
+      'Usage:',
+      '- No network access available.',
+      '- Generated files are automatically delivered; **DO NOT** provide download links.',
+      '- Persist handoff artifacts in `/mnt/data`.',
+      '- Prior /mnt/data files are available and can be modified in place.',
+      ...(enableToolOutputReferences === true ? ['{{tool<idx>turn<turn>}}'] : []),
+    ].join('\n'),
 }));
 
 import { CODE_EXECUTION_TOOLS } from '@librechat/agents';
@@ -45,6 +66,7 @@ import {
   BuildToolSetConfig,
   registerCodeExecutionTools,
   registerFileAuthoringTools,
+  registerDocumentVisualQATool,
   FILE_AUTHORING_TOOL_NAMES,
   isFileAuthoringToolDefinition,
   isCodeSessionToolName,
@@ -211,6 +233,56 @@ describe('registerCodeExecutionTools', () => {
       expect(toolRegistry.has('bash_tool')).toBe(true);
     });
 
+    it('normalizes the published bash_tool /mnt/data guidance to the workspace contract', () => {
+      const toolRegistry = makeRegistry();
+      const result = registerCodeExecutionTools({
+        toolRegistry,
+        toolDefinitions: [],
+        includeBash: true,
+        enableToolOutputReferences: true,
+      });
+
+      const bashTool = result.toolDefinitions.find((d) => d.name === 'bash_tool');
+      expect(bashTool).toBeDefined();
+      const description = String(bashTool?.description);
+      expect(description).toContain('sandbox working directory');
+      expect(description).toContain('stateless execution environment');
+      expect(description).toContain('No network access available.');
+      expect(description).toContain('{{tool<idx>turn<turn>}}');
+      expect(description).not.toContain('/mnt/data');
+      expect(description).not.toContain('/mnt/');
+
+      // 8S3B S9 — the model must verify a deliverable is registered in the
+      // run's returned file list before claiming it is ready.
+      expect(description).toContain('returned file list');
+      expect(description).toContain(
+        'verify the file is listed before telling the user it is ready',
+      );
+
+      // The published schema's command description embeds the same Cloud
+      // guidance — it must be normalized too.
+      const command = (
+        bashTool?.parameters as {
+          properties?: { command?: { description?: string } };
+        }
+      )?.properties?.command;
+      expect(command?.description).toContain('sandbox working directory');
+      expect(command?.description).toContain('returned file list');
+      expect(command?.description).not.toContain('/mnt/data');
+
+      // RUN-CODE REGRESSION (incident 2026-08-15): the schema must state the
+      // exact wire key. A model contaminated by codeapi's internal {lang, code}
+      // HTTP contract emitted {"cmd": ...}, failing required:['command'] with
+      // "Received tool input did not match expected schema". The description
+      // self-documents the property name so this class of misuse is primed out.
+      expect(command?.description).toContain('property name is exactly `command`');
+      expect(command?.description).toContain('Do NOT use `cmd`, `code`, or `script`');
+      expect(command?.description).toContain('do NOT pass `{lang, code}`');
+      expect(command?.description).toContain(
+        'The property name is exactly `command` (a string). Do NOT use `cmd`, `code`, or `script`, and do NOT pass `{lang, code}`.',
+      );
+    });
+
     it('registers read_file only when includeBash=false', () => {
       const toolRegistry = makeRegistry();
       const result = registerCodeExecutionTools({
@@ -236,7 +308,8 @@ describe('registerCodeExecutionTools', () => {
 
       const readFile = result.toolDefinitions.find((d) => d.name === 'read_file');
       expect(readFile?.description).toContain('code-execution sandbox');
-      expect(readFile?.description).toContain('/mnt/data/');
+      expect(readFile?.description).toContain('sandbox working directory');
+      expect(readFile?.description).not.toContain('/mnt/data');
       expect(readFile?.description).toContain('Do not run ls/find');
       expect(readFile?.description).toContain('/tmp is per-call scratch');
       expect(readFile?.description).toContain('truncate around 256KB');
@@ -506,6 +579,14 @@ describe('registerFileAuthoringTools', () => {
     expect(toolRegistry.get('create_file')?.description).toContain('trigger-friendly');
     expect(toolRegistry.get('create_file')?.description).toContain('references/template.html');
     expect(toolRegistry.get('create_file')?.description).toContain('templates/{file}');
+    expect(toolRegistry.get('create_file')?.description).toContain(
+      'create a skill from what we just did',
+    );
+    expect(toolRegistry.get('create_file')?.description).toContain('verified results');
+    expect(toolRegistry.get('create_file')?.description).toContain('private Skills library');
+    expect(toolRegistry.get('create_file')?.description).toContain(
+      'Sharing with staff requires a separate authorized action',
+    );
     expect(toolRegistry.get('edit_file')?.description).toContain('edit_file cannot rename skills');
     expect(toolRegistry.get('edit_file')?.description).toContain('Keep SKILL.md concise');
     expect(toolRegistry.get('edit_file')?.description).toContain('templates/');
@@ -528,10 +609,12 @@ describe('registerFileAuthoringTools', () => {
     const createFile = result.toolDefinitions.find((d) => d.name === 'create_file');
     const editFile = result.toolDefinitions.find((d) => d.name === 'edit_file');
     expect(createFile?.description).toContain('code-execution sandbox');
-    expect(createFile?.description).toContain('/mnt/data/');
+    expect(createFile?.description).toContain('relative to your working directory');
+    expect(createFile?.description).not.toContain('/mnt/data');
     expect(createFile?.description).not.toContain('skills/');
     expect(editFile?.description).toContain('code-execution sandbox');
-    expect(editFile?.description).toContain('/mnt/data/');
+    expect(editFile?.description).toContain('relative to your working directory');
+    expect(editFile?.description).not.toContain('/mnt/data');
     expect(editFile?.description).not.toContain('skills/');
     expect(filePathDescription(createFile)).toContain('code-execution sandbox');
     expect(filePathDescription(createFile)).not.toContain('skills/');
@@ -619,5 +702,84 @@ describe('registerFileAuthoringTools', () => {
         parameters: { type: 'object', properties: {} } as LCTool['parameters'],
       }),
     ).toBe(false);
+  });
+});
+
+describe('registerDocumentVisualQATool', () => {
+  const makeRegistry = (): LCToolRegistry => new Map() as unknown as LCToolRegistry;
+
+  it('registers document_visual_qa with the exact self-documenting input schema', () => {
+    const toolRegistry = makeRegistry();
+    const result = registerDocumentVisualQATool({
+      toolRegistry,
+      toolDefinitions: [],
+    });
+
+    expect(result.registered).toEqual(['document_visual_qa']);
+    expect(result.toolDefinitions.map((d) => d.name)).toEqual(['document_visual_qa']);
+    expect(toolRegistry.has('document_visual_qa')).toBe(true);
+
+    const def = result.toolDefinitions[0];
+    expect(def.name).toBe('document_visual_qa');
+    expect(def.responseFormat).toBe('content');
+
+    const properties = (
+      def.parameters as { type: 'object'; properties: Record<string, { type?: string }> }
+    ).properties;
+    expect(Object.keys(properties).sort()).toEqual([
+      'file_ids',
+      'file_names',
+      'focus',
+      'maxPages',
+      'session_id',
+    ]);
+    expect((def.parameters as { required?: string[] }).required).toContain('session_id');
+    expect(properties.session_id?.type).toBe('string');
+    expect((properties.maxPages as { maximum?: number }).maximum).toBe(8);
+    expect((properties.maxPages as { default?: number }).default).toBe(4);
+  });
+
+  it('documents the checks and verdict schema in the description', () => {
+    const result = registerDocumentVisualQATool({
+      toolRegistry: makeRegistry(),
+      toolDefinitions: [],
+    });
+    const description = result.toolDefinitions[0].description;
+    expect(description).toContain('clipping');
+    expect(description).toContain('visual hierarchy');
+    expect(description).toContain('legibility');
+    expect(description).toContain('"verdict":"PASS"|"ISSUES_FOUND"');
+    expect(description).toContain('session_id (required)');
+  });
+
+  it('is idempotent across repeated registration calls', () => {
+    const toolRegistry = makeRegistry();
+    const first = registerDocumentVisualQATool({ toolRegistry, toolDefinitions: [] });
+    const second = registerDocumentVisualQATool({
+      toolRegistry,
+      toolDefinitions: first.toolDefinitions,
+    });
+
+    expect(second.registered).toEqual([]);
+    expect(second.toolDefinitions).toHaveLength(1);
+  });
+
+  it('skips when the tool is already present in the registry', () => {
+    const toolRegistry = makeRegistry();
+    registerDocumentVisualQATool({ toolRegistry, toolDefinitions: [] });
+    const result = registerDocumentVisualQATool({ toolRegistry, toolDefinitions: [] });
+
+    expect(result.registered).toEqual([]);
+    expect(result.toolDefinitions).toEqual([]);
+  });
+
+  it('keeps the description within provider advisory limits', () => {
+    const result = registerDocumentVisualQATool({
+      toolRegistry: makeRegistry(),
+      toolDefinitions: [],
+    });
+    expect(maxToolDescriptionLength([...result.toolDefinitions])).toBeLessThanOrEqual(
+      TOOL_DESCRIPTION_ADVISORY_MAX_LENGTH,
+    );
   });
 });

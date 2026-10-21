@@ -19,7 +19,9 @@
  * ```
  */
 import { nanoid } from 'nanoid';
-import { AgentCapabilities } from 'librechat-data-provider';
+import { AgentCapabilities, PermissionTypes, Permissions } from 'librechat-data-provider';
+import { checkAccess } from '../../middleware/access';
+import type { IRole } from '@librechat/data-schemas';
 import type { Response as ServerResponse, Request } from 'express';
 import type {
   ChatCompletionResponse,
@@ -84,6 +86,15 @@ export interface ChatCompletionDependencies {
   appConfig?: AppConfig;
   /** Tool execute options for event-driven tool execution */
   toolExecuteOptions?: ToolExecuteOptions;
+  /**
+   * Role resolver used for the RUN_CODE authorization gate (8S3C.2). Pass the
+   * host app's `db.getRoleByName` to enforce the requesting user's
+   * RUN_CODE.USE permission as the ceiling for `execute_code` capability.
+   * When omitted, the service cannot verify the user's permission and the
+   * global capability alone is used — SDK consumers SHOULD always pass this
+   * when running with authenticated users.
+   */
+  getRoleByName?: (roleName: string, fieldsToSelect?: string | string[]) => Promise<IRole | null>;
 }
 
 /**
@@ -470,7 +481,7 @@ export async function createAgentChatCompletion(
       agentsConfig != null && typeof agentsConfig === 'object'
         ? ((agentsConfig as { capabilities?: string[] }).capabilities ?? []).includes(capability)
         : undefined;
-    const codeEnvAvailable = capabilityEnabled(AgentCapabilities.execute_code);
+    let codeEnvAvailable = capabilityEnabled(AgentCapabilities.execute_code);
     /** Mirror `codeEnvAvailable` for the stateful-session gate so an agent with
      *  `execute_code`, the app `stateful_code_sessions` capability, and its own
      *  builder opt-in resolves stateful sessions on this route too — otherwise
@@ -483,6 +494,20 @@ export async function createAgentChatCompletion(
     const backgroundToolsAvailable = capabilityEnabled(AgentCapabilities.run_in_background);
     /** Same gate for the injected `intent` label param. */
     const toolIntentsAvailable = capabilityEnabled(AgentCapabilities.tool_intents);
+
+    /* 8S3C.2 — RUN_CODE authorization gate: when the host app supplies a role
+     * resolver, AND the requesting user's RUN_CODE.USE into the global
+     * capability (canonical checkAccess semantics, fail-closed). The client
+     * flag is never treated as authorization. */
+    const reqUser = (req as unknown as { user?: { id?: string; role?: string } }).user;
+    if (codeEnvAvailable === true && deps.getRoleByName && reqUser?.id && reqUser?.role) {
+      codeEnvAvailable = await checkAccess({
+        user: reqUser as unknown as import('@librechat/data-schemas').IUser,
+        permissionType: PermissionTypes.RUN_CODE,
+        permissions: [Permissions.USE],
+        getRoleByName: deps.getRoleByName,
+      });
+    }
 
     // Initialize the agent first to check for disableStreaming
     const initializedAgent = await deps.initializeAgent({

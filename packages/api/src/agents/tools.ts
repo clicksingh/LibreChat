@@ -150,7 +150,7 @@ const READ_FILE_DEF: LCTool = Object.freeze({
 
 const CODE_READ_FILE_DESCRIPTION = `Read a known file from the code-execution sandbox. Text files return line-numbered content (large files truncate around 256KB); images (png, jpeg, gif, webp) return as visual content you can see.
 
-Use for text, CSV, JSON, Markdown, logs, small source files, and images at paths returned by tool output, just written, or under /mnt/data/. Do not run ls/find just to rediscover known paths. Use bash_tool for other binary files, large files, transforms, metadata, or true filesystem discovery. /tmp is per-call scratch and unavailable later.`;
+Use for text, CSV, JSON, Markdown, logs, small source files, and images at known paths inside your persistent sandbox working directory. Do not run ls/find just to rediscover known paths. Use bash_tool for other binary files, large files, transforms, metadata, or true filesystem discovery. /tmp is per-call scratch and unavailable later.`;
 
 const CODE_READ_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
   type: 'object',
@@ -158,7 +158,7 @@ const CODE_READ_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     path: {
       type: 'string',
       description:
-        'Path to a file from code execution output, such as "/mnt/data/result.csv" or another path returned by the execution tool.',
+        'Path to a file in your sandbox working directory, such as "result.csv" or another path returned by the execution tool.',
     },
   },
   required: ['path'],
@@ -177,7 +177,7 @@ const SKILL_CREATE_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     path: {
       type: 'string',
       description:
-        'Path to write. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "/mnt/data/result.txt" when code execution is enabled. For SKILL.md, the YAML frontmatter name must match {skillName}.',
+        'Path to write. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "result.txt" (relative to your sandbox working directory) when code execution is enabled. For SKILL.md, the YAML frontmatter name must match {skillName}.',
     },
     content: {
       type: 'string',
@@ -199,7 +199,7 @@ const CODE_CREATE_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     path: {
       type: 'string',
       description:
-        'Path to write in the code-execution sandbox, such as "/mnt/data/result.txt". Prefer /mnt/data/{file} for files that should remain available to later sandbox calls.',
+        'Path to write in the code-execution sandbox, relative to your working directory. Working/source/dependency files may live anywhere appropriate and persist across calls. Put final user-facing deliverables under "outputs/" (for example "outputs/report.txt"); only published results are surfaced to the user.',
     },
     content: {
       type: 'string',
@@ -221,7 +221,7 @@ const SKILL_EDIT_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
     path: {
       type: 'string',
       description:
-        'Path to edit. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "/mnt/data/result.txt" when code execution is enabled. edit_file cannot rename skills; keep SKILL.md frontmatter name equal to {skillName}.',
+        'Path to edit. Use "skills/{skillName}/..." for skill files when available, or a code-execution sandbox path such as "result.txt" (relative to your sandbox working directory) when code execution is enabled. edit_file cannot rename skills; keep SKILL.md frontmatter name equal to {skillName}.',
     },
     old_text: {
       type: 'string',
@@ -252,7 +252,8 @@ const CODE_EDIT_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
   properties: {
     path: {
       type: 'string',
-      description: 'Path to edit in the code-execution sandbox, such as "/mnt/data/result.txt".',
+      description:
+        'Path to edit in the code-execution sandbox, relative to your working directory (e.g. "result.txt").',
     },
     old_text: {
       type: 'string',
@@ -278,28 +279,26 @@ const CODE_EDIT_FILE_PARAMETERS: LCTool['parameters'] = Object.freeze({
   required: ['path'],
 }) as LCTool['parameters'];
 
-const SKILL_CREATE_FILE_DESCRIPTION = `Create a new file, or overwrite an existing file with explicit intent.
+const SKILL_CREATE_FILE_DESCRIPTION = `Create files; overwrite requires overwrite: true.
 
-Use for new files and full rewrites. Requires overwrite: true to replace existing files.
+For "create a skill from what we just did", write skills/{skillName}/SKILL.md. Base steps on verified results. Include trigger-friendly description, inputs, prerequisites, workflow, validation, and recovery. Exclude secrets and private data.
 
-Paths starting with "skills/" write skill files:
-- skills/{skillName}/SKILL.md - main instructions; keep it lean with YAML frontmatter, trigger-friendly description, workflow steps, and short snippets.
-- skills/{skillName}/references/{file} - long docs, schemas, examples, large templates, HTML/CSS/JS dashboards.
-- skills/{skillName}/scripts/{file} - helper scripts.
-- skills/{skillName}/assets/{file} - static assets.
-- skills/{skillName}/templates/{file} - reusable output templates.
+Skill paths (saved in the author's private Skills library):
+- skills/{skillName}/SKILL.md - YAML frontmatter and concise steps.
+- skills/{skillName}/references/{file} - docs (e.g. references/template.html).
+- skills/{skillName}/scripts/{file} - helpers.
+- skills/{skillName}/assets/{file} - text assets.
+- skills/{skillName}/templates/{file} - templates.
 
-For SKILL.md, frontmatter name must match {skillName}; create skills/{newName}/SKILL.md to rename. Put large runnable artifacts in bundled files such as references/template.html, and have SKILL.md tell the agent when to read or reuse them.
+For SKILL.md, frontmatter name must match {skillName}. Create skills/{newName}/SKILL.md to rename; link large files from SKILL.md. Sharing with staff requires a separate authorized action; never claim it is public.
 
-Non-skills paths target the code-execution sandbox when enabled. Prefer /mnt/data/{file}.`;
+Non-skills paths use the code-execution sandbox; put final downloads in outputs/. Sandbox files are not automatically bundled with skills.`;
 
 const CODE_CREATE_FILE_DESCRIPTION = `Create a new file, or overwrite an existing file with explicit intent.
 
 Use for new files and full rewrites where the change is larger than half the file. Requires overwrite: true to replace existing files. Refuses otherwise.
 
-Targets code-execution sandbox paths. Prefer /mnt/data/{file} for files that should remain available to later sandbox calls.
-
-Very long content can exceed the streamed tool-argument limit (64 KB by default) and fail the call. For large files, create the file with its first section, then extend it with edit_file.`;
+Targets code-execution sandbox paths, relative to your working directory. Files persist across later calls. Publication follows the sandbox's returned artifact file list, not the path alone. Use outputs/ for final user-facing deliverables and keep scratch/source/dependency files outside outputs/.`;
 
 const SKILL_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an existing file.
 
@@ -307,13 +306,13 @@ Use for small, precise changes. Each old_text must match exactly one location. T
 
 For skills/{skillName}/SKILL.md, edit description, title, or body content, but keep YAML frontmatter name equal to {skillName}. edit_file cannot rename skills; create a new skills/{newName}/SKILL.md for a different skill name. Keep SKILL.md concise; move large templates, HTML/CSS/JS dashboards, examples, schemas, and long docs into references/, scripts/, assets/, or templates/ files and point to them from SKILL.md.
 
-Paths starting with "skills/" target the skill file system. When code execution is enabled, non-skills paths target the code-execution sandbox.`;
+Paths starting with "skills/" target the skill file system. When code execution is enabled, non-skills paths target the persistent sandbox. For non-skill files, publication follows the sandbox's returned artifact file list. Use outputs/ for final user-facing deliverables.`;
 
 const CODE_EDIT_FILE_DESCRIPTION = `Apply targeted text replacements to an existing file.
 
 Use for small, precise changes. Each old_text must match exactly one location. Tries exact match first; falls back to whitespace-tolerant matching if needed. Reports which matching strategy was used. Returns a unified diff.
 
-Targets code-execution sandbox paths, such as /mnt/data/result.txt.`;
+Targets persistent code-execution sandbox paths relative to your working directory. Publication follows the sandbox's returned artifact file list. Use outputs/ for final user-facing deliverables and keep other files as working state.`;
 
 const SKILL_CREATE_FILE_DEF: LCTool = Object.freeze({
   name: CREATE_FILE_TOOL_NAME,
@@ -386,6 +385,62 @@ export function isFileAuthoringToolDefinition(def: LCTool | undefined): boolean 
 }
 
 /**
+ * 8S3B S7/S9 — the published `@librechat/agents` bash/code tool descriptions
+ * are written for LibreChat Cloud's sandbox layout (`/mnt/data`). Our
+ * codeapi sandbox has no `/mnt/data`: the current working directory of
+ * every execution IS the persistent per-session workspace, and files
+ * written there persist across calls and are auto-delivered as downloads.
+ * Rewrite the published phrases so the model never tries a non-existent
+ * `/mnt/data` path (the `/mnt` mount is root-owned, so even `mkdir` fails)
+ * and never sees a host path. S9 adds the artifact-delivery-verification
+ * clause: the model must check the run's returned file list before claiming
+ * a deliverable is ready (failed executions register no files). Done at
+ * registration — not by patching node_modules — so the fix survives
+ * `npm ci` on rebuild.
+ */
+function normalizeSandboxPathGuidance(text: string): string {
+  return text
+    .replace(
+      'Persist handoff artifacts in `/mnt/data`',
+      'Persist final handoff artifacts under `outputs/` in your sandbox working directory; keep scratch, source, dependency, render, and cache files elsewhere',
+    )
+    .replace(
+      'Prior /mnt/data files are available and can be modified in place.',
+      'Files you wrote to the sandbox working directory in earlier calls remain available and can be modified in place. Working files stay private. Put final user-facing deliverables under `outputs/`; verify the file is listed before telling the user it is ready; confirm it appears in the returned file list.',
+    );
+}
+
+/**
+ * Clones the published `bash_tool` schema with its `command.description`
+ * normalized by `normalizeSandboxPathGuidance`. The schema object from the
+ * SDK is shared/frozen — never mutate it in place.
+ */
+function normalizeBashSchema(schema: unknown): unknown {
+  if (!schema || typeof schema !== 'object') {
+    return schema;
+  }
+  const source = schema as { properties?: { command?: { description?: string } } };
+  const cloned = { ...schema } as Record<string, unknown>;
+  const properties = source.properties ? { ...source.properties } : {};
+  if (properties.command && typeof properties.command.description === 'string') {
+    properties.command = {
+      ...properties.command,
+      description: normalizeSandboxPathGuidance(properties.command.description)
+        // The live 2026-08-15 regression proved a model can misremember the
+        // property name as `cmd`/`code`/`script` (contaminated by codeapi's
+        // internal {lang, code} HTTP contract) and emit a body that fails the
+        // `required: ['command']` check with "Received tool input did not match
+        // expected schema". State the exact wire key so the schema self-documents.
+        .concat(
+          '\n- The property name is exactly `command` (a string). Do NOT use `cmd`, `code`, or `script`, and do NOT pass `{lang, code}`.',
+        ),
+    };
+  }
+  cloned.properties = properties;
+  return cloned;
+}
+
+/**
  * The `bash_tool` description varies along exactly one axis — whether
  * the LLM-facing `{{tool<idx>turn<turn>}}` reference syntax guide is
  * appended — so two frozen module-level singletons cover every call
@@ -403,8 +458,10 @@ function createBashToolDef(enableToolOutputReferences: boolean, statefulSessions
   const descriptionOpts = { enableToolOutputReferences, statefulSessions };
   return Object.freeze({
     name: BashExecutionToolDefinition.name,
-    description: buildBashExecutionToolDescription(descriptionOpts),
-    parameters: BashExecutionToolDefinition.schema as unknown as LCTool['parameters'],
+    description: normalizeSandboxPathGuidance(buildBashExecutionToolDescription(descriptionOpts)),
+    parameters: normalizeBashSchema(
+      BashExecutionToolDefinition.schema,
+    ) as unknown as LCTool['parameters'],
   }) as LCTool;
 }
 
@@ -504,6 +561,111 @@ export function registerCodeExecutionTools(
     toolDefinitions: [...workingDefinitions, ...newDefs],
     registered,
     toolNames,
+  };
+}
+
+/**
+ * 8S3C R3 — `document_visual_qa` (issue #8).
+ *
+ * Model-facing definition for the Vision QA tool. The runtime instance is
+ * created in `api/server/services/ToolService.js` (api workspace); this
+ * definition only teaches the LLM the tool exists and its exact input keys.
+ * The parameter schema MUST stay in sync with
+ * `api/server/services/Tools/documentVisualQAContract.js` `TOOL_PARAMETERS`
+ * (see `docs/r3-vision-qa.md`).
+ */
+const DOCUMENT_VISUAL_QA_TOOL_NAME = 'document_visual_qa' as const;
+
+const DOCUMENT_VISUAL_QA_PARAMETERS: LCTool['parameters'] = Object.freeze({
+  type: 'object',
+  properties: {
+    session_id: {
+      type: 'string',
+      description:
+        'CodeAPI execution session id returned by the render/exec step whose sandbox workspace contains the rendered PNG pages. Do not invent this value; take it verbatim from the render step output.',
+    },
+    file_ids: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'CodeAPI file ids of the rendered PNG pages to QA (the .png entries in the render/exec step artifact refs). Provide exactly one of file_ids or file_names.',
+    },
+    file_names: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Workspace-relative sandbox names of the rendered PNG pages as returned by the render/exec step artifact list, e.g. "render-out/pages/report-001.png" (not the manifest outputs[].path, which is outdir-relative). Used when only the names are known; the tool resolves them to codeapi file ids for the given session.',
+    },
+    focus: {
+      type: 'string',
+      description:
+        'Optional comma-separated QA focus areas. Supported: clipping, overlap, hierarchy, charts, legibility, layout. Defaults to all six.',
+    },
+    maxPages: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 8,
+      default: 4,
+      description:
+        "Maximum pages to inspect per vision pass (default 4, hard cap 8; absolute cap 24 pages per tool call across batches). Pages are sent to the vision model in batches of at most this size. Documents longer than 24 pages must be QA'd in multiple calls.",
+    },
+  },
+  required: ['session_id'],
+}) as LCTool['parameters'];
+
+const DOCUMENT_VISUAL_QA_DESCRIPTION = `Inspect rendered document page PNGs (render-out/pages/*.png from a prior render/exec step) for layout defects and return a strict pass/issues verdict.
+
+Input keys (exact):
+- session_id (required): codeapi session id of the render step holding the PNG pages.
+- file_ids (optional): codeapi file ids of the PNG pages to QA.
+- file_names (optional): sandbox paths of the PNG pages, e.g. "render-out/pages/report-001.png". Use exactly one of the two.
+- focus (optional): comma-separated: clipping, overlap, hierarchy, charts, legibility, layout.
+- maxPages (default 4, hard cap 8; absolute cap 24/call): pages per pass.
+
+Checks: clipping, overlap, visual hierarchy, unreadable charts/tables, malformed layouts, legibility.
+
+Return ONE strict JSON object:
+{"verdict":"PASS"|"ISSUES_FOUND","issues":[{"artifact":"<png name>","page":<1-based page>,"severity":"low|medium|high","description":"...","suggestion":"..."}],"summary":"..."}
+On ISSUES_FOUND, list the offending artifact/pages. Only rendered bitmaps reach vision.`;
+
+const DOCUMENT_VISUAL_QA_DEF: LCTool = Object.freeze({
+  name: DOCUMENT_VISUAL_QA_TOOL_NAME,
+  description: DOCUMENT_VISUAL_QA_DESCRIPTION,
+  parameters: DOCUMENT_VISUAL_QA_PARAMETERS,
+  responseFormat: 'content',
+}) as LCTool;
+
+export interface RegisterDocumentVisualQAToolParams {
+  toolRegistry: LCToolRegistry | undefined;
+  toolDefinitions: LCTool[] | undefined;
+}
+
+export interface RegisterDocumentVisualQAToolResult {
+  toolDefinitions: LCTool[];
+  /** Tool names newly registered (skipped if already present). */
+  registered: string[];
+}
+
+/**
+ * Idempotently registers the `document_visual_qa` LCTool definition into the
+ * run's tool registry and tool-definition list. The runtime tool instance is
+ * created separately by ToolService (`loadToolsForExecution`) when the agent
+ * requests the tool; this def is what the LLM plans against.
+ */
+export function registerDocumentVisualQATool(
+  params: RegisterDocumentVisualQAToolParams,
+): RegisterDocumentVisualQAToolResult {
+  const { toolRegistry, toolDefinitions } = params;
+  const inputDefinitions = toolDefinitions ?? [];
+  const existingIndex = inputDefinitions.findIndex((d) => d.name === DOCUMENT_VISUAL_QA_TOOL_NAME);
+  const inRegistry = toolRegistry?.has(DOCUMENT_VISUAL_QA_TOOL_NAME) === true;
+  if (existingIndex >= 0 || inRegistry) {
+    return { toolDefinitions: inputDefinitions, registered: [] };
+  }
+  toolRegistry?.set(DOCUMENT_VISUAL_QA_TOOL_NAME, DOCUMENT_VISUAL_QA_DEF);
+  return {
+    toolDefinitions: [...inputDefinitions, DOCUMENT_VISUAL_QA_DEF],
+    registered: [DOCUMENT_VISUAL_QA_TOOL_NAME],
   };
 }
 

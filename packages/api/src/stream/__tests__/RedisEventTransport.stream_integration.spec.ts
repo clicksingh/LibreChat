@@ -472,6 +472,89 @@ describe('RedisEventTransport Integration Tests', () => {
     });
   });
 
+  describe('Durable cross-replica journal recovery', () => {
+    test('replays missed events and a terminal from journal on a second instance', async () => {
+      if (!ioredisClient) throw new Error('This real Redis test requires REDIS_URI');
+      const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
+      const subscriber1 = (ioredisClient as Redis).duplicate();
+      const subscriber2 = (ioredisClient as Redis).duplicate();
+      const producer = new RedisEventTransport(ioredisClient, subscriber1);
+      const consumer = new RedisEventTransport(ioredisClient, subscriber2);
+      const streamId = `journal-real-replay-${Date.now()}`;
+      const received: number[] = [];
+      const done: unknown[] = [];
+      const errors: string[] = [];
+      try {
+        await producer.emitChunk(streamId, { ordinal: 0 });
+        await producer.emitChunk(streamId, { ordinal: 1 });
+        const first = consumer.subscribe(streamId, {
+          onChunk: (event) => received.push((event as { ordinal: number }).ordinal),
+          onDone: (event) => done.push(event),
+          onError: (err) => errors.push(err),
+        });
+        await first.ready;
+        await producer.emitChunk(streamId, { ordinal: 2 });
+        await producer.emitDone(streamId, { complete: true });
+        await new Promise((resolve) => setTimeout(resolve, 1300));
+        expect(received).toEqual([0, 1, 2]);
+        expect(done).toEqual([{ complete: true }]);
+        expect(errors).toEqual([]);
+        const stored = await ioredisClient.hmget(
+          `stream:{${streamId}}:journal`,
+          '0',
+          '1',
+          '2',
+          '3',
+        );
+        expect(stored.every(Boolean)).toBe(true);
+        expect(stored.map((x) => JSON.parse(x!).type)).toEqual(['chunk', 'chunk', 'chunk', 'done']);
+      } finally {
+        producer.destroy();
+        consumer.destroy();
+        subscriber1.disconnect();
+        subscriber2.disconnect();
+      }
+    });
+    test('journals each member of a real coalesced frame without JSON shape loss', async () => {
+      if (!ioredisClient) throw new Error('This real Redis test requires REDIS_URI');
+      const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
+      const oldWindow = process.env.STREAM_DELTA_COALESCE_MS;
+      process.env.STREAM_DELTA_COALESCE_MS = '20';
+      const subscriber = (ioredisClient as Redis).duplicate();
+      const producer = new RedisEventTransport(ioredisClient, subscriber);
+      const streamId = `journal-batch-${Date.now()}`;
+      const payloads = [
+        { arr: [], n: 0.1234567890123 },
+        { t: 'hello \u2603' },
+        { obj: { empty: [] } },
+      ];
+      try {
+        const testPublisher = producer as unknown as {
+          publishChunkWithReceipt: (
+            id: string,
+            event: unknown,
+            generationId?: number,
+            options?: { coalesce?: boolean },
+          ) => Promise<number | false | void>;
+        };
+        const receipts = payloads.map((event) =>
+          testPublisher.publishChunkWithReceipt(streamId, event, undefined, { coalesce: true }),
+        );
+        expect(await Promise.all(receipts)).toEqual([0, 1, 2]);
+        const stored = await ioredisClient.hmget(`stream:{${streamId}}:journal`, '0', '1', '2');
+        expect(stored.every(Boolean)).toBe(true);
+        expect(stored.map((x) => JSON.parse(x!).data)).toEqual(payloads);
+        expect(stored.map((x) => JSON.parse(x!).seq)).toEqual([0, 1, 2]);
+        expect(await ioredisClient.ttl(`stream:{${streamId}}:journal`)).toBeGreaterThan(86000);
+      } finally {
+        producer.destroy();
+        subscriber.disconnect();
+        if (oldWindow == null) delete process.env.STREAM_DELTA_COALESCE_MS;
+        else process.env.STREAM_DELTA_COALESCE_MS = oldWindow;
+      }
+    });
+  });
+
   describe('Payload fidelity through server-side seq splicing', () => {
     /** The seq is spliced into the payload by Lua rather than encoded with it, so the
      *  fragments either side must reassemble to exactly what JSON.stringify would emit.
@@ -805,7 +888,7 @@ describe('RedisEventTransport Integration Tests', () => {
       transport.destroy();
     });
 
-    test('should force-flush on timeout when gaps are not filled', async () => {
+    test('should fail explicitly when journal cannot repair missing sequences', async () => {
       jest.useFakeTimers();
 
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
@@ -824,9 +907,11 @@ describe('RedisEventTransport Integration Tests', () => {
 
       const streamId = 'timeout-test';
       const receivedEvents: number[] = [];
+      const errors: string[] = [];
 
       transport.subscribe(streamId, {
         onChunk: (event) => receivedEvents.push((event as { index: number }).index),
+        onError: (e) => errors.push(e),
       });
 
       const messageHandler = mockSubscriber.on.mock.calls.find(
@@ -840,9 +925,10 @@ describe('RedisEventTransport Integration Tests', () => {
 
       expect(receivedEvents).toEqual([]);
 
-      jest.advanceTimersByTime(600);
+      await jest.advanceTimersByTimeAsync(1800);
 
-      expect(receivedEvents).toEqual([2, 3]);
+      expect(receivedEvents).toEqual([]);
+      expect(errors).toEqual([expect.stringContaining('STREAM_EVENT_GAP_UNRECOVERABLE')]);
 
       transport.destroy();
       jest.useRealTimers();
@@ -1446,7 +1532,7 @@ describe('RedisEventTransport Integration Tests', () => {
   });
 
   describe('Publish Error Propagation', () => {
-    test('should swallow emitChunk publish errors (callers fire-and-forget)', async () => {
+    test('should reject emitChunk publish errors instead of silently losing deltas', async () => {
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
       const { emitChunkWithReceipt } = await import('../internal/chunkPublication');
 
@@ -1475,7 +1561,7 @@ describe('RedisEventTransport Integration Tests', () => {
       transport.destroy();
     });
 
-    test('should swallow emitChunk incr errors (sequence allocation failure)', async () => {
+    test('should reject emitChunk incr errors (sequence allocation failure)', async () => {
       const { RedisEventTransport } = await import('../implementations/RedisEventTransport');
       const { emitChunkWithReceipt } = await import('../internal/chunkPublication');
 

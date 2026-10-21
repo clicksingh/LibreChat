@@ -240,6 +240,45 @@ export function createConversationMethods(
         }
       }
 
+      // 8S3D.1: workspaceId is set ONCE at conversation creation and
+      // immutable thereafter — never silently rebind an existing
+      // conversation's storage/quota boundary (lineage/leak risk). The
+      // actual ACL enforcement for code execution happens per-request via
+      // resolveWorkspaceContext(); this is a correctness guard, not the
+      // security boundary itself.
+      if (Object.prototype.hasOwnProperty.call(update, 'workspaceId')) {
+        const existingWorkspace = await Conversation.findOne(
+          { conversationId, user: userId },
+          'workspaceId',
+        ).lean<{ workspaceId?: string | null } | null>();
+        if (existingWorkspace?.workspaceId) {
+          // Conversation already exists and already has a workspace bound —
+          // ignore any attempt to change it, keep the original.
+          delete update.workspaceId;
+        } else if (
+          update.workspaceId &&
+          !isValidObjectIdString(typeof update.workspaceId === 'string' ? update.workspaceId : '')
+        ) {
+          delete update.workspaceId;
+        }
+      }
+
+      // 8S5: agentVersion is set ONCE at conversation creation (the same
+      // pattern as workspaceId above) — provenance of which Agent version
+      // governed this conversation must never silently change after the
+      // fact, including when the conversation continues after the Agent
+      // itself is later edited (which pushes a new versions[] entry but
+      // must not rewrite this conversation's own attribution).
+      if (Object.prototype.hasOwnProperty.call(update, 'agentVersion')) {
+        const existingAgentVersion = await Conversation.findOne(
+          { conversationId, user: userId },
+          'agentVersion',
+        ).lean<{ agentVersion?: number | null } | null>();
+        if (existingAgentVersion?.agentVersion != null) {
+          delete update.agentVersion;
+        }
+      }
+
       const mayChangeProjectMembership =
         Object.prototype.hasOwnProperty.call(update, 'chatProjectId') ||
         Object.prototype.hasOwnProperty.call(unsetFields, 'chatProjectId');

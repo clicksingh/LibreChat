@@ -434,6 +434,108 @@ describe('SSE stream tenant isolation', () => {
     });
   });
 
+  describe('fail-closed authenticated stream ownership (synthetic jobs)', () => {
+    for (const metadata of [undefined, {}, { tenantId: 'tenant-a' }]) {
+      it(
+        'refuses SSE subscribe and resume when job owner missing: ' + JSON.stringify(metadata),
+        async () => {
+          mockUserId = 'user-123';
+          mockTenantId = 'tenant-a';
+          mockGenerationJobManager.getJob.mockResolvedValue({ metadata, status: 'running' });
+          for (const suffix of ['', '?resume=true']) {
+            const res = await request(app).get('/agents/chat/stream/opaque-stream-id' + suffix);
+            expect(res.status).toBe(403);
+            expect(mockGenerationJobManager.subscribe).not.toHaveBeenCalled();
+            expect(mockGenerationJobManager.subscribeWithResume).not.toHaveBeenCalled();
+          }
+        },
+      );
+      it('refuses aborted job without owner: ' + JSON.stringify(metadata), async () => {
+        mockUserId = 'user-123';
+        mockTenantId = 'tenant-a';
+        mockGenerationJobManager.getJob.mockResolvedValue({ metadata, status: 'running' });
+        const res = await request(app)
+          .post('/agents/chat/abort')
+          .send({ streamId: 'opaque-stream-id' });
+        expect(res.status).toBe(403);
+        expect(mockGenerationJobManager.abortJob).not.toHaveBeenCalled();
+      });
+      it('refuses status endpoint without owner: ' + JSON.stringify(metadata), async () => {
+        mockUserId = 'user-123';
+        mockTenantId = 'tenant-a';
+        mockGenerationJobManager.getJob.mockResolvedValue({ metadata, status: 'running' });
+        const res = await request(app).get('/agents/chat/status/opaque-stream-id');
+        expect(res.status).toBe(403);
+        expect(mockGenerationJobManager.getResumeState).not.toHaveBeenCalled();
+      });
+    }
+    it('refuses a job with no owner even if the request identity is also malformed', async () => {
+      mockUserId = undefined;
+      mockTenantId = undefined;
+      mockGenerationJobManager.getJob.mockResolvedValue({
+        metadata: {},
+        status: 'running',
+      });
+      expect((await request(app).get('/agents/chat/stream/opaque-stream-id')).status).toBe(403);
+      expect((await request(app).get('/agents/chat/status/opaque-stream-id')).status).toBe(403);
+      expect(
+        (await request(app).post('/agents/chat/abort').send({ streamId: 'opaque-stream-id' }))
+          .status,
+      ).toBe(403);
+      expect(mockGenerationJobManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('denies other user in same tenant before delivering SSE events', async () => {
+      mockUserId = 'other-user';
+      mockTenantId = 'tenant-a';
+      mockGenerationJobManager.getJob.mockResolvedValue({
+        metadata: { userId: 'user-123', tenantId: 'tenant-a' },
+        status: 'running',
+      });
+      const res = await request(app).get('/agents/chat/stream/opaque-stream-id?resume=true');
+      expect(res.status).toBe(403);
+      expect(mockGenerationJobManager.subscribeWithResume).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('synthetic user-facing SSE resume envelope', () => {
+    it('replays an authorized published-file receipt in the sync envelope and ends cleanly', async () => {
+      mockUserId = 'owner-a';
+      mockTenantId = 'tenant-a';
+      mockGenerationJobManager.getJob.mockResolvedValue({
+        metadata: { userId: 'owner-a', tenantId: 'tenant-a' },
+        status: 'running',
+      });
+      const reference = {
+        file_id: 'out-0123456789abcdef0123',
+        storage_session_id: 'legacy-synthetic',
+        name: 'Final.pdf',
+        role: 'output',
+      };
+      const resumeState = { runSteps: [], aggregatedContent: [], lastUpdate: 1 };
+      const pendingEvents = [{ type: 'file', files: [reference] }];
+      mockGenerationJobManager.subscribeWithResume.mockImplementation(
+        (_streamId, _writeEvent, onDone) => {
+          process.nextTick(() => onDone({ done: true }));
+          return {
+            subscription: { unsubscribe: jest.fn() },
+            resumeState,
+            pendingEvents,
+          };
+        },
+      );
+      const res = await request(app).get('/agents/chat/stream/opaque-stream-id?resume=true');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toMatch(/^text\/event-stream/);
+      expect(res.text).toContain('event: message');
+      expect(res.text).toContain('"sync":true');
+      expect(res.text).toContain('"pendingEvents"');
+      expect(res.text).toContain(reference.file_id);
+      expect(res.text).toContain('"done":true');
+      expect(mockGenerationJobManager.subscribeWithResume).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('GET /chat/status/:conversationId', () => {
     it('echoes v2 for a clean jobless status after the server rollout gate', async () => {
       mockGenerationJobManager.getJob.mockResolvedValue(null);

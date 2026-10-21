@@ -155,6 +155,7 @@ export type TFile = {
    */
   previewError?: string;
   metadata?: {
+    workspaceFileAttachment?: boolean;
     fileIdentifier?: string;
     /**
      * Structured form of `fileIdentifier`. Persisted alongside the

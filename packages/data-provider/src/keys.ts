@@ -82,6 +82,14 @@ export enum QueryKeys {
   skillNodeContent = 'skillNodeContent',
   /* Tool favorites (starred marketplace items) */
   toolFavorites = 'toolFavorites',
+  /* 8S3D.1: Workspace OS */
+  workspaces = 'workspaces',
+  workspaceUsage = 'workspaceUsage',
+  workspaceFiles = 'workspaceFiles',
+  workspaceTrash = 'workspaceTrash',
+  quotaPolicies = 'quotaPolicies',
+  /* Skill favorites (star a skill in the sidebar) */
+  skillFavorites = 'skillFavorites',
   /* Per-user skill active/inactive overrides */
   skillStates = 'skillStates',
   /* General user favorites */

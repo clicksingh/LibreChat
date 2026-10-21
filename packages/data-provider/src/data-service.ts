@@ -10,6 +10,7 @@ import * as m from './types/mutations';
 import * as ag from './types/agents';
 import * as q from './types/queries';
 import * as sk from './types/skills';
+import * as ws from './types/workspace';
 import * as f from './types/files';
 import * as config from './config';
 import request from './request';
@@ -1436,3 +1437,173 @@ export interface ActiveJobsResponse {
 export const getActiveJobs = (): Promise<ActiveJobsResponse> => {
   return request.get(endpoints.activeJobs());
 };
+
+/* 8S3D.1 — Workspace OS */
+
+export function listWorkspaces(): Promise<ws.TWorkspaceListResponse> {
+  return request.get(endpoints.workspaces());
+}
+
+export function createWorkspace(payload: ws.TCreateWorkspaceRequest): Promise<ws.TWorkspace> {
+  return request.post(endpoints.workspaces(), payload);
+}
+
+export function renameWorkspace(id: string, name: string): Promise<ws.TWorkspace> {
+  return request.patch(endpoints.workspace(id), { name });
+}
+
+export function archiveWorkspace(id: string): Promise<ws.TWorkspace> {
+  return request.patch(endpoints.workspace(id), { archive: true });
+}
+
+export function addWorkspaceMember(id: string, payload: ws.TWorkspaceMemberGrantRequest) {
+  return request.post(endpoints.workspaceMembers(id), payload);
+}
+
+export function removeWorkspaceMember(id: string, principalType: string, principalId: string) {
+  return request.delete(endpoints.workspaceMember(id, principalType, principalId));
+}
+
+export function getPersonalWorkspaceUsage(): Promise<ws.TWorkspaceUsage> {
+  return request.get(endpoints.personalWorkspaceUsage());
+}
+
+export function getPersonalWorkspaceCleanupPreview(): Promise<ws.TWorkspaceCleanupPreview> {
+  return request.get(endpoints.personalWorkspaceCleanupPreview());
+}
+
+export function cleanupPersonalWorkspace(): Promise<ws.TWorkspaceCleanupResult> {
+  return request.post(endpoints.personalWorkspaceCleanup(), {});
+}
+
+export function listPersonalWorkspaceFiles(params?: {
+  cursor?: string;
+  limit?: number;
+}): Promise<ws.TWorkspaceFileListResponse> {
+  return request.get(endpoints.personalWorkspaceFiles(params));
+}
+
+export function downloadPersonalWorkspaceFile(
+  sessionId: string,
+  fileId: string,
+): Promise<AxiosResponse<Blob>> {
+  return request.getResponse(endpoints.personalWorkspaceFileDownload(sessionId, fileId), {
+    responseType: 'blob',
+    headers: { Accept: 'application/octet-stream' },
+  });
+}
+
+export function attachPersonalWorkspaceFile(payload: {
+  session_id: string;
+  file_id: string;
+  conversationId?: string;
+}): Promise<f.TFile> {
+  return request.post(endpoints.personalWorkspaceFileAttach(), payload);
+}
+
+export function attachProjectWorkspaceFile(
+  projectId: string,
+  payload: { session_id: string; file_id: string; conversationId?: string },
+): Promise<f.TFile> {
+  return request.post(endpoints.projectWorkspaceFileAttach(projectId), payload);
+}
+
+export function listPersonalWorkspaceTrash(params?: {
+  cursor?: string;
+  limit?: number;
+}): Promise<ws.TWorkspaceTrashListResponse> {
+  return request.get(endpoints.personalWorkspaceTrash(params));
+}
+
+export function trashPersonalWorkspaceFile(payload: { session_id: string; file_id: string }) {
+  return request.post(endpoints.personalWorkspaceTrashCreate(), payload);
+}
+
+export function restorePersonalWorkspaceFile(payload: { trash_id: string; newName?: string }) {
+  return request.post(endpoints.personalWorkspaceRestore(), payload);
+}
+
+export function purgePersonalWorkspaceFile(payload: { trash_id: string }) {
+  return request.post(endpoints.personalWorkspacePurge(), payload);
+}
+
+export function getProjectWorkspaceUsage(id: string): Promise<ws.TWorkspaceUsage> {
+  return request.get(endpoints.projectWorkspaceUsage(id));
+}
+
+export function getProjectWorkspaceCleanupPreview(
+  id: string,
+): Promise<ws.TWorkspaceCleanupPreview> {
+  return request.get(endpoints.projectWorkspaceCleanupPreview(id));
+}
+
+export function cleanupProjectWorkspace(id: string): Promise<ws.TWorkspaceCleanupResult> {
+  return request.post(endpoints.projectWorkspaceCleanup(id), {});
+}
+
+export function listProjectWorkspaceFiles(
+  id: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<ws.TWorkspaceFileListResponse> {
+  return request.get(endpoints.projectWorkspaceFiles(id, params));
+}
+
+export function downloadProjectWorkspaceFile(
+  workspaceId: string,
+  sessionId: string,
+  fileId: string,
+): Promise<AxiosResponse<Blob>> {
+  return request.getResponse(
+    endpoints.projectWorkspaceFileDownload(workspaceId, sessionId, fileId),
+    {
+      responseType: 'blob',
+      headers: { Accept: 'application/octet-stream' },
+    },
+  );
+}
+
+export function listProjectWorkspaceTrash(
+  id: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<ws.TWorkspaceTrashListResponse> {
+  return request.get(endpoints.projectWorkspaceTrash(id, params));
+}
+
+export function trashProjectWorkspaceFile(
+  id: string,
+  payload: { session_id: string; file_id: string },
+) {
+  return request.post(endpoints.projectWorkspaceTrashCreate(id), payload);
+}
+
+export function restoreProjectWorkspaceFile(
+  id: string,
+  payload: { trash_id: string; newName?: string },
+) {
+  return request.post(endpoints.projectWorkspaceRestore(id), payload);
+}
+
+export function purgeProjectWorkspaceFile(id: string, payload: { trash_id: string }) {
+  return request.post(endpoints.projectWorkspacePurge(id), payload);
+}
+
+/* 8S3D.1 — admin quota policy (issue #16, ADMIN role only server-side) */
+
+export function listQuotaPolicies(): Promise<ws.TQuotaPolicy[]> {
+  return request.get(endpoints.adminQuotaPolicies());
+}
+
+export function upsertQuotaPolicy(
+  scope: ws.TQuotaPolicyScope,
+  scopeId: string | null,
+  quotaBytes: number,
+): Promise<ws.TQuotaPolicy> {
+  return request.put(endpoints.adminQuotaPolicy(scope, scopeId), { quotaBytes });
+}
+
+export function deleteQuotaPolicy(
+  scope: ws.TQuotaPolicyScope,
+  scopeId: string | null,
+): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.adminQuotaPolicy(scope, scopeId));
+}

@@ -61,7 +61,7 @@ function coversTransferCall(labelPart: TMessageContentParts, allParts: PartWithI
  * THINK parts render standalone in their original positions and only runs
  * of >= 2 tool calls group.
  */
-export function groupSequentialToolCalls(parts: PartWithIndex[]): GroupedPart[] {
+export function groupSequentialToolCalls(parts: PartWithIndex[], minGroupSize = 2): GroupedPart[] {
   const result: GroupedPart[] = [];
   let currentBlock: PartWithIndex[] = [];
   /** Position in `currentBlock` just past the most recent BLANK label. A
@@ -72,7 +72,7 @@ export function groupSequentialToolCalls(parts: PartWithIndex[]): GroupedPart[] 
   const flushWithoutLabel = () => {
     let toolRun: PartWithIndex[] = [];
     const flushToolRun = () => {
-      if (toolRun.length >= 2) {
+      if (toolRun.length >= minGroupSize) {
         result.push({ type: 'tool-group', parts: [...toolRun] });
       } else {
         for (const p of toolRun) {

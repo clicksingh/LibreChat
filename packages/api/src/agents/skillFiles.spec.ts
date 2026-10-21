@@ -588,3 +588,137 @@ describe('primeSkillFiles — upload rate-limit resilience', () => {
     expect(results.every((r) => r !== null)).toBe(true);
   });
 });
+
+describe('C2 managed skill version and ownership fencing on cached code resources', () => {
+  function paramsFor(
+    refs: Array<
+      Partial<{
+        kind: string;
+        id: string;
+        version: number;
+        storage_session_id: string;
+        file_id: string;
+      }>
+    >,
+  ) {
+    const skillFiles = refs.map((ref, index) => ({
+      relativePath: 'references/ref-' + index + '.md',
+      filename: 'ref-' + index + '.md',
+      filepath: '/storage/ref-' + index,
+      source: 's3',
+      bytes: 10,
+      codeEnvRef: {
+        kind: 'skill' as const,
+        id: SKILL_ID.toString(),
+        version: SKILL_VERSION,
+        storage_session_id: 'old-live-session',
+        file_id: 'old-file-' + index,
+        ...ref,
+      },
+    }));
+    const batchUploadCodeEnvFiles = jest.fn().mockResolvedValue({
+      storage_session_id: 'new-version-session',
+      files: [
+        { fileId: 'new-skill-md', filename: 'brand-guidelines/SKILL.md' },
+        ...skillFiles.map((sf, i) => ({
+          fileId: 'new-file-' + i,
+          filename: 'brand-guidelines/' + sf.relativePath,
+        })),
+      ],
+    });
+    const getSessionInfo = jest.fn().mockResolvedValue(new Date().toISOString());
+    const getStrategyFunctions = jest.fn().mockReturnValue({
+      getDownloadStream: jest.fn().mockResolvedValue(Readable.from(Buffer.from('updated content'))),
+    });
+    const params: PrimeSkillFilesParams = {
+      skill: {
+        _id: SKILL_ID,
+        name: 'brand-guidelines',
+        version: SKILL_VERSION,
+        body: 'current SKILL.md v7',
+      },
+      // Malformed persisted refs are deliberate security test inputs.
+      skillFiles: skillFiles as unknown as PrimeSkillFilesParams['skillFiles'],
+      req: { user: { id: 'owner' } } as PrimeSkillFilesParams['req'],
+      batchUploadCodeEnvFiles,
+      getSessionInfo,
+      checkIfActive: jest.fn().mockReturnValue(true),
+      getStrategyFunctions,
+    };
+    return { params, batchUploadCodeEnvFiles, getSessionInfo };
+  }
+
+  it.each([
+    ['stale revision', { version: SKILL_VERSION - 1 }],
+    ['future revision', { version: SKILL_VERSION + 1 }],
+    ['different skill ID', { id: new Types.ObjectId().toString() }],
+    ['wrong resource kind', { kind: 'user', version: undefined }],
+    ['missing storage session', { storage_session_id: '' }],
+    ['missing file identity', { file_id: '' }],
+  ])('rejects live-looking %s without reading foreign/stale cache', async (_label, malformed) => {
+    const { params, batchUploadCodeEnvFiles, getSessionInfo } = paramsFor([malformed as never]);
+    const result = await primeSkillFiles(params);
+    expect(getSessionInfo).not.toHaveBeenCalled();
+    expect(batchUploadCodeEnvFiles).toHaveBeenCalledTimes(1);
+    expect(batchUploadCodeEnvFiles.mock.calls[0][0]).toMatchObject({
+      kind: 'skill',
+      id: SKILL_ID.toString(),
+      version: SKILL_VERSION,
+      read_only: true,
+    });
+    expect(result?.files[0]).toMatchObject({
+      id: 'new-file-0',
+      resource_id: SKILL_ID.toString(),
+      version: SKILL_VERSION,
+    });
+  });
+
+  it('a single stale file invalidates the whole cached bundle, not just the stale entry', async () => {
+    const { params, batchUploadCodeEnvFiles, getSessionInfo } = paramsFor([
+      {},
+      { version: SKILL_VERSION - 1 },
+    ]);
+    const result = await primeSkillFiles(params);
+    expect(getSessionInfo).not.toHaveBeenCalled();
+    expect(batchUploadCodeEnvFiles).toHaveBeenCalledTimes(1);
+    expect(result?.files).toHaveLength(2);
+    expect(result?.files.map((file) => file.id)).toEqual(['new-file-0', 'new-file-1']);
+  });
+
+  it('checks every file object even when distinct files share a live storage session', async () => {
+    const { params, batchUploadCodeEnvFiles, getSessionInfo } = paramsFor([{}, {}]);
+    getSessionInfo.mockImplementation(async (ref: { file_id: string }) =>
+      ref.file_id === 'old-file-0' ? new Date().toISOString() : null,
+    );
+    const result = await primeSkillFiles(params);
+    expect(getSessionInfo).toHaveBeenCalledTimes(2);
+    expect(getSessionInfo.mock.calls.map(([ref]) => ref.file_id).sort()).toEqual([
+      'old-file-0',
+      'old-file-1',
+    ]);
+    expect(batchUploadCodeEnvFiles).toHaveBeenCalledTimes(1);
+    expect(result?.files.map((f) => f.id)).toEqual(['new-file-0', 'new-file-1']);
+  });
+
+  it('fails closed when a deleted object cannot be refreshed, never returning stale refs', async () => {
+    const { params, batchUploadCodeEnvFiles, getSessionInfo } = paramsFor([{}, {}]);
+    getSessionInfo.mockResolvedValueOnce(new Date().toISOString()).mockResolvedValueOnce(null);
+    batchUploadCodeEnvFiles.mockRejectedValueOnce(new Error('codeapi unavailable'));
+    const result = await primeSkillFiles(params);
+    expect(getSessionInfo).toHaveBeenCalledTimes(2);
+    expect(batchUploadCodeEnvFiles).toHaveBeenCalledTimes(1);
+    expect(result).toBeNull();
+  });
+
+  it('still reuses only verified current-skill, current-version refs when live', async () => {
+    const { params, batchUploadCodeEnvFiles, getSessionInfo } = paramsFor([{}]);
+    const result = await primeSkillFiles(params);
+    expect(getSessionInfo).toHaveBeenCalledTimes(1);
+    expect(batchUploadCodeEnvFiles).not.toHaveBeenCalled();
+    expect(result?.files[0]).toMatchObject({
+      id: 'old-file-0',
+      resource_id: SKILL_ID.toString(),
+      version: SKILL_VERSION,
+    });
+  });
+});

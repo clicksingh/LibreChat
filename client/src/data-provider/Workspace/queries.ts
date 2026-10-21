@@ -1,0 +1,169 @@
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { QueryKeys, dataService } from 'librechat-data-provider';
+
+const WORKSPACE_LISTING_POLL_MS = 5_000;
+import type { QueryObserverResult, UseQueryOptions } from '@tanstack/react-query';
+import type {
+  TWorkspaceListResponse,
+  TWorkspaceUsage,
+  TWorkspaceCleanupPreview,
+  TWorkspaceFileListResponse,
+  TWorkspaceTrashListResponse,
+  TQuotaPolicy,
+} from 'librechat-data-provider';
+
+/** 8S3D.1 — admin quota policy (issue #16). Server enforces ADMIN role;
+ * this hook is only ever mounted behind a client-side role check too. */
+export const useQuotaPoliciesQuery = (
+  config?: UseQueryOptions<TQuotaPolicy[]>,
+): QueryObserverResult<TQuotaPolicy[]> => {
+  return useQuery<TQuotaPolicy[]>(
+    [QueryKeys.quotaPolicies],
+    () => dataService.listQuotaPolicies(),
+    { refetchOnWindowFocus: false, ...config },
+  );
+};
+
+export const useListWorkspacesQuery = (
+  config?: UseQueryOptions<TWorkspaceListResponse>,
+): QueryObserverResult<TWorkspaceListResponse> => {
+  return useQuery<TWorkspaceListResponse>(
+    [QueryKeys.workspaces],
+    () => dataService.listWorkspaces(),
+    {
+      refetchOnWindowFocus: false,
+      ...config,
+    },
+  );
+};
+
+export const usePersonalWorkspaceUsageQuery = (
+  config?: UseQueryOptions<TWorkspaceUsage>,
+): QueryObserverResult<TWorkspaceUsage> => {
+  return useQuery<TWorkspaceUsage>(
+    [QueryKeys.workspaceUsage, 'personal'],
+    () => dataService.getPersonalWorkspaceUsage(),
+    {
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      // Same reasoning as the files/trash polling: code execution changes
+      // usage server-side outside any client mutation, so a bar that only
+      // refetches on focus/mount can sit stale (e.g. still "0%") for a full
+      // panel session after a quota-exceeding write.
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
+  );
+};
+
+export const usePersonalWorkspaceCleanupPreviewQuery = (
+  config?: UseQueryOptions<TWorkspaceCleanupPreview>,
+): QueryObserverResult<TWorkspaceCleanupPreview> => {
+  return useQuery<TWorkspaceCleanupPreview>(
+    [QueryKeys.workspaceUsage, 'cleanup', 'personal'],
+    () => dataService.getPersonalWorkspaceCleanupPreview(),
+    {
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
+  );
+};
+
+export const useProjectWorkspaceUsageQuery = (
+  workspaceId: string | undefined,
+  config?: UseQueryOptions<TWorkspaceUsage>,
+): QueryObserverResult<TWorkspaceUsage> => {
+  return useQuery<TWorkspaceUsage>(
+    [QueryKeys.workspaceUsage, 'project', workspaceId],
+    () => dataService.getProjectWorkspaceUsage(workspaceId as string),
+    {
+      enabled: !!workspaceId,
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
+  );
+};
+
+export const useProjectWorkspaceCleanupPreviewQuery = (
+  workspaceId: string | undefined,
+  config?: UseQueryOptions<TWorkspaceCleanupPreview>,
+): QueryObserverResult<TWorkspaceCleanupPreview> => {
+  return useQuery<TWorkspaceCleanupPreview>(
+    [QueryKeys.workspaceUsage, 'cleanup', 'project', workspaceId],
+    () => dataService.getProjectWorkspaceCleanupPreview(workspaceId as string),
+    {
+      enabled: !!workspaceId,
+      refetchOnWindowFocus: true,
+      staleTime: 15_000,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+      ...config,
+    },
+  );
+};
+
+/** Personal workspace file browser — cursor-paginated, bounded per page (never a full recursive tree in one response). */
+// Chat-driven code execution writes files server-side outside of any
+// mutation this panel knows about, so a plain fetch-once-on-mount query can
+// permanently miss a file created moments after the panel opened.
+
+export const usePersonalWorkspaceFilesQuery = () => {
+  return useInfiniteQuery<TWorkspaceFileListResponse>(
+    [QueryKeys.workspaceFiles, 'personal'],
+    ({ pageParam }) => dataService.listPersonalWorkspaceFiles({ cursor: pageParam, limit: 100 }),
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+    },
+  );
+};
+
+export const useProjectWorkspaceFilesQuery = (workspaceId: string | undefined) => {
+  return useInfiniteQuery<TWorkspaceFileListResponse>(
+    [QueryKeys.workspaceFiles, 'project', workspaceId],
+    ({ pageParam }) =>
+      dataService.listProjectWorkspaceFiles(workspaceId as string, {
+        cursor: pageParam,
+        limit: 100,
+      }),
+    {
+      enabled: !!workspaceId,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+    },
+  );
+};
+
+export const usePersonalWorkspaceTrashQuery = () => {
+  return useInfiniteQuery<TWorkspaceTrashListResponse>(
+    [QueryKeys.workspaceTrash, 'personal'],
+    ({ pageParam }) => dataService.listPersonalWorkspaceTrash({ cursor: pageParam, limit: 100 }),
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+    },
+  );
+};
+
+export const useProjectWorkspaceTrashQuery = (workspaceId: string | undefined) => {
+  return useInfiniteQuery<TWorkspaceTrashListResponse>(
+    [QueryKeys.workspaceTrash, 'project', workspaceId],
+    ({ pageParam }) =>
+      dataService.listProjectWorkspaceTrash(workspaceId as string, {
+        cursor: pageParam,
+        limit: 100,
+      }),
+    {
+      enabled: !!workspaceId,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      refetchOnWindowFocus: false,
+      refetchInterval: WORKSPACE_LISTING_POLL_MS,
+    },
+  );
+};

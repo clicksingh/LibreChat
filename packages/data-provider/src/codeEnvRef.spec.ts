@@ -45,11 +45,21 @@ describe('CodeEnvRef', () => {
     expect(ref.kind).toBe('agent');
   });
 
+  it('accepts project-scoped persisted artifacts', () => {
+    const ref: CodeEnvRef = {
+      kind: 'project',
+      id: 'workspace_abc',
+      storage_session_id: 'sess_project',
+      file_id: 'docx_abc',
+    };
+    expect(ref.kind).toBe('project');
+  });
+
   it('CODE_ENV_KINDS pins the closed set of kinds', () => {
     /* Adding a new kind requires updating the runtime tuple AND
      * surfacing it in `resolveSessionKey`'s exhaustive switch. The
      * `as const` shape makes this catch-able by the type system. */
     const kinds: CodeEnvKind[] = [...CODE_ENV_KINDS];
-    expect(kinds).toEqual(['skill', 'agent', 'user']);
+    expect(kinds).toEqual(['skill', 'agent', 'user', 'project']);
   });
 });

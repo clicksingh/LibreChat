@@ -218,6 +218,22 @@ describe('Code CRUD', () => {
       },
     );
 
+    it('never deletes a borrowed workspace file even when it has a CodeAPI ref', async () => {
+      await deleteCodeEnvFile(req, {
+        metadata: {
+          workspaceFileAttachment: true,
+          codeEnvRef: {
+            kind: 'project',
+            id: 'project-A',
+            storage_session_id: 'session-A',
+            file_id: 'file-A',
+          },
+        },
+      });
+      expect(mockAxios).not.toHaveBeenCalled();
+      expect(getCodeApiAuthHeaders).not.toHaveBeenCalled();
+    });
+
     it('skips files without a code environment ref', async () => {
       await deleteCodeEnvFile(req, {});
 

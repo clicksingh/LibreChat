@@ -34,6 +34,11 @@ const {
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { logViolation } = require('~/cache');
 const TextStream = require('./TextStream');
+const {
+  latestAttachments,
+  missingFinalArtifactResponse,
+  ensureVisibleEmptyFinalResponse,
+} = require('./outputArtifacts');
 const db = require('~/models');
 
 const collectHistoricalFileRefs = (message) => {
@@ -834,8 +839,14 @@ class BaseClient {
     }
 
     if (this.artifactPromises) {
-      responseMessage.attachments = (await Promise.all(this.artifactPromises)).filter((a) => a);
+      responseMessage.attachments = latestAttachments(await Promise.all(this.artifactPromises));
+      // A tool-heavy agent may emit only tool calls and no final prose. Don't
+      // save an apparently blank answer when reviewed files were delivered.
+      missingFinalArtifactResponse(responseMessage);
     }
+
+    // Never persist an empty finished assistant turn after an agent stream abort.
+    ensureVisibleEmptyFinalResponse(responseMessage);
 
     if (this.options.attachments) {
       try {

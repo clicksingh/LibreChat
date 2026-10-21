@@ -27,7 +27,7 @@
         height: 100%;
       }
     </style>
-    <script>
+    <script data-cfasync="false">
       const theme = localStorage.getItem('color-theme');
       const loadingContainerStyle = document.createElement('style');
       let backgroundColor;
@@ -54,7 +54,7 @@
       `;
       document.head.appendChild(loadingContainerStyle);
     </script>
-    <script>
+    <script data-cfasync="false">
       (function () {
         var KEY = 'lc-asset-recovery-at';
         var RUM_QUEUE_KEY = 'lc-rum-queue';
@@ -193,7 +193,7 @@
       type="module"
       src="/src/lib/rum/bootstrap-entry.js"
     ></script>
-    <script defer type="module" src="/src/main.jsx"></script>
+    <script data-cfasync="false" defer type="module" src="/src/main.jsx"></script>
   </head>
   <body>
     <div id="root">

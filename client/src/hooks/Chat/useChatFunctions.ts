@@ -14,6 +14,8 @@ import {
   replaceSpecialVars,
   isAssistantsEndpoint,
   getDefaultParamsEndpoint,
+  PermissionTypes,
+  Permissions,
 } from 'librechat-data-provider';
 import type {
   TMessage,
@@ -32,6 +34,7 @@ import {
   hasStreamStartFailed,
   createDualMessageContent,
   getRouteChatProjectId,
+  applyVisualQaToRequest,
 } from '~/utils';
 import useFocusRegeneratedResponse from '~/hooks/Chat/useFocusRegeneratedResponse';
 import useSetFilesToDelete from '~/hooks/Files/useSetFilesToDelete';
@@ -39,7 +42,7 @@ import useGetSender from '~/hooks/Conversations/useGetSender';
 import store, { useGetEphemeralAgent } from '~/store';
 import { startupConfigKey } from '~/data-provider';
 import useUserKey from '~/hooks/Input/useUserKey';
-import { useAuthContext } from '~/hooks';
+import { useAuthContext, useHasAccess } from '~/hooks';
 
 /** A revalidating cache younger than this is locally authoritative (the run
  * that just streamed wrote it) and stays sendable; older ones wait for the
@@ -212,6 +215,13 @@ export default function useChatFunctions({
   const navigate = useNavigate();
   const getSender = useGetSender();
   const { user } = useAuthContext();
+  // UX request-intent ceiling. A stale model spec or localStorage preference
+  // must not advertise code/vision tools to users who cannot run code.
+  // Backend resolveEffectiveCodeEnv remains the actual authorization gate.
+  const canRunCode = useHasAccess({
+    permissionType: PermissionTypes.RUN_CODE,
+    permission: Permissions.USE,
+  });
   const queryClient = useQueryClient();
   const setFilesToDelete = useSetFilesToDelete();
   const getEphemeralAgent = useGetEphemeralAgent();
@@ -355,7 +365,16 @@ export default function useChatFunctions({
 
     setShowStopButton(false);
 
-    const ephemeralAgent = getEphemeralAgent(conversationId ?? Constants.NEW_CONVO);
+    const storedEphemeralAgent = getEphemeralAgent(conversationId ?? Constants.NEW_CONVO);
+    // The UI toggle requests visual QA only when the user may execute code.
+    // Server capability/ACL checks remain the authoritative execution gate.
+    const ephemeralAgent = canRunCode
+      ? applyVisualQaToRequest(storedEphemeralAgent)
+      : {
+          ...(storedEphemeralAgent ?? {}),
+          execute_code: false,
+          document_visual_qa: false,
+        };
     /**
      * Manual skill selection resolution:
      *  - Explicit `overrideManualSkills` wins (regenerate / save-and-submit

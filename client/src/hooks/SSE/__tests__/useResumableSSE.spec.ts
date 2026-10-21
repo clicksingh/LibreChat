@@ -3791,6 +3791,23 @@ describe('useResumableSSE', () => {
     unmount();
   });
 
+  it('explains terminated generation without hiding the server failure', async () => {
+    const { unmount } = renderHook(() => useResumableSSE(buildSubmission(), buildChatHelpers()));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const sse = getLastSSE();
+    await act(async () => {
+      sse._emit('error', { data: JSON.stringify({ error: 'terminated' }) });
+    });
+
+    const failure = mockErrorHandler.mock.lastCall?.[0] as { data: { text: string } };
+    expect(failure.data.text).not.toBe('terminated');
+    expect(failure.data.text.length).toBeGreaterThan(20);
+    unmount();
+  });
+
   it('removes the optimistic sidebar row when a new conversation errors before created', async () => {
     mockFindAll.mockReturnValue([{ queryKey: [QueryKeys.allConversations] }]);
     const submission = buildSubmission({

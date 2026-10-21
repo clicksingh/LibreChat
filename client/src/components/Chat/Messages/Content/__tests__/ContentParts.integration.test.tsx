@@ -1,14 +1,23 @@
 import React from 'react';
 import { RecoilRoot } from 'recoil';
-import { ContentTypes } from 'librechat-data-provider';
+import { ContentTypes, SystemRoles } from 'librechat-data-provider';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { TAttachment, TMessageContentParts } from 'librechat-data-provider';
 import ContentParts from '../ContentParts';
 
+let mockRole = SystemRoles.ADMIN;
+
 jest.mock('~/hooks', () => ({
+  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),
   useLocalize: () => (key: string, values?: Record<string | number, string>) => {
     if (key === 'com_ui_used_n_tools') {
       return `Used ${values?.[0]} tools`;
+    }
+    if (key === 'com_ui_working') {
+      return 'Working…';
+    }
+    if (key === 'com_ui_work_completed') {
+      return 'Work completed';
     }
     return key;
   },
@@ -116,6 +125,16 @@ jest.mock('../Container', () => ({
   default: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
 
+jest.mock('../SiblingHeader', () => ({
+  __esModule: true,
+  default: () => <div data-testid="sibling-header" />,
+}));
+
+jest.mock('~/components/Web/Sources', () => ({
+  __esModule: true,
+  default: () => <div data-testid="sources" />,
+}));
+
 jest.mock('~/utils', () => {
   const actual = jest.requireActual('~/utils');
   return {
@@ -170,6 +189,10 @@ const renderContentParts = (props: React.ComponentProps<typeof ContentParts>) =>
   );
 
 describe('ContentParts integration: MCP image hoist and grouping', () => {
+  beforeEach(() => {
+    mockRole = SystemRoles.ADMIN;
+  });
+
   const baseProps = {
     messageId: 'msg1',
     isCreatedByUser: false,
@@ -177,6 +200,42 @@ describe('ContentParts integration: MCP image hoist and grouping', () => {
     isSubmitting: false,
     isLatestMessage: true,
   };
+
+  it('groups a single tool call for managed users and keeps attachments visible', () => {
+    mockRole = SystemRoles.USER;
+    const content = [makeMcpToolCall('t1')];
+    const attachments = [imageAttachment('t1', 'a.png')];
+
+    renderContentParts({
+      ...baseProps,
+      content,
+      attachments,
+    });
+
+    const button = screen.getByRole('button', { name: 'Work completed' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    const groups = screen.getAllByTestId('attachment-group');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].getAttribute('data-count')).toBe('1');
+  });
+
+  it('groups managed tool activity before, inside, and after parallel sections', () => {
+    mockRole = SystemRoles.USER;
+    const before = makeMcpToolCall('t-before');
+    const inside = {
+      ...makeMcpToolCall('t-inside'),
+      groupId: 1,
+      agentId: 'agent-a',
+    } as unknown as TMessageContentParts;
+    const after = makeMcpToolCall('t-after');
+
+    renderContentParts({
+      ...baseProps,
+      content: [before, inside, after],
+    });
+
+    expect(screen.getAllByRole('button', { name: 'Work completed' })).toHaveLength(3);
+  });
 
   it('groups 2+ MCP tool calls and hoists their attachments outside the collapsible', () => {
     const content = [makeMcpToolCall('t1'), makeMcpToolCall('t2')];
