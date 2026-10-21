@@ -150,6 +150,28 @@ test('backend helper performs read-only bounded per-ref query and verifies resul
   assert.equal(out.length, 1);
   assert.equal(out[0].sha256, 'a'.repeat(64));
 });
+test('hash source cannot select colliding records from another owner or tenant', async () => {
+  const session = { get: () => ({ files: [ref(a)] }) };
+  // Deliberately put the colliding but unauthorized storage identities first.
+  // Query-level owner filtering is defense in depth, not the only proof.
+  const crossTenant = { ...a, tenantId: 'tenant-two', filepath: '/foreign-tenant.docx' };
+  const crossOwner = { ...a, user: 'foreign-user', filepath: '/foreign-owner.docx' };
+  const authorized = { ...a, filepath: '/owned-file.docx' };
+  const hashed = [];
+  const out = await resolveAuthorizedFileGrants({
+    req: req(),
+    initialSessions: session,
+    getFiles: async () => [crossTenant, crossOwner, authorized],
+    hashFile: async (_request, selected) => {
+      hashed.push(selected);
+      return 'b'.repeat(64);
+    },
+  });
+  assert.deepEqual(hashed, [authorized]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].sha256, 'b'.repeat(64));
+});
+
 test('no imported refs does not query DB or manufacture file grants', async () => {
   const out = await resolveAuthorizedFileGrants({
     req: req(),
