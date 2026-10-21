@@ -11,7 +11,7 @@ const {
   getRemoteFileFetchTimeoutMs,
   assertRemoteFileContentLength,
 } = require('@librechat/api');
-const { ref, uploadBytes, getDownloadURL, deleteObject } = require('firebase/storage');
+const { ref, uploadBytes, getDownloadURL, deleteObject } = require('@firebase/storage');
 const { getBufferMetadata } = require('~/server/utils');
 
 /**

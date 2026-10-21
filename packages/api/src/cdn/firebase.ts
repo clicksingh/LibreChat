@@ -1,8 +1,8 @@
-import { initializeApp } from 'firebase/app';
-import { getStorage } from 'firebase/storage';
+import { initializeApp } from '@firebase/app';
+import { getStorage } from '@firebase/storage';
 import { logger } from '@librechat/data-schemas';
-import type { FirebaseStorage } from 'firebase/storage';
-import type { FirebaseApp } from 'firebase/app';
+import type { FirebaseStorage } from '@firebase/storage';
+import type { FirebaseApp } from '@firebase/app';
 
 let firebaseInitCount = 0;
 let firebaseApp: FirebaseApp | null = null;
