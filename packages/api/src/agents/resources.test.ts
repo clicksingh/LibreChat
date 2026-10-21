@@ -286,6 +286,122 @@ describe('primeResources', () => {
       expect(result.tool_resources?.[EToolResources.execute_code]?.files).toEqual(mockFiles);
     });
 
+    it('keeps indexed file_search available when a DOCX also has a reusable code ref', async () => {
+      const file = {
+        user: 'user1',
+        file_id: 'file1',
+        filename: 'indexed.docx',
+        filepath: '/uploads/indexed.docx',
+        object: 'file' as const,
+        type: 'application/octet-stream',
+        bytes: 2048,
+        embedded: true,
+        usage: 0,
+        metadata: {
+          codeEnvRef: {
+            kind: 'user' as const,
+            id: 'user1',
+            storage_session_id: 'existing-session',
+            file_id: 'obj1',
+          },
+        },
+      };
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet,
+        attachments: Promise.resolve([file]),
+        tool_resources: {},
+      });
+      expect(result.tool_resources?.[EToolResources.execute_code]?.files).toEqual([file]);
+      expect(result.tool_resources?.[EToolResources.file_search]?.files).toEqual([file]);
+    });
+
+    it('routes five unindexed DOCX attachments to execution without claiming vector indexing', async () => {
+      const files = Array.from({ length: 5 }, (_, i) => ({
+        user: 'user1',
+        file_id: `file${i + 1}`,
+        filename: `procedure-${i}.docx`,
+        filepath: `/uploads/procedure-${i}.docx`,
+        object: 'file' as const,
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        bytes: 4096,
+        embedded: false,
+        usage: 0,
+      }));
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet: new Set(files.map((f) => f.file_id)),
+        attachments: Promise.resolve(files),
+        tool_resources: {},
+      });
+      expect(result.tool_resources?.[EToolResources.execute_code]?.files).toHaveLength(5);
+      expect(result.tool_resources?.[EToolResources.file_search]).toBeUndefined();
+    });
+
+    it('routes an unindexed XLSX attachment to code tools without semantic indexing', async () => {
+      const file = {
+        user: 'user1',
+        file_id: 'file1',
+        filename: 'accounts.xlsx',
+        filepath: '/uploads/accounts.xlsx',
+        object: 'file' as const,
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        bytes: 2048,
+        embedded: false,
+        usage: 0,
+      };
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet,
+        attachments: Promise.resolve([file]),
+        tool_resources: {},
+      });
+      expect(result.tool_resources?.[EToolResources.execute_code]?.files).toEqual([file]);
+      expect(result.tool_resources?.[EToolResources.file_search]).toBeUndefined();
+    });
+
+    it('does not import non-requested or oversize unindexed documents', async () => {
+      const files = [
+        {
+          user: 'user1',
+          file_id: 'old',
+          filename: 'old.docx',
+          filepath: '/x',
+          object: 'file' as const,
+          type: 'application/octet-stream',
+          bytes: 100,
+          embedded: false,
+          usage: 0,
+        },
+        {
+          user: 'user1',
+          file_id: 'file1',
+          filename: 'large.docx',
+          filepath: '/x',
+          object: 'file' as const,
+          type: 'application/octet-stream',
+          bytes: 30 * 1024 * 1024,
+          embedded: false,
+          usage: 0,
+        },
+      ];
+      const result = await primeResources({
+        req: mockReq,
+        appConfig: mockAppConfig,
+        getFiles: mockGetFiles,
+        requestFileSet,
+        attachments: Promise.resolve(files),
+        tool_resources: {},
+      });
+      expect(result.tool_resources?.[EToolResources.execute_code]).toBeUndefined();
+    });
+
     it('should process embedded files as file_search resources', async () => {
       const mockFiles: TFile[] = [
         {

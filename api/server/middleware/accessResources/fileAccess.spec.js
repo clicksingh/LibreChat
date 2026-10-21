@@ -141,6 +141,26 @@ describe('fileAccess middleware', () => {
       });
     });
 
+    test('denies a project-borrowed attachment after workspace permission is absent', async () => {
+      const projectId = new mongoose.Types.ObjectId().toString();
+      await createFile({
+        user: testUser._id.toString(),
+        file_id: 'project_borrowed_without_acl',
+        filepath: 'cbhrwsref://project/' + projectId + '/qa/source',
+        filename: 'private-source.pdf',
+        type: 'application/pdf',
+        size: 128,
+        metadata: {
+          workspaceFileAttachment: true,
+          codeEnvRef: { kind: 'project', id: projectId, storage_session_id: 'qa', file_id: 'source' },
+        },
+      });
+      req.params.file_id = 'project_borrowed_without_acl';
+      await fileAccess(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
     test('should allow tenant-scoped users to access owned legacy files without tenantId', async () => {
       await createFile({
         user: testUser._id.toString(),

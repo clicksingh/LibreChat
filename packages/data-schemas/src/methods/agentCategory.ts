@@ -178,6 +178,7 @@ export function createAgentCategoryMethods(mongoose: typeof import('mongoose')):
    */
   async function ensureDefaultCategories(): Promise<boolean> {
     const AgentCategory = mongoose.models.AgentCategory as Model<IAgentCategory>;
+    await AgentCategory.init();
 
     const defaultCategories = [
       {
@@ -245,12 +246,14 @@ export function createAgentCategoryMethods(mongoose: typeof import('mongoose')):
           });
         }
       } else {
-        await createCategory({
-          ...defaultCategory,
-          isActive: true,
-          custom: false,
-        });
-        created++;
+        try {
+          await createCategory({ ...defaultCategory, isActive: true, custom: false });
+          created++;
+        } catch (error) {
+          if ((error as { code?: number }).code !== 11000) throw error;
+          // Another startup replica inserted the same default after our read.
+          // The unique index has protected it; leave the first row intact.
+        }
       }
     }
 

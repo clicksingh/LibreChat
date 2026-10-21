@@ -22,6 +22,7 @@ const {
   getCodeApiAuthHeaders,
   getReplayablePendingMCPOAuthStart,
   getMCPServerNamesFromTools,
+  checkAccessWithRequestCache,
   buildMCPAuthToolCall,
   buildMCPAuthStepId,
   buildMCPAuthRunStepEvent,
@@ -42,7 +43,9 @@ const {
   Constants,
   CacheKeys,
   ErrorTypes,
+  Permissions,
   ContentTypes,
+  PermissionTypes,
   imageGenTools,
   EModelEndpoint,
   EToolResources,
@@ -84,9 +87,12 @@ const {
 const { getMCPRequestContext } = require('~/server/services/MCPRequestContext');
 const { recordUsage } = require('~/server/services/Threads');
 const { loadTools } = require('~/app/clients/tools/util');
-const { findPluginAuthsByKeys } = require('~/models');
+const { findPluginAuthsByKeys, getRoleByName } = require('~/models');
 const { getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { getLogStores } = require('~/cache');
+const { createDocumentVisualQATool } = require('~/server/services/Tools/documentVisualQA');
+const { createAgentManagementTool } = require('~/server/services/Tools/agentManagement');
+const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
 
 const domainSeparatorRegex = new RegExp(actionDomainSeparator, 'g');
 
@@ -182,6 +188,13 @@ async function resolveAgentCapabilities(req, appConfig, agentId) {
     capabilities = new Set(
       appConfig.endpoints?.[EModelEndpoint.agents]?.capabilities ?? defaultAgentCapabilities,
     );
+  }
+  /* 8S3C.2 — RUN_CODE authorization gate. The GLOBAL capability alone must not
+   * grant code execution: strip `execute_code` when the requesting user lacks
+   * RUN_CODE.USE. Every downstream checkCapability / codeExecutionEnabled /
+   * isPTC read in this module then naturally denies the code environment. */
+  if (capabilities.has(AgentCapabilities.execute_code) && !(await isRunCodeUseAllowed(req))) {
+    capabilities.delete(AgentCapabilities.execute_code);
   }
   return capabilities;
 }
@@ -1694,7 +1707,10 @@ async function loadToolsForExecution({
   const isPTCRequested = ptcToolNames.length > 0;
   const isBashToolRequested = toolNames.includes(AgentConstants.BASH_TOOL);
   const isLegacyExecuteCodeRequested = toolNames.includes(Tools.execute_code);
-  const isCodeExecutionToolRequested = isBashToolRequested || isLegacyExecuteCodeRequested;
+  const isCodeExecutionToolRequested =
+    isBashToolRequested ||
+    isLegacyExecuteCodeRequested ||
+    toolNames.includes(Tools.document_visual_qa);
 
   let enabledCapabilities;
   if (actionsEnabled === undefined || isPTCRequested || isCodeExecutionToolRequested) {
@@ -1756,10 +1772,12 @@ async function loadToolsForExecution({
     }
   }
 
-  const isBashTool =
-    isBashToolRequested &&
-    codeExecutionEnabled &&
-    toolRegistry?.has(AgentConstants.BASH_TOOL) === true;
+  const codeExecutionEnabledForRun =
+    enabledCapabilities?.has(AgentCapabilities.execute_code) === true;
+  // A requested bash_tool is authorized by both agent-level execute_code
+  // selection and the requester RUN_CODE.USE capability, not by whether
+  // the optional deferred-tool registry has already materialized it.
+  const isBashTool = isBashToolRequested && codeExecutionEnabled;
   if (isBashToolRequested && !isBashTool) {
     logger.warn(
       `[loadToolsForExecution] Skipping unregistered or unauthorized ${AgentConstants.BASH_TOOL}. ` +
@@ -1778,6 +1796,48 @@ async function loadToolsForExecution({
     }
   }
 
+  const isDocumentVisualQATool = toolNames.includes(Tools.document_visual_qa);
+  if (isDocumentVisualQATool && codeExecutionEnabledForRun) {
+    try {
+      const documentVisualQATool = createDocumentVisualQATool({ req });
+      allLoadedTools.push(documentVisualQATool);
+    } catch (error) {
+      logger.error('[loadToolsForExecution] Failed to create document_visual_qa tool', error);
+    }
+  }
+
+  /* 8S5 — load-time gate for agent_management, mirroring the RUN_CODE
+   * pattern above but against PermissionTypes.AGENTS.USE: never
+   * materialize the tool for a user with zero Agent-management authority
+   * at all (cleaner UX — the model won't even see it offered), even
+   * though every individual action inside the tool ALSO independently
+   * re-checks its own required permission bit (defense in depth, not a
+   * single point of trust). */
+  const isAgentManagementTool = toolNames.includes(Tools.agent_management);
+  if (isAgentManagementTool) {
+    try {
+      const agentManagementAllowed =
+        req?.user?.id &&
+        req?.user?.role &&
+        (await checkAccessWithRequestCache({
+          req,
+          user: req.user,
+          permissionType: PermissionTypes.AGENTS,
+          permissions: [Permissions.USE],
+          getRoleByName,
+        }));
+      if (agentManagementAllowed) {
+        allLoadedTools.push(createAgentManagementTool({ req }));
+      } else {
+        logger.warn(
+          `[loadToolsForExecution] Skipping agent_management tool for User ${req?.user?.id}: AGENTS.USE denied`,
+        );
+      }
+    } catch (error) {
+      logger.error('[loadToolsForExecution] Failed to create agent_management tool', error);
+    }
+  }
+
   const fileAuthoringToolNames = new Set(
     toolRegistry
       ? Array.from(toolRegistry.values())
@@ -1792,6 +1852,7 @@ async function loadToolsForExecution({
     AgentConstants.BASH_TOOL,
     AgentConstants.SKILL_TOOL,
     AgentConstants.READ_FILE,
+    Tools.document_visual_qa,
     ...fileAuthoringToolNames,
   ]);
 

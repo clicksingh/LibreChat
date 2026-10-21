@@ -85,6 +85,12 @@ describe('buildCodeEnvDownloadQuery', () => {
     );
   });
 
+  it('builds project-scoped query with resource identity and no version', () => {
+    expect(buildCodeEnvDownloadQuery({ kind: 'project', id: 'workspace_abc' })).toBe(
+      '?kind=project&id=workspace_abc',
+    );
+  });
+
   it('URL-encodes ids that contain special characters', () => {
     /* `id` shouldn't normally contain unsafe chars (it's a uuid or
      * mongo ObjectId), but the URLSearchParams plumbing handles it

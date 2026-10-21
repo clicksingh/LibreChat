@@ -2,7 +2,13 @@ import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { useRecoilValue } from 'recoil';
 import { Button } from '@librechat/client';
 import { ChevronDown, MessageCircleQuestion, Users } from 'lucide-react';
-import { Tools, Constants, ContentTypes, ToolCallTypes } from 'librechat-data-provider';
+import {
+  Tools,
+  Constants,
+  ContentTypes,
+  ToolCallTypes,
+  SystemRoles,
+} from 'librechat-data-provider';
 import type {
   TAttachment,
   TMessageContentParts,
@@ -11,7 +17,12 @@ import type {
 } from 'librechat-data-provider';
 import type { PartWithIndex } from './ParallelContent';
 import { cn, getToolDisplayLabel, getBatchActivityLabelPart, getActivityLabelText } from '~/utils';
-import { useLocalize, useExpandCollapse, scheduleMessageContentLayoutReconcile } from '~/hooks';
+import {
+  useLocalize,
+  useAuthContext,
+  useExpandCollapse,
+  scheduleMessageContentLayoutReconcile,
+} from '~/hooks';
 import { useMCPIconMap, useMCPServerNames } from '~/hooks/MCP';
 import { isBashProgrammaticToolCall } from './routing';
 import { ASK_USER_QUESTION } from '~/utils/approval';
@@ -130,6 +141,8 @@ export default function ToolCallGroup({
   labelPart,
 }: ToolCallGroupProps) {
   const localize = useLocalize();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const mcpIconMap = useMCPIconMap();
   const mcpServerNames = useMCPServerNames();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -221,10 +234,13 @@ export default function ToolCallGroup({
   /** A labeled activity block is summarized by its header, so it collapses
    *  even at a single tool call — agent runs are full of one-call batches,
    *  and leaving those expanded defeats the grouping. */
-  const autoCollapse = !autoExpand && allCompleted && (count >= 2 || activityLabelText.length > 0);
+  const effectiveAutoExpand = !isManagedUser && autoExpand;
+  const autoCollapse =
+    isManagedUser ||
+    (!effectiveAutoExpand && allCompleted && (count >= 2 || activityLabelText.length > 0));
   const initialState = initialExpansionState?.userOverride === true ? initialExpansionState : null;
   const [isExpanded, setIsExpanded] = useState(
-    initialState?.isExpanded ?? (autoExpand || !autoCollapse),
+    initialState?.isExpanded ?? (isManagedUser ? false : effectiveAutoExpand || !autoCollapse),
   );
   const [userOverride, setUserOverride] = useState(initialState != null);
   const [shouldRenderBody, setShouldRenderBody] = useState(isExpanded);
@@ -327,7 +343,13 @@ export default function ToolCallGroup({
   /** The generated line wins over the generic category verb — but only once
    *  it exists. An unfilled label part leaves the block rendering exactly as
    *  it would without the feature. */
-  const groupLabel = activityLabelText.length > 0 ? activityLabelText : resolveGroupLabel();
+  let groupLabel = activityLabelText.length > 0 ? activityLabelText : resolveGroupLabel();
+  if (isManagedUser) {
+    groupLabel =
+      isSubmitting && !allCompleted
+        ? localize('com_ui_working')
+        : localize('com_ui_work_completed');
+  }
   /** Single category glyph for homogeneous groups (else StackedToolIcons). */
   const CategoryIcon = allSubagents ? Users : MessageCircleQuestion;
 
@@ -337,11 +359,11 @@ export default function ToolCallGroup({
   );
 
   useEffect(() => {
-    if (hasActiveToolCall && !userOverride) {
+    if (hasActiveToolCall && !userOverride && !isManagedUser) {
       setShouldRenderBody(true);
       setIsExpanded(true);
     }
-  }, [hasActiveToolCall, userOverride]);
+  }, [hasActiveToolCall, userOverride, isManagedUser]);
 
   return (
     <div className="mb-2 mt-1" ref={rootRef}>
@@ -389,7 +411,7 @@ export default function ToolCallGroup({
         {/** Hide the tool-name summary for pure-category groups (subagents /
          *   questions) — every entry deduplicates to the same token, which
          *   adds noise without info. Mixed groups keep the summary. */}
-        {toolNameSummary && !allSubagents && !allAskQuestions && (
+        {toolNameSummary && !allSubagents && !allAskQuestions && !isManagedUser && (
           <span className="min-w-0 max-w-[40%] truncate text-xs font-normal text-text-secondary">
             · {toolNameSummary}
           </span>

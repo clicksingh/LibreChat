@@ -229,7 +229,7 @@ export interface ToolExecuteOptions {
   batchUploadCodeEnvFiles?: (params: {
     req: ServerRequest;
     files: Array<{ stream: NodeJS.ReadableStream; filename: string }>;
-    kind: 'skill' | 'agent' | 'user';
+    kind: 'skill' | 'agent' | 'user' | 'project';
     id: string;
     version?: number;
     read_only?: boolean;
@@ -2955,9 +2955,12 @@ async function handleReadFileCall(
   let accessibleIds = (mergedConfigurable?.accessibleSkillIds as Types.ObjectId[]) ?? [];
 
   /**
-   * Short-circuit absolute code-env paths: the path can never be a skill
-   * reference (skill paths are relative `{skillName}/...`), and consulting
-   * `getSkillByName` would just burn a DB round-trip on a guaranteed miss.
+   * Short-circuit legacy absolute code-env paths (`/mnt/data/...`). S7
+   * tool descriptions now direct the model to relative workspace paths
+   * (e.g. `report.csv`), which fall through to the sandbox below via the
+   * no-slash / unknown-skill branches; this branch only serves
+   * pre-S7 conversations that still emit the Cloud path. Consulting
+   * `getSkillByName` on it would burn a DB round-trip on a guaranteed miss.
    */
   if (args.path.startsWith('/mnt/data/')) {
     if (codeEnvAvailable) {
@@ -3197,13 +3200,10 @@ async function handleReadFileCall(
     };
   }
 
-  /* Bundled skill files are primed into the sandbox under the `skills/`
-   * namespace (see `primeSkillFiles`), so the on-disk path is always
-   * `/mnt/data/skills/{skillName}/{relativePath}` regardless of whether the
-   * model addressed the file with or without the explicit prefix. Use this
-   * canonical path in the bash-fallback hints below so they never echo a
-   * prefix-less `args.path` that points nowhere on disk. */
-  const sandboxFilePath = `/mnt/data/${SKILL_FILE_PREFIX}${skillName}/${relativePath}`;
+  /* Bundled skills are primed under skills/ in the persistent working
+   * directory. CodeAPI deliberately does not expose a /mnt/data mount.
+   * Keep the canonical skill prefix for models that used a bare name. */
+  const sandboxFilePath = `${SKILL_FILE_PREFIX}${skillName}/${relativePath}`;
 
   if (!getSkillFileByPath) {
     return {
@@ -3484,7 +3484,7 @@ async function handleSkillToolCall(
           resource_id: string;
           name: string;
           storage_session_id: string;
-          kind?: 'skill' | 'agent' | 'user';
+          kind?: 'skill' | 'agent' | 'user' | 'project';
           version?: number;
         }>;
       }

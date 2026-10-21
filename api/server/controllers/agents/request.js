@@ -1,4 +1,5 @@
 const { logger, tenantStorage } = require('@librechat/data-schemas');
+const { normalizeAgentFailure } = require('./agentFailure');
 const { v5: uuidv5 } = require('uuid');
 const {
   Constants,
@@ -1794,13 +1795,13 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
             error,
           );
           startupTelemetry?.end('error', error);
-        } else if (job.abortController.signal.aborted || error.message?.includes('abort')) {
+        } else if (job.abortController.signal.aborted) {
           logger.debug(`[ResumableAgentController] Generation aborted for ${streamId}`);
           startupTelemetry?.end('aborted');
           // abortJob already handled emitDone and completeJob
         } else {
           logger.error(`[ResumableAgentController] Generation error for ${streamId}:`, error);
-          const generationError = error.message || 'Generation failed';
+          const generationError = normalizeAgentFailure(error);
           try {
             // completeJob first wins running -> error and atomically parks
             // steers, then publishes. A competing abort/pause emits nothing.
@@ -1833,14 +1834,16 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       );
       startupTelemetry?.end('error', err);
       if (!pausePersistenceFailed) {
-        await GenerationJobManager.completeJob(streamId, err.message, jobCreatedAt).catch(
-          (completeErr) => {
-            logger.warn(
-              '[ResumableAgentController] completeJob failed during background-error cleanup',
-              completeErr,
-            );
-          },
-        );
+        await GenerationJobManager.completeJob(
+          streamId,
+          normalizeAgentFailure(err),
+          jobCreatedAt,
+        ).catch((completeErr) => {
+          logger.warn(
+            '[ResumableAgentController] completeJob failed during background-error cleanup',
+            completeErr,
+          );
+        });
       }
       try {
         await finishResumableRequest(req, userId);
@@ -1902,7 +1905,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
           sendGenerationJson(
             res,
             500,
-            { error: error.message || 'Failed to start generation' },
+            { error: normalizeAgentFailure(error) },
             generationProtocolVersion,
           );
         }
@@ -1928,7 +1931,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
     if (jobCreatedAt != null) {
       const initializationError = resourceRecoveryFailure
         ? JSON.stringify(resourceRecoveryFailure)
-        : error.message || 'Failed to start generation';
+        : normalizeAgentFailure(error);
       await GenerationJobManager.completeJob(streamId, initializationError, jobCreatedAt).catch(
         (completeErr) => {
           logger.warn(

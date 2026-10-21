@@ -11,6 +11,7 @@ const {
   findShadowedServerNames,
   isNormalizationSensitiveName,
   buildInlineMemoryTool,
+  checkAccessWithRequestCache,
   getCodeApiAuthHeaders,
   buildImageToolContext,
   SET_MEMORY_TOOL_NAME,
@@ -330,6 +331,27 @@ const loadTools = async ({
 
   for (const tool of tools) {
     if (tool === Tools.execute_code) {
+      /* 8S3C.2 — RUN_CODE authorization gate (defense-in-depth chokepoint).
+       * Never materialize a runnable code-execution tool for a user who lacks
+       * RUN_CODE.USE, regardless of which tool-loading path reached this
+       * helper (agent chat, required-actions resubmit, direct endpoint). */
+      const runCodeUser = options.req?.user;
+      if (
+        !runCodeUser?.id ||
+        !runCodeUser?.role ||
+        !(await checkAccessWithRequestCache({
+          req: options.req,
+          user: runCodeUser,
+          permissionType: PermissionTypes.RUN_CODE,
+          permissions: [Permissions.USE],
+          getRoleByName,
+        }))
+      ) {
+        logger.warn(
+          `[handleTools] Skipping execute_code tool for User ${runCodeUser?.id}: RUN_CODE.USE denied`,
+        );
+        continue;
+      }
       requestedTools[tool] = async () => {
         const { files, toolContext } = await primeCodeFiles({
           ...options,

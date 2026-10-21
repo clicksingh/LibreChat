@@ -1,12 +1,15 @@
 import React from 'react';
 import { RecoilRoot } from 'recoil';
-import { Tools, Constants, ContentTypes } from 'librechat-data-provider';
+import { Tools, Constants, ContentTypes, SystemRoles } from 'librechat-data-provider';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { TAttachment, TMessageContentParts } from 'librechat-data-provider';
 import { scheduleMessageContentLayoutReconcile } from '~/hooks';
 import ToolCallGroup from '../ToolCallGroup';
 
+let mockRole = SystemRoles.ADMIN;
+
 jest.mock('~/hooks', () => ({
+  useAuthContext: () => ({ user: { id: 'test-user', role: mockRole } }),
   useLocalize: () => (key: string, values?: Record<string | number, string>) => {
     if (key === 'com_ui_used_n_tools') {
       return `Used ${values?.[0]} tools`;
@@ -16,6 +19,12 @@ jest.mock('~/hooks', () => ({
     }
     if (key === 'com_ui_asking_n_questions') {
       return `Asking ${values?.[0]} questions`;
+    }
+    if (key === 'com_ui_working') {
+      return 'Working…';
+    }
+    if (key === 'com_ui_work_completed') {
+      return 'Work completed';
     }
     if (key === 'com_ui_via_server') {
       return `via ${values?.[0]}`;
@@ -168,7 +177,36 @@ describe('ToolCallGroup image hoisting', () => {
   } satisfies React.ComponentProps<typeof ToolCallGroup>;
 
   beforeEach(() => {
+    mockRole = SystemRoles.ADMIN;
     mockScheduleMessageContentLayoutReconcile.mockClear();
+  });
+
+  it('keeps managed-user work collapsed by default and hides tool names', () => {
+    mockRole = SystemRoles.USER;
+    renderGroup(baseProps);
+
+    const button = screen.getByRole('button', { name: 'Work completed' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('— fetch_image')).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('inner-0')).toBeInTheDocument();
+  });
+
+  it('does not auto-expand active managed-user work', () => {
+    mockRole = SystemRoles.USER;
+    renderGroup({
+      ...baseProps,
+      isSubmitting: true,
+      parts: [
+        { part: makePart('t1', ''), idx: 0 },
+        { part: makePart('t2', ''), idx: 1 },
+      ],
+    });
+
+    const button = screen.getByRole('button', { name: 'Working…' });
+    expect(button).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('renders an AttachmentGroup outside the collapsible container with all attachments', () => {

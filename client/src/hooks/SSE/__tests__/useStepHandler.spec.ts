@@ -2357,6 +2357,43 @@ describe('useStepHandler', () => {
     });
   });
 
+  it('preserves streaming text when a resumed step reuses a THINK slot', () => {
+    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const existing = createResponseMessage({
+      content: [{ type: ContentTypes.THINK, think: 'Earlier reasoning' }],
+    });
+    mockGetMessages.mockReturnValue([existing]);
+    const { result } = renderHook(() => useStepHandler(createHookParams()));
+    const submission = createSubmission();
+
+    act(() => {
+      result.current.syncStepMessage(existing);
+      result.current.stepHandler(
+        { event: StepEvents.ON_RUN_STEP, data: createRunStep({ id: 'resumed-step', index: 0 }) },
+        submission,
+      );
+      result.current.stepHandler(
+        { event: StepEvents.ON_MESSAGE_DELTA, data: createMessageDelta('resumed-step', 'New') },
+        submission,
+      );
+      result.current.stepHandler(
+        { event: StepEvents.ON_MESSAGE_DELTA, data: createMessageDelta('resumed-step', ' answer') },
+        submission,
+      );
+    });
+
+    const latestMessages = mockSetMessages.mock.lastCall?.[0] as TMessage[];
+    const latestContent = latestMessages.find(
+      (message) => message.messageId === existing.messageId,
+    )?.content;
+    expect(latestContent).toEqual([
+      { type: ContentTypes.THINK, think: 'Earlier reasoning' },
+      { type: ContentTypes.TEXT, text: 'New answer' },
+    ]);
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
   describe('summarization events', () => {
     it('ON_SUMMARIZE_START calls announcePolite', () => {
       mockLastAnnouncementTimeRef.current = Date.now();

@@ -1,5 +1,16 @@
 import { LocalStorageKeys, TConversation, isUUID } from 'librechat-data-provider';
 
+function parseStoredJson<T>(value: string, fallback: T): T {
+  if (!value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export function getLocalStorageItems() {
   const items = {
     lastSelectedModel: localStorage.getItem(LocalStorageKeys.LAST_MODEL) ?? '',
@@ -7,15 +18,15 @@ export function getLocalStorageItems() {
     lastConversationSetup: localStorage.getItem(LocalStorageKeys.LAST_CONVO_SETUP + '_0') ?? '',
   };
 
-  const lastSelectedModel = items.lastSelectedModel
-    ? (JSON.parse(items.lastSelectedModel) as Record<string, string | undefined> | null)
-    : {};
-  const lastSelectedTools = items.lastSelectedTools
-    ? (JSON.parse(items.lastSelectedTools) as string[] | null)
-    : [];
-  const lastConversationSetup = items.lastConversationSetup
-    ? (JSON.parse(items.lastConversationSetup) as Partial<TConversation> | null)
-    : {};
+  const lastSelectedModel = parseStoredJson<Record<string, string | undefined> | null>(
+    items.lastSelectedModel,
+    {},
+  );
+  const lastSelectedTools = parseStoredJson<string[] | null>(items.lastSelectedTools, []);
+  const lastConversationSetup = parseStoredJson<Partial<TConversation> | null>(
+    items.lastConversationSetup,
+    {},
+  );
 
   return {
     lastSelectedModel,

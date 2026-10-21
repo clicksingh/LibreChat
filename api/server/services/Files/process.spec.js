@@ -64,6 +64,7 @@ jest.mock('@librechat/api', () => {
     }),
     sweepExpiredFiles: jest.fn().mockResolvedValue({ scanned: 0, deleted: 0, failed: 0 }),
     startExpiredFileSweep: jest.fn().mockReturnValue('sweep-interval'),
+    checkAccessWithRequestCache: jest.fn().mockResolvedValue(true),
   };
 });
 
@@ -96,6 +97,9 @@ jest.mock('~/models', () => ({
   addAgentResourceFile: jest.fn().mockResolvedValue({}),
   removeAgentResourceFiles: jest.fn(),
   removeAgentResourceFilesFromAllAgents: jest.fn(),
+  getRoleByName: jest.fn().mockResolvedValue({
+    permissions: { RUN_CODE: { USE: true } },
+  }),
 }));
 
 jest.mock('~/server/utils/getFileStrategy', () => ({
@@ -168,7 +172,7 @@ const ODP_MIME = 'application/vnd.oasis.opendocument.presentation';
 const ODG_MIME = 'application/vnd.oasis.opendocument.graphics';
 
 const makeReq = ({ mimetype = PDF_MIME, ocrConfig = null, interfaceConfig, body } = {}) => ({
-  user: { id: 'user-123', tenantId: 'tenant-a' },
+  user: { id: 'user-123', role: 'USER', tenantId: 'tenant-a' },
   file: {
     path: '/tmp/upload.bin',
     originalname: 'upload.bin',
@@ -908,6 +912,30 @@ describe('processAgentFileUpload', () => {
 
       const persisted = db.createFile.mock.calls[0][0];
       expect(persisted.metadata).not.toHaveProperty('fileIdentifier');
+    });
+
+    it('rejects execute_code uploads for a user LACKING RUN_CODE.USE even when the global capability is on (8S3C.2)', async () => {
+      setupCodeEnvUpload({ storage_session_id: 'sess-9', file_id: 'fid-9' });
+      // Global capability stays on (checkCapability => true); only the user
+      // authorization is revoked — the authority ceiling must reject.
+      const { checkAccessWithRequestCache } = require('@librechat/api');
+      checkAccessWithRequestCache.mockResolvedValue(false);
+      const req = makeReq();
+
+      await expect(
+        processAgentFileUpload({
+          req,
+          res: mockRes,
+          metadata: {
+            agent_id: 'agent-abc',
+            tool_resource: EToolResources.execute_code,
+            file_id: 'file-uuid',
+            message_file: true,
+          },
+        }),
+      ).rejects.toThrow('Code execution is not enabled for Agents');
+
+      expect(db.createFile).not.toHaveBeenCalled();
     });
   });
 });

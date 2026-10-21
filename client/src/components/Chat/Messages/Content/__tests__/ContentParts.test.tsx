@@ -11,6 +11,11 @@ jest.mock('~/utils', () => ({
   groupSequentialToolCalls: jest.fn(),
 }));
 
+jest.mock('~/hooks', () => ({
+  useAuthContext: () => ({ user: { id: 'test-user', role: 'ADMIN' } }),
+  useLocalize: () => (key: string) => key,
+}));
+
 jest.mock('~/Providers', () => {
   const react = jest.requireActual<typeof import('react')>('react');
   return {

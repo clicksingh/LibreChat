@@ -1,0 +1,54 @@
+name: CBHR scoped conversation issuer
+
+on:
+  pull_request:
+    paths:
+      - 'api/server/controllers/agents/client.js'
+      - 'api/server/services/Files/Code/b1Grants*'
+      - 'packages/api/src/auth/codeapi*'
+      - '.github/workflows/mission-b1-scoped-issuer.yml'
+  push:
+    branches:
+      - 'mission/workspace-b1-signedscope-sse-base-20261017'
+
+permissions:
+  contents: read
+
+jobs:
+  signed-claims-and-files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Exact locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Stage optional build peer outside source
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/cbhr-unrun-peer"
+          npm install --prefix "$RUNNER_TEMP/cbhr-unrun-peer" --ignore-scripts --no-audit --no-fund unrun@0.3.1
+          mkdir -p packages/api/node_modules
+          ln -s "$RUNNER_TEMP/cbhr-unrun-peer/node_modules/unrun" packages/api/node_modules/unrun
+      - name: JWT, sessions and staff system contract
+        working-directory: packages/api
+        run: |
+          ../../node_modules/.bin/jest --ci --runInBand --coverage=false             src/auth/codeapi.spec.ts             src/agents/sessionRegistry.spec.ts             src/agents/staffWorkstationContract.spec.ts
+      - name: Signed Files provenance negatives
+        run: node --test api/server/services/Files/Code/b1Grants.test.js
+      - name: API build
+        run: |
+          npm run build:data-provider
+          npm run build:data-schemas
+          npm run build:api
+      - name: Exact source
+        run: |
+          node --check api/server/controllers/agents/client.js
+          node --check api/server/services/Files/Code/b1Grants.js
+          git diff --check
+          git rev-parse HEAD

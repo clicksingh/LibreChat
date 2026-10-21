@@ -101,6 +101,7 @@ export async function loadAddedAgent(
     ephemeralAgent?: {
       mcp?: string[];
       execute_code?: boolean;
+      document_visual_qa?: boolean;
       file_search?: boolean;
       web_search?: boolean;
       artifacts?: unknown;
@@ -119,6 +120,7 @@ export async function loadAddedAgent(
     | {
         mcp?: string[];
         execute_code?: boolean;
+        document_visual_qa?: boolean;
         file_search?: boolean;
         web_search?: boolean;
         artifacts?: unknown;
@@ -198,6 +200,9 @@ export async function loadAddedAgent(
   const tools: string[] = [];
   if (ephemeralAgent?.execute_code === true || modelSpec?.executeCode === true) {
     tools.push(Tools.execute_code);
+  }
+  if (ephemeralAgent?.document_visual_qa === true || modelSpec?.documentVisualQA === true) {
+    tools.push(Tools.document_visual_qa);
   }
   if (ephemeralAgent?.file_search === true || modelSpec?.fileSearch === true) {
     tools.push(Tools.file_search);

@@ -5,6 +5,7 @@ const { generateShortLivedToken, logAxiosError } = require('@librechat/api');
 const { Tools, EToolResources } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { getFiles } = require('~/models');
+const { flattenFileSearchResults } = require('./fileSearchResults');
 
 const fileSearchJsonSchema = {
   type: 'object',
@@ -55,7 +56,7 @@ const primeFiles = async (options) => {
 
   dbFiles = dbFiles.concat(resourceFiles);
 
-  let toolContext = `- Note: Semantic search is available through the ${Tools.file_search} tool but no files are currently loaded. Request the user to upload documents to search through.`;
+  let toolContext = `- Note: ${Tools.file_search} searches only files successfully indexed for semantic retrieval. No indexed files are currently loaded. Some documents may still be attached for direct reading or code execution; inspect available authorized file tools before asking the user to reupload.`;
 
   const files = [];
   for (let i = 0; i < dbFiles.length; i++) {
@@ -92,7 +93,10 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
   return tool(
     async ({ query }) => {
       if (files.length === 0) {
-        return ['No files to search. Instruct the user to add files for the search.', undefined];
+        return [
+          'No indexed/searchable files are available to file_search in this conversation. Uploaded or attached documents may still be accessible through authorized direct-file or code tools without embeddings. Check those tools before asking for a reupload.',
+          undefined,
+        ];
       }
       const jwtToken = generateShortLivedToken(userId);
       if (!jwtToken) {
@@ -148,18 +152,7 @@ const createFileSearchTool = async ({ userId, files, entity_id, fileCitations = 
         return ['No results found or errors occurred while searching the files.', undefined];
       }
 
-      const formattedResults = validResults
-        .flatMap((result, fileIndex) =>
-          result.data.map(([docInfo, distance]) => ({
-            filename: docInfo.metadata.source.split('/').pop(),
-            content: docInfo.page_content,
-            distance,
-            file_id: files[fileIndex]?.file_id,
-            page: docInfo.metadata.page || null,
-          })),
-        )
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 10);
+      const formattedResults = flattenFileSearchResults(results, files);
 
       if (formattedResults.length === 0) {
         return [

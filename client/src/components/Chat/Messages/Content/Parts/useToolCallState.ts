@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRecoilValue } from 'recoil';
+import { SystemRoles } from 'librechat-data-provider';
 import { isError } from '~/components/Chat/Messages/Content/ToolOutput';
-import { useProgress, useExpandCollapse } from '~/hooks';
+import { useProgress, useExpandCollapse, useAuthContext } from '~/hooks';
 import store from '~/store';
 
 interface ToolCallState {
@@ -24,18 +25,20 @@ export default function useToolCallState(
   onExpand?: () => void,
 ): ToolCallState {
   const autoExpand = useRecoilValue(store.autoExpandTools);
+  const { user } = useAuthContext();
+  const shouldAutoExpand = autoExpand && user?.role !== SystemRoles.USER;
   const hasOutput = output.length > 0;
   const hasError = hasOutput && isError(output);
   const hasContent = hasInput || hasOutput;
 
-  const [showCode, setShowCode] = useState(() => autoExpand && hasContent);
+  const [showCode, setShowCode] = useState(() => shouldAutoExpand && hasContent);
   const { style: expandStyle, ref: expandRef } = useExpandCollapse(showCode);
 
   useEffect(() => {
-    if (autoExpand && hasContent) {
+    if (shouldAutoExpand && hasContent) {
       setShowCode(true);
     }
-  }, [autoExpand, hasContent]);
+  }, [shouldAutoExpand, hasContent]);
 
   const progress = useProgress(initialProgress);
   const toggleCode = useCallback(() => {

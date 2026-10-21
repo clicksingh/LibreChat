@@ -13,6 +13,10 @@ jest.mock('@librechat/client', () => ({
   useToastContext: () => ({ showToast: mockShowToast }),
 }));
 
+jest.mock('~/hooks', () => ({
+  useLocalize: () => (key: string) => key,
+}));
+
 jest.mock('~/data-provider', () => ({
   useFileDownload: () => ({ refetch: mockDownloadFromApi }),
   useCodeOutputDownload: () => ({ refetch: mockDownloadFromUrl }),
@@ -102,6 +106,30 @@ describe('LogLink download routing', () => {
     });
     expect(mockDownloadFromApi).not.toHaveBeenCalled();
     expect(mockDownloadFromUrl).not.toHaveBeenCalled();
+  });
+
+  it('shows a localized error if the authenticated download fails', async () => {
+    const filename = 'report.pdf';
+    mockDownloadFromApi.mockRejectedValueOnce(new Error('network unavailable'));
+    render(
+      <LogLink
+        user="user-1"
+        file_id="file-1"
+        filename={filename}
+        source={FileSources.local}
+        href="/api/files/download/user-1/file-1"
+      >
+        {filename}
+      </LogLink>,
+    );
+    fireEvent.click(screen.getByRole('link', { name: 'report.pdf' }));
+    await waitFor(() => {
+      expect(mockShowToast).toHaveBeenCalledWith({
+        status: 'error',
+        message: 'com_ui_download_error',
+      });
+    });
+    expect(mockTriggerDownload).not.toHaveBeenCalled();
   });
 
   it('keeps legacy code-output handles on the blob download path', async () => {

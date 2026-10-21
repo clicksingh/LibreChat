@@ -1,6 +1,8 @@
 import { memo, useMemo } from 'react';
+import { SystemRoles } from 'librechat-data-provider';
 import {
   Constants,
+  EToolResources,
   supportsFiles,
   mergeFileConfig,
   isAgentsEndpoint,
@@ -12,6 +14,7 @@ import type { TConversation } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter } from '~/common';
 import { useGetFileConfig, useGetEndpointsQuery, useGetAgentByIdQuery } from '~/data-provider';
 import { useAgentsMapContext } from '~/Providers';
+import { useAuthContext } from '~/hooks';
 import AttachFileMenu from './AttachFileMenu';
 import AttachFile from './AttachFile';
 
@@ -29,6 +32,8 @@ function AttachFileChat({
   setFilesLoading: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const conversationId = conversation?.conversationId ?? Constants.NEW_CONVO;
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const { endpoint } = conversation ?? { endpoint: null };
   const isAgents = useMemo(() => isAgentsEndpoint(endpoint), [endpoint]);
   const isAssistants = useMemo(() => isAssistantsEndpoint(endpoint), [endpoint]);
@@ -97,7 +102,18 @@ function AttachFileChat({
     [disableInputs, endpointFileConfig?.disabled],
   );
 
-  if (isAssistants && endpointSupportsFiles && !isUploadDisabled) {
+  if (isManagedUser && !isUploadDisabled) {
+    return (
+      <AttachFile
+        disabled={disableInputs}
+        files={files}
+        setFiles={setFiles}
+        setFilesLoading={setFilesLoading}
+        conversation={conversation}
+        toolResource={EToolResources.execute_code}
+      />
+    );
+  } else if (isAssistants && endpointSupportsFiles && !isUploadDisabled) {
     return (
       <AttachFile
         disabled={disableInputs}

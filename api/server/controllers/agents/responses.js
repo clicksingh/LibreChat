@@ -74,6 +74,7 @@ const {
   buildAgentToolContext,
   enrichLoadedToolsWithAgentContext,
 } = require('~/server/services/Endpoints/agents/skillDeps');
+const { resolveEffectiveCodeEnv } = require('~/server/services/Endpoints/agents/authorization');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { resolveConfigServers, getAccessibleMcpServerNames } = require('~/server/services/MCP');
@@ -400,6 +401,10 @@ const executeResponse = async (envelope, { req, res }) => {
     const enabledCapabilities = new Set(
       appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities,
     );
+    const effectiveCodeEnvAvailable = await resolveEffectiveCodeEnv(
+      req,
+      enabledCapabilities.has(AgentCapabilities.execute_code),
+    );
     const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
     const ephemeralSkillsToggle = request.ephemeralAgent?.skills === true;
     const accessibleSkillIds = skillsCapabilityEnabled
@@ -466,7 +471,7 @@ const executeResponse = async (envelope, { req, res }) => {
           skillsCapabilityEnabled,
           ephemeralSkillsToggle,
         }),
-        codeEnvAvailable: enabledCapabilities.has(AgentCapabilities.execute_code),
+        codeEnvAvailable: effectiveCodeEnvAvailable,
         backgroundToolsAvailable: enabledCapabilities.has(AgentCapabilities.run_in_background),
         toolIntentsAvailable: enabledCapabilities.has(AgentCapabilities.tool_intents),
         statefulSessionsAvailable: enabledCapabilities.has(
@@ -548,7 +553,7 @@ const executeResponse = async (envelope, { req, res }) => {
           skillStates,
           defaultActiveOnShare,
           /** @see DiscoverConnectedAgentsParams.codeEnvAvailable */
-          codeEnvAvailable: enabledCapabilities.has(AgentCapabilities.execute_code),
+          codeEnvAvailable: effectiveCodeEnvAvailable,
           backgroundToolsAvailable: enabledCapabilities.has(AgentCapabilities.run_in_background),
           toolIntentsAvailable: enabledCapabilities.has(AgentCapabilities.tool_intents),
           statefulSessionsAvailable: enabledCapabilities.has(

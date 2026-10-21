@@ -2,6 +2,7 @@ import React from 'react';
 import { useToastContext } from '@librechat/client';
 import { FileSources, sharedFileDownload } from 'librechat-data-provider';
 import { useCodeOutputDownload, useFileDownload } from '~/data-provider';
+import { useLocalize } from '~/hooks';
 import { isHttpDownloadTarget, triggerDownload } from '~/utils';
 import { useShareContext } from '~/Providers';
 
@@ -48,6 +49,7 @@ export const useAttachmentLink = ({
   source,
 }: AttachmentLinkOptions) => {
   const { showToast } = useToastContext();
+  const localize = useLocalize();
   const { shareId } = useShareContext();
 
   const useLocalDownload = isLocallyStoredSource(source) && !!file_id && !!user;
@@ -65,6 +67,7 @@ export const useAttachmentLink = ({
     event: React.MouseEvent<HTMLAnchorElement | HTMLButtonElement>,
   ): Promise<boolean> => {
     event.preventDefault();
+    event.stopPropagation();
     try {
       // In a shared view, a snapshotted file's href is rewritten to the share
       // route; download it through the share-scoped path (authorized by share
@@ -85,7 +88,7 @@ export const useAttachmentLink = ({
         console.error('Error downloading file: No data found');
         showToast({
           status: 'error',
-          message: 'Error downloading file',
+          message: localize('com_ui_download_error'),
         });
         return false;
       }
@@ -93,6 +96,7 @@ export const useAttachmentLink = ({
       return true;
     } catch (error) {
       console.error('Error downloading file:', error);
+      showToast({ status: 'error', message: localize('com_ui_download_error') });
       return false;
     }
   };

@@ -29,6 +29,8 @@ const CHANNELS = {
 const KEYS = {
   /** Atomic sequence counter: shared across all replicas for a given stream */
   sequence: (streamId: string) => `stream:{${streamId}}:seq`,
+  /** Same-slot recovery log for bounded missing-event verification. */
+  journal: (streamId: string) => `stream:{${streamId}}:journal`,
   /** Job metadata, used to keep the sequence counter alive for the full job lifetime */
   job: (streamId: string) => `stream:{${streamId}}:job`,
   /** Latest generation epoch, retained briefly beyond the live job hash. */
@@ -95,6 +97,9 @@ interface ReorderBuffer {
   flushTimeout: ReturnType<typeof setTimeout> | null;
   /** Hold sequenced delivery until first-subscriber replay establishes its frontier. */
   deliveryDeferred: boolean;
+  repairAttempts: number;
+  repairing: boolean;
+  failed: boolean;
 }
 
 interface AbortRegistration {
@@ -128,7 +133,7 @@ interface PreemptRegistration {
  * subscriber listens on. PUBLISH is broadcast cluster-wide rather than slot-routed, so it does
  * not need to be a key for Cluster correctness.
  *
- *   KEYS: [sequence, job, generationEpoch]
+ *   KEYS: [sequence, job, generationEpoch, journal]
  *   ARGV: [
  *     channel,
  *     payloadPrefix,
@@ -138,7 +143,7 @@ interface PreemptRegistration {
  *     allowRetainedEpoch ("0" | "1"),
  *     generationEpochGraceTtl,
  *     requireActiveJob ("0" | "1"),
- *     sequenceCount
+ *     sequenceCount, generationId, ...perEventSerializedJSON
  *   ]
  *   RETURNS: the 0-indexed first seq assigned to this frame, or -1 when the generation
  *   guard fails. A single-event frame passes count 1 and splices the seq; a coalesced
@@ -151,36 +156,50 @@ interface PreemptRegistration {
  * late event after a recovery marker expires; the generationId in the payload contains it,
  * because active runtimes discard terminal events for another epoch.
  */
-const PUBLISH_SEQ_LUA =
-  'if ARGV[5] ~= "" then ' +
-  'local currentCreatedAt = redis.call("HGET", KEYS[2], "createdAt") ' +
-  'if currentCreatedAt ~= ARGV[5] then ' +
-  'if redis.call("EXISTS", KEYS[2]) == 1 or ARGV[6] ~= "1" then return -1 end ' +
-  'local retainedEpoch = redis.call("GET", KEYS[3]) ' +
-  'if not retainedEpoch then ' +
-  'redis.call("SET", KEYS[3], ARGV[5], "EX", tonumber(ARGV[7]), "NX") ' +
-  'retainedEpoch = redis.call("GET", KEYS[3]) ' +
-  'end ' +
-  'if retainedEpoch ~= ARGV[5] then return -1 end ' +
-  'end ' +
-  'end ' +
-  'if ARGV[8] == "1" then ' +
-  'local currentStatus = redis.call("HGET", KEYS[2], "status") ' +
-  'if currentStatus ~= "running" and currentStatus ~= "requires_action" then return -1 end ' +
-  'end ' +
-  'local count = tonumber(ARGV[9]) ' +
-  'local val = redis.call("INCRBY", KEYS[1], count) ' +
-  'local ttl = tonumber(ARGV[4]) ' +
-  'local seqTtl = redis.call("TTL", KEYS[1]) ' +
-  'if seqTtl < math.floor(ttl / 2) then ' +
-  'local jobTtl = redis.call("TTL", KEYS[2]) ' +
-  'if jobTtl > ttl then ttl = jobTtl end ' +
-  'redis.call("EXPIRE", KEYS[1], ttl) ' +
-  'end ' +
-  'local seq = val - count ' +
-  'redis.call("PUBLISH", ARGV[1], ARGV[2] .. string.format("%d", seq) .. ARGV[3]) ' +
-  'return seq';
-
+const PUBLISH_SEQ_LUA = String.raw`
+if ARGV[5] ~= '' then
+ local created=redis.call('HGET',KEYS[2],'createdAt')
+ if created ~= ARGV[5] then
+  if redis.call('EXISTS',KEYS[2]) == 1 or ARGV[6] ~= '1' then return -1 end
+  local retained=redis.call('GET',KEYS[3])
+  if not retained then
+   redis.call('SET',KEYS[3],ARGV[5],'EX',tonumber(ARGV[7]),'NX')
+   retained=redis.call('GET',KEYS[3])
+  end
+  if retained ~= ARGV[5] then return -1 end
+ end
+end
+if ARGV[8] == '1' then
+ local status=redis.call('HGET',KEYS[2],'status')
+ if status ~= 'running' and status ~= 'requires_action' then return -1 end
+end
+local count=tonumber(ARGV[9])
+if not count or count < 1 or count > 100 or (count > 1 and #ARGV ~= 10 + count) then
+ return redis.error_reply('invalid journal frame count')
+end
+local val=redis.call('INCRBY',KEYS[1],count)
+local ttl=tonumber(ARGV[4])
+local seqTtl=redis.call('TTL',KEYS[1])
+if seqTtl < math.floor(ttl/2) then
+ local jobTtl=redis.call('TTL',KEYS[2])
+ if jobTtl > ttl then ttl=jobTtl end
+ redis.call('EXPIRE',KEYS[1],ttl)
+end
+local seq=val-count
+local frame=ARGV[2]..string.format('%d',seq)..ARGV[3]
+if count == 1 then
+ redis.call('HSET',KEYS[4],tostring(seq),frame)
+else
+ for i=1,count do
+  local entry='{"type":"chunk","seq":'..tostring(seq+i-1)..',"data":'..ARGV[10+i]
+  if ARGV[10] ~= '' then entry=entry..',"generationId":'..ARGV[10] end
+  redis.call('HSET',KEYS[4],tostring(seq+i-1),entry..'}')
+ end
+end
+if redis.call('TTL',KEYS[4]) < math.floor(ttl/2) then redis.call('EXPIRE',KEYS[4],ttl) end
+redis.call('PUBLISH',ARGV[1],frame)
+return seq
+`;
 /** A normal generation guard correctly rejects events from an old epoch once
  * its replacement exists. Replacement handoff is the one exception: the
  * current create attempt must still carry the old epoch in its durable receipt
@@ -198,10 +217,15 @@ const PUBLISH_REPLACED_DONE_LUA =
   'local seqTtl = redis.call("TTL", KEYS[1]) if seqTtl < math.floor(ttl / 2) then ' +
   'local jobTtl = redis.call("TTL", KEYS[2]) if jobTtl > ttl then ttl = jobTtl end ' +
   'redis.call("EXPIRE", KEYS[1], ttl) end local seq = val - 1 ' +
-  'redis.call("PUBLISH", ARGV[1], ARGV[2] .. string.format("%d", seq) .. ARGV[3]) return seq';
+  'local frame=ARGV[2] .. string.format("%d", seq) .. ARGV[3] ' +
+  'redis.call("HSET",KEYS[3],tostring(seq),frame) ' +
+  'if redis.call("TTL",KEYS[3]) < math.floor(ttl/2) then redis.call("EXPIRE",KEYS[3],ttl) end ' +
+  'redis.call("PUBLISH",ARGV[1],frame) return seq';
 
 /** Max messages to buffer before force-flushing (prevents memory issues) */
 const MAX_BUFFER_SIZE = 100;
+/** Bounded retries before an unrecoverable gap is reported to subscribers. */
+const MAX_REPAIR_ATTEMPTS = 3;
 /** Rolling-upgrade recovery window after a legacy job hash expires without an epoch marker. */
 const GENERATION_EPOCH_GRACE_TTL_SECONDS = 300;
 /** Durable owner proof outlives receipt retries and process-local subscriptions. */
@@ -281,6 +305,9 @@ export class RedisEventTransport implements IEventTransport {
         pending: new Map(),
         flushTimeout: null,
         deliveryDeferred: false,
+        repairAttempts: 0,
+        repairing: false,
+        failed: false,
       },
     };
   }
@@ -366,13 +393,15 @@ export class RedisEventTransport implements IEventTransport {
     expectedGenerationId?: number,
     allowRetainedEpoch = false,
     requireActiveJob = false,
+    journalBatch: string[] = [],
   ): Promise<number> {
     const seq = await this.publisher.eval(
       PUBLISH_SEQ_LUA,
-      3,
+      4,
       KEYS.sequence(streamId),
       KEYS.job(streamId),
       KEYS.generationEpoch(streamId),
+      KEYS.journal(streamId),
       CHANNELS.events(streamId),
       prefix,
       suffix,
@@ -382,6 +411,8 @@ export class RedisEventTransport implements IEventTransport {
       String(GENERATION_EPOCH_GRACE_TTL_SECONDS),
       requireActiveJob ? '1' : '0',
       String(count),
+      expectedGenerationId != null ? String(expectedGenerationId) : '',
+      ...journalBatch,
     );
     return seq as number;
   }
@@ -494,6 +525,7 @@ export class RedisEventTransport implements IEventTransport {
       generationId,
       false,
       generationId != null,
+      events,
     ).then(
       (baseSeq) => {
         if (baseSeq === -1) {
@@ -566,6 +598,9 @@ export class RedisEventTransport implements IEventTransport {
       state.reorderBuffer.nextSeq = 0;
       state.reorderBuffer.pending.clear();
       state.reorderBuffer.deliveryDeferred = false;
+      state.reorderBuffer.repairAttempts = 0;
+      state.reorderBuffer.repairing = false;
+      state.reorderBuffer.failed = false;
     }
   }
 
@@ -743,6 +778,7 @@ export class RedisEventTransport implements IEventTransport {
   ): void {
     const buffer = streamState.reorderBuffer;
     const seq = message.seq!;
+    if (buffer.failed) return;
 
     if (buffer.deliveryDeferred) {
       buffer.pending.set(seq, message);
@@ -777,6 +813,7 @@ export class RedisEventTransport implements IEventTransport {
   ): void {
     const buffer = streamState.reorderBuffer;
     const seq = message.seq!;
+    if (buffer.failed) return;
 
     if (buffer.deliveryDeferred) {
       buffer.pending.set(seq, message);
@@ -793,7 +830,7 @@ export class RedisEventTransport implements IEventTransport {
 
       if (buffer.pending.size >= MAX_BUFFER_SIZE) {
         logger.warn(`[RedisEventTransport] Buffer overflow for stream ${streamId}, force-flushing`);
-        this.forceFlushBuffer(streamId, streamState);
+        void this.repairGapFromJournal(streamId, streamState);
       } else {
         this.scheduleFlushTimeout(streamId, streamState);
       }
@@ -815,58 +852,117 @@ export class RedisEventTransport implements IEventTransport {
       buffer.nextSeq++;
     }
 
+    if (buffer.pending.size === 0) buffer.repairAttempts = 0;
     if (buffer.pending.size === 0 && buffer.flushTimeout) {
       clearTimeout(buffer.flushTimeout);
       buffer.flushTimeout = null;
     }
   }
 
-  /** Force-flush all pending messages in order (used on timeout or overflow) */
-  private forceFlushBuffer(streamId: string, streamState: StreamSubscribers): void {
-    const buffer = streamState.reorderBuffer;
+  /**
+   * Durable, bounded gap repair. Redis pub/sub is lossy on reconnect. A
+   * 500ms timeout must NEVER fabricate a successful stream by skipping
+   * earlier chunks or a terminal event. Look up missing sequences from a
+   * short-lived server-only journal before giving up. INCR-before-HSET
+   * producer crashes can still leave holes: fail the run explicitly.
+   */
+  private async repairGapFromJournal(streamId: string, state: StreamSubscribers): Promise<void> {
+    const buffer = state.reorderBuffer;
+    if (
+      buffer.repairing ||
+      buffer.failed ||
+      buffer.pending.size === 0 ||
+      this.streams.get(streamId) !== state
+    )
+      return;
+    buffer.repairing = true;
+    try {
+      const highest = Math.max(...buffer.pending.keys());
+      const from = buffer.nextSeq;
+      if (highest - from > MAX_BUFFER_SIZE * 2) {
+        this.failUnrecoverableGap(streamId, state);
+        return;
+      }
+      const missing: number[] = [];
+      for (let n = from; n <= highest; n++) {
+        if (!buffer.pending.has(n)) missing.push(n);
+      }
+      if (missing.length > 0) {
+        const recovered = await this.publisher.hmget(
+          KEYS.journal(streamId),
+          ...missing.map(String),
+        );
+        if (this.streams.get(streamId) !== state || buffer.failed) return;
+        for (let i = 0; i < missing.length; i++) {
+          const payload = recovered[i];
+          if (payload == null) continue;
+          let event: PubSubMessage;
+          try {
+            event = JSON.parse(payload) as PubSubMessage;
+          } catch {
+            continue;
+          }
+          if (
+            event.seq !== missing[i] ||
+            ![EventTypes.CHUNK, EventTypes.DONE, EventTypes.ERROR].includes(
+              event.type as (typeof EventTypes)[keyof typeof EventTypes],
+            )
+          )
+            continue;
+          buffer.pending.set(missing[i], event);
+        }
+      }
+      this.flushPendingMessages(streamId, state);
+      if (buffer.pending.size > 0) {
+        buffer.repairAttempts++;
+        if (buffer.repairAttempts >= MAX_REPAIR_ATTEMPTS) {
+          this.failUnrecoverableGap(streamId, state);
+        } else {
+          this.scheduleFlushTimeout(streamId, state);
+        }
+      }
+    } catch (error) {
+      logger.error(`[RedisEventTransport] Journal replay failed for ${streamId}`, error);
+      buffer.repairAttempts++;
+      if (buffer.repairAttempts >= MAX_REPAIR_ATTEMPTS) {
+        this.failUnrecoverableGap(streamId, state);
+      } else {
+        this.scheduleFlushTimeout(streamId, state);
+      }
+    } finally {
+      buffer.repairing = false;
+    }
+  }
 
+  private failUnrecoverableGap(streamId: string, state: StreamSubscribers): void {
+    const buffer = state.reorderBuffer;
+    if (buffer.failed) return;
+    buffer.failed = true;
     if (buffer.flushTimeout) {
       clearTimeout(buffer.flushTimeout);
       buffer.flushTimeout = null;
     }
-
-    if (buffer.pending.size === 0) {
-      return;
-    }
-
-    const sortedSeqs = [...buffer.pending.keys()].sort((a, b) => a - b);
-    const skipped = sortedSeqs[0] - buffer.nextSeq;
-
-    if (skipped > 0) {
-      logger.warn(
-        `[RedisEventTransport] Stream ${streamId}: skipping ${skipped} missing messages (seq ${buffer.nextSeq}-${sortedSeqs[0] - 1})`,
+    const pendingCount = buffer.pending.size;
+    buffer.pending.clear();
+    logger.error(
+      `[RedisEventTransport] Stream ${streamId}: ${pendingCount} events held; missing sequence ${buffer.nextSeq} could not be recovered`,
+    );
+    // A missing stream event is an interrupted response, never success.
+    for (const handlers of state.handlers.values()) {
+      handlers.onError?.(
+        'STREAM_EVENT_GAP_UNRECOVERABLE: response interrupted; reconnect to recover saved conversation state',
       );
     }
-
-    for (const seq of sortedSeqs) {
-      const message = buffer.pending.get(seq)!;
-      buffer.pending.delete(seq);
-      this.deliverMessage(streamId, streamState, message);
-    }
-
-    buffer.nextSeq = sortedSeqs[sortedSeqs.length - 1] + 1;
   }
 
-  /** Schedule a timeout to force-flush if gaps aren't filled */
-  private scheduleFlushTimeout(streamId: string, streamState: StreamSubscribers): void {
-    const buffer = streamState.reorderBuffer;
-
-    if (buffer.flushTimeout) {
-      return;
-    }
-
+  /** Wait for an ordered journal replay, not a lossy forced flush. */
+  private scheduleFlushTimeout(streamId: string, state: StreamSubscribers): void {
+    const buffer = state.reorderBuffer;
+    if (buffer.flushTimeout || buffer.failed) return;
     buffer.flushTimeout = setTimeout(() => {
       buffer.flushTimeout = null;
       if (buffer.pending.size > 0) {
-        logger.warn(
-          `[RedisEventTransport] Stream ${streamId}: timeout waiting for seq ${buffer.nextSeq}, force-flushing ${buffer.pending.size} messages`,
-        );
-        this.forceFlushBuffer(streamId, streamState);
+        void this.repairGapFromJournal(streamId, state);
       }
     }, REDIS_EVENT_REORDER_TIMEOUT_MS);
   }
@@ -1118,9 +1214,10 @@ export class RedisEventTransport implements IEventTransport {
     });
     const result = await this.publisher.eval(
       PUBLISH_REPLACED_DONE_LUA,
-      2,
+      3,
       KEYS.sequence(streamId),
       KEYS.job(streamId),
+      KEYS.journal(streamId),
       CHANNELS.events(streamId),
       prefix,
       suffix,

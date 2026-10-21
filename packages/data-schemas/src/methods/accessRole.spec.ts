@@ -211,6 +211,9 @@ describe('AccessRole Model Tests', () => {
           AccessRoleIds.SKILL_EDITOR,
           AccessRoleIds.SKILL_OWNER,
           AccessRoleIds.SKILL_VIEWER,
+          AccessRoleIds.WORKSPACE_EDITOR,
+          AccessRoleIds.WORKSPACE_OWNER,
+          AccessRoleIds.WORKSPACE_VIEWER,
         ].sort(),
       );
 

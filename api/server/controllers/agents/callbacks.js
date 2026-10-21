@@ -660,7 +660,9 @@ function writeAttachment(res, streamId, attachment, expectedCreatedAt) {
       streamId,
       { event: 'attachment', data: attachment },
       { expectedCreatedAt },
-    );
+    ).catch((err) => {
+      logger.error('[Agent SSE] Unable to publish attachment event', err);
+    });
   } else {
     res.write(`event: attachment\ndata: ${JSON.stringify(attachment)}\n\n`);
   }

@@ -126,6 +126,32 @@ const categorizeFileForToolResources = ({
       tool_resources,
       processedResourceFiles,
     });
+    if (file.embedded === true) {
+      addFileToResource({
+        file,
+        resourceType: EToolResources.file_search,
+        tool_resources,
+        processedResourceFiles,
+      });
+    }
+    return;
+  }
+
+  // Unindexed document attachments still need a direct, permission-checked
+  // execution input. Semantic indexing is separate and remains optional.
+  if (
+    requestFileSet.has(file.file_id) &&
+    file.embedded !== true &&
+    typeof file.filename === 'string' &&
+    /\.(docx|pdf|odt|txt|md|xlsx|xls|xlsm|csv|ods)$/i.test(file.filename) &&
+    file.bytes <= 25 * 1024 * 1024
+  ) {
+    addFileToResource({
+      file,
+      resourceType: EToolResources.execute_code,
+      tool_resources,
+      processedResourceFiles,
+    });
     return;
   }
 

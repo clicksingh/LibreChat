@@ -125,7 +125,26 @@ ARG BUILD_DATE
 ENV BUILD_COMMIT=${BUILD_COMMIT}
 ENV BUILD_BRANCH=${BUILD_BRANCH}
 ENV BUILD_DATE=${BUILD_DATE}
-WORKDIR /app/api
+# OCI provenance labels (8S3C review fix): baked so image SHA == OCI revision
+# == git HEAD without relying on a `docker build --label` invocation.
+LABEL org.opencontainers.image.title="LibreChat (CBHR fork)" \
+      org.opencontainers.image.source="https://github.com/clicksingh/LibreChat" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+# Runtime ownership (8S3C deploy fix): the api container runs as uid:gid from
+# compose (default 1000:1000). /app must belong to node so the winston logger
+# can create /app/api/logs and the app can write any other runtime state.
+# Restores the `chown + USER node` behavior the pre-8S3C upstream build had —
+# without it /app/api/logs stays root-owned (775) and the unprivileged runtime
+# user hits EACCES before the server binds.
+RUN chown -R node:node /app
+USER node
+# Runtime CWD + entry (8S3C deploy fix #2): `npm run backend` from /app, so the
+# bare CWD-relative `dotenv.config()` calls (api/db/connect.js, telemetry,
+# experimental) load the bind-mounted /app/.env. Running `node server/index.js`
+# from /app/api made JWT_SECRET etc. undefined -> "JwtStrategy requires a secret
+# or key" at startup. The deployed image ran exactly this.
+WORKDIR /app
 EXPOSE 3080
 ENV HOST=0.0.0.0
-CMD ["node", "server/index.js"]
+CMD ["npm", "run", "backend"]

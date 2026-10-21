@@ -71,6 +71,7 @@ import {
 import useEventHandlers, { buildCreatedInitialResponse } from './useEventHandlers';
 import useSteerConvert from '~/hooks/Chat/useSteerConvert';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { useLocalize } from '~/hooks';
 import useUsageHandler from './useUsageHandler';
 import store from '~/store';
 
@@ -624,6 +625,7 @@ export default function useResumableSSE(
   runIndex = 0,
 ) {
   const queryClient = useQueryClient();
+  const localize = useLocalize();
   const setActiveRunId = useSetRecoilState(store.activeRunFamily(runIndex));
 
   const { token, isAuthenticated } = useAuthContext();
@@ -2730,7 +2732,11 @@ export default function useResumableSSE(
           try {
             const errorData = JSON.parse(e.data);
             errorSupportsV2 = supportsGenerationProtocolV2(errorData);
-            const errorString = errorData.error ?? errorData.message ?? JSON.stringify(errorData);
+            const errorValue = errorData.error ?? errorData.message ?? JSON.stringify(errorData);
+            const errorString =
+              typeof errorValue === 'string' && errorValue.trim().toLowerCase() === 'terminated'
+                ? localize('com_ui_stream_terminated')
+                : errorValue;
 
             // Check if it's a known error type (ViolationTypes or ErrorTypes)
             let isKnownError = false;
@@ -2758,7 +2764,12 @@ export default function useResumableSSE(
           } catch (parseError) {
             logger.error('ResumableSSE', 'Failed to parse server error:', parseError);
             errorHandler({
-              data: { text: e.data } as unknown as Parameters<typeof errorHandler>[0]['data'],
+              data: {
+                text:
+                  e.data.trim().toLowerCase() === 'terminated'
+                    ? localize('com_ui_stream_terminated')
+                    : e.data,
+              } as unknown as Parameters<typeof errorHandler>[0]['data'],
               submission: currentSubmission as EventSubmission,
             });
           }
@@ -3141,6 +3152,7 @@ export default function useResumableSSE(
     },
     [
       token,
+      localize,
       setAbortScroll,
       setActiveRunId,
       setShowStopButton,

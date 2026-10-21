@@ -87,6 +87,9 @@ const {
   buildAgentScopedContext,
   buildSkillPrimeContentParts,
   buildInitialToolSessions,
+  resolveExecutionSession,
+  bindExecutionSession,
+  bindCodeApiExecutionScope,
   hasUrlContextTool,
   hasYouTubeVideoParts,
   appendYouTubeVideoParts,
@@ -122,6 +125,8 @@ const {
   DEFAULT_MEMORY_MAX_INPUT_TOKENS,
 } = require('librechat-data-provider');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+const { resolveEffectiveCodeEnv } = require('~/server/services/Endpoints/agents/authorization');
+const { createConversationMemoryAgent } = require('./memoryProvider');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
 const { resolveConfigServers, getAccessibleMcpServerNames } = require('~/server/services/MCP');
@@ -129,6 +134,12 @@ const { getMCPServerTools } = require('~/server/services/Config');
 const BaseClient = require('~/app/clients/BaseClient');
 const { getMCPManager } = require('~/config');
 const db = require('~/models');
+const mongoose = require('mongoose');
+const { resolveAuthorizedFileGrants } = require('~/server/services/Files/Code/b1Grants');
+const {
+  shouldUseScopedExecution,
+  verifyExecutionConversation,
+} = require('~/server/services/Files/Code/b1Cutover');
 
 const loadAgent = (params) => loadAgentFn(params, { getAgent: db.getAgent, getMCPServerTools });
 
@@ -1186,8 +1197,21 @@ class AgentClient extends BaseClient {
           spec: this.options.spec,
           iconURL: this.options.iconURL,
           chatProjectId: this.options.chatProjectId,
+          workspaceId: this.options.workspaceId,
           endpoint: this.options.endpoint,
           agent_id: this.options.agent.id,
+          // 8S5: provenance snapshot for a REAL custom Agent only — the
+          // ephemeral/default base agent (no Agent object selected) has no
+          // "version" concept, so leave this unset rather than record a
+          // meaningless 1 for every plain chat. `versions` is seeded with
+          // one entry at creation, so length is already 1-indexed
+          // ("version 1" = the agent as first created). Only takes effect
+          // on this conversation's FIRST save — saveConvo() makes it
+          // immutable thereafter (see methods/conversation.ts).
+          agentVersion:
+            this.options.agent.id !== Constants.EPHEMERAL_AGENT_ID
+              ? this.options.agent?.versions?.length || 1
+              : undefined,
           modelLabel: this.options.modelLabel,
           resendFiles: this.options.resendFiles,
           imageDetail: this.options.imageDetail,
@@ -1719,7 +1743,27 @@ class AgentClient extends BaseClient {
       appConfig?.endpoints?.[EModelEndpoint.agents]?.allowedProviders,
     );
     try {
-      if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
+      if (memoryConfig.agent?.useConversationModel === true) {
+        // initializeAgent normalizes custom providers (e.g. CBHR AI) to
+        // their SDK adapter ('openAI'). For the memory agent's *second*
+        // initialization, use agent.endpoint, the original credential-bearing
+        // source, or it would wrongly demand a personal OpenAI BYOK key.
+        // Keep the same model/config but no conversation tools.
+        prelimAgent = createConversationMemoryAgent(
+          this.options.agent,
+          memoryConfig.agent.instructions,
+        );
+        if (prelimAgent.provider !== this.options.agent.provider) {
+          logger.info('[AgentClient] Memory provider restored to configured endpoint', {
+            streamId: this.options.req?._resumableStreamId,
+            configuredEndpoint: prelimAgent.provider,
+            normalizedProvider: this.options.agent.provider,
+          });
+        }
+      } else if (
+        memoryConfig.agent?.id != null &&
+        memoryConfig.agent.id !== this.options.agent.id
+      ) {
         prelimAgent = await loadAgent({
           req: this.options.req,
           agent_id: memoryConfig.agent.id,
@@ -1752,6 +1796,12 @@ class AgentClient extends BaseClient {
      *  tool registered unconditionally; without this passthrough the
      *  memory path would silently lose code-execution tooling). */
     const memoryCapabilities = new Set(appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities);
+    /* 8S3C.2 — RUN_CODE authorization gate for the memory-agent path: global
+     * capability AND user RUN_CODE.USE. */
+    const memoryCodeEnvAvailable = await resolveEffectiveCodeEnv(
+      this.options.req,
+      memoryCapabilities.has(AgentCapabilities.execute_code),
+    );
     const agent = await initializeAgent(
       {
         req: this.options.req,
@@ -1761,9 +1811,9 @@ class AgentClient extends BaseClient {
         endpointOption: {
           endpoint: !isEphemeralAgentId(prelimAgent.id)
             ? EModelEndpoint.agents
-            : memoryConfig.agent?.provider,
+            : prelimAgent.provider,
         },
-        codeEnvAvailable: memoryCapabilities.has(AgentCapabilities.execute_code),
+        codeEnvAvailable: memoryCodeEnvAvailable,
         statefulSessionsAvailable: memoryCapabilities.has(AgentCapabilities.stateful_code_sessions),
       },
       {
@@ -2564,10 +2614,72 @@ class AgentClient extends BaseClient {
        * run-wide semantics live in `buildInitialToolSessions`; see that
        * helper's doc for why this is intentionally NOT per-agent.
        */
-      const initialSessions = buildInitialToolSessions({
+      let initialSessions = buildInitialToolSessions({
         skillSessions: skillPrimeResult?.initialSessions,
         agents: [this.options.agent, ...(this.agentConfigs ? this.agentConfigs.values() : [])],
       });
+
+      // Rollout gate: legacy chats still use their original execution sessions
+      // until migration ownership and CodeAPI filesystem enforcement qualify.
+      if (process.env.CBHR_CONVERSATION_EXECUTION_SESSIONS === '1') {
+        const req = this.options.req;
+        const userId = req?.user?.id;
+        if (!userId || !this.conversationId || this.conversationId === 'new') {
+          throw new Error('An authenticated conversation is required for code execution');
+        }
+        const requestedId = req.body?.conversationId;
+        const owned = await db.getConvo(userId, this.conversationId);
+        await verifyExecutionConversation({
+          userId: String(userId),
+          conversationId: this.conversationId,
+          requestedId,
+          ownedConversation: owned,
+          lookupGlobalConversation: (id) =>
+            mongoose.connection
+              .collection('conversations')
+              .findOne({ conversationId: id }, { projection: { _id: 1 } }),
+        });
+        // B1 is mandatory for chats created after the admin rollout time,
+        // while prior conversations continue their original runtime until
+        // explicitly migrated. No client-supplied timestamp is consulted.
+        const scoped = shouldUseScopedExecution({
+          cutoverUtc: process.env.CBHR_B1_CUTOVER_UTC,
+          conversation: owned,
+        });
+        if (scoped) {
+          const workspace = req.workspaceContext;
+          const sessionId = await resolveExecutionSession(
+            mongoose.connection.collection('code_execution_sessions'),
+            {
+              tenantId: String(req.user.tenantId ?? 'legacy'),
+              userId: String(userId),
+              conversationId: this.conversationId,
+              workspaceKind: workspace?.kind === 'project' ? 'project' : 'personal',
+              workspaceId: workspace?.kind === 'project' ? workspace.workspaceId : String(userId),
+            },
+            { allowCreate: true },
+          );
+          // Agent tools use a function-valued authHeaders callback referencing
+          // this request, so bind the immutable authorization context only
+          // AFTER the durable registry and DB-backed file provenance checks.
+          // No req.body or agent-proposed ref is allowed to become JWT authority.
+          const fileGrants = await resolveAuthorizedFileGrants({
+            req,
+            initialSessions,
+            getFiles: db.getFiles,
+          });
+          bindCodeApiExecutionScope(req, {
+            userId: String(userId),
+            tenantId: String(req.user.tenantId ?? 'legacy'),
+            conversationId: this.conversationId,
+            sessionId,
+            workspaceKind: workspace?.kind === 'project' ? 'project' : 'personal',
+            workspaceId: workspace?.kind === 'project' ? workspace.workspaceId : String(userId),
+            fileGrants,
+          });
+          initialSessions = bindExecutionSession(initialSessions, sessionId);
+        }
+      }
 
       /**
        * Reconstruct `reasoning_content` on prior tool-call turns: DeepSeek

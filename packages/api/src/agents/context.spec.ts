@@ -9,6 +9,7 @@ import {
   getMCPInstructionsForServers,
   buildAgentInstructions,
   buildAgentAdditionalInstructions,
+  buildAvailableToolContext,
   applyContextToAgent,
 } from './context';
 
@@ -16,6 +17,27 @@ import {
 const testSchema = z.object({});
 
 describe('Agent Context Utilities', () => {
+  describe('buildAvailableToolContext', () => {
+    it('names only loaded tool definitions, including office tools and the skill tool', () => {
+      const result = buildAvailableToolContext({
+        id: 'agent',
+        tools: ['configured_but_unavailable'],
+        toolDefinitions: [
+          { name: 'create_document__office', description: 'Create a document', parameters: {} },
+          { name: 'skill', description: 'Load skill', parameters: {} },
+          { name: 'create_document__office', description: 'Duplicate', parameters: {} },
+        ],
+      });
+      expect(result).toContain('create_document__office, skill');
+      expect(result).not.toContain('configured_but_unavailable');
+      expect(result.match(/create_document__office/g)).toHaveLength(1);
+    });
+
+    it('does not assert tools without callable definitions', () => {
+      expect(buildAvailableToolContext({ id: 'agent', tools: ['not_registered'] })).toBe('');
+    });
+  });
+
   describe('extractMCPServers', () => {
     it('should return empty array when agent has no tools', () => {
       const agent = { id: 'test-agent' };

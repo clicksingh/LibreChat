@@ -6,6 +6,8 @@ import { NativeTypes } from 'react-dnd-html5-backend';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   QueryKeys,
+  EToolResources,
+  SystemRoles,
   mergeFileConfig,
   resolveEndpointType,
   isAssistantsEndpoint,
@@ -17,12 +19,15 @@ import useFileUploadRouter from './useFileUploadRouter';
 import { useUploadModalContext } from '~/Providers';
 import useUploadOptions from './useUploadOptions';
 import useLocalize from '../useLocalize';
+import { useAuthContext } from '~/hooks/AuthContext';
 import store from '~/store';
 
 export default function useDragHelpers() {
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
   const localize = useLocalize();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const conversation = useRecoilValue(store.conversationByIndex(0)) || undefined;
 
   const isAssistants = useMemo(
@@ -40,12 +45,14 @@ export default function useDragHelpers() {
   const routeFilesRef = useRef(routeFiles);
   const openModalRef = useRef(openModal);
   const isAssistantsRef = useRef(isAssistants);
+  const isManagedUserRef = useRef(isManagedUser);
 
   conversationRef.current = conversation;
   getOptionsRef.current = getOptions;
   routeFilesRef.current = routeFiles;
   openModalRef.current = openModal;
   isAssistantsRef.current = isAssistants;
+  isManagedUserRef.current = isManagedUser;
 
   const handleDrop = useCallback(
     (item: { files: File[] }) => {
@@ -72,6 +79,13 @@ export default function useDragHelpers() {
           showToast({ message: localize('com_ui_attach_error_disabled'), status: 'error' });
           return;
         }
+      }
+
+      // Managed users use the code-input route, but never bypass
+      // endpoint-disabled checks or server-side RUN_CODE authorization.
+      if (isManagedUserRef.current) {
+        routeFilesRef.current(item.files, EToolResources.execute_code);
+        return;
       }
 
       /** Assistants do not use the upload-option flow */

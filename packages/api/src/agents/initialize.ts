@@ -60,6 +60,7 @@ import {
 import {
   registerCodeExecutionTools,
   registerFileAuthoringTools,
+  registerDocumentVisualQATool,
   isFileAuthoringToolDefinition,
 } from './tools';
 import { registerMemoryTools, memoryToolUsageGuard } from './memory';
@@ -1328,6 +1329,29 @@ export async function initializeAgent(
     if (backgroundResult.backgroundToolNames.length > 0) {
       backgroundToolNames = backgroundResult.backgroundToolNames;
     }
+  }
+
+  /**
+   * 8S3C R3 — `document_visual_qa` (issue #8).
+   *
+   * The Vision QA tool fetches rendered PNG pages from the codeapi session
+   * workspace and sends them through the existing aibridge vision path, so it
+   * requires the same admin gate as code execution AND the agent explicitly
+   * requesting the tool. It is intentionally independent of `execute_code`:
+   * a render pipeline could register `document_visual_qa` without ever asking
+   * for `execute_code` (and vice-versa), and each is gated on its own flag.
+   */
+  const agentRequestsVisualQA = (agent.tools ?? []).includes(Tools.document_visual_qa);
+  if (params.codeEnvAvailable === true && agentRequestsVisualQA) {
+    const visualQAResult = registerDocumentVisualQATool({
+      toolRegistry,
+      toolDefinitions,
+    });
+    toolDefinitions = visualQAResult.toolDefinitions;
+  } else if (agentRequestsVisualQA) {
+    logger.debug(
+      `[initializeAgent] Agent "${agent.id}" requests document_visual_qa but codeEnvAvailable=${String(params.codeEnvAvailable)}; skipping tool registration.`,
+    );
   }
 
   /** Check for tool presence from either full instances or definitions (event-driven mode) */

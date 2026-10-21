@@ -1,8 +1,15 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { useWatch } from 'react-hook-form';
-import { TextareaAutosize } from '@librechat/client';
+import { v4 as uuidv4 } from 'uuid';
+import { TextareaAutosize, useToastContext } from '@librechat/client';
 import { useRecoilState, useRecoilValue, useRecoilCallback } from 'recoil';
-import { Constants, isAssistantsEndpoint, isAgentsEndpoint } from 'librechat-data-provider';
+import {
+  Constants,
+  dataService,
+  EToolResources,
+  isAssistantsEndpoint,
+  isAgentsEndpoint,
+} from 'librechat-data-provider';
 import type { TMessage, TConversation } from 'librechat-data-provider';
 import type { ExtendedFile, FileSetter, ConvoGenerator } from '~/common';
 import type { QueuedMessageContext } from '~/hooks/Chat/useSteering';
@@ -50,6 +57,15 @@ import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
 import Mention from './Mention';
 import store from '~/store';
+import {
+  WORKSPACE_ATTACH_EVENT,
+  isWorkspaceFileDrag,
+  isWorkspaceAttachRequest,
+  beginWorkspaceFileAttach,
+  readWorkspaceFileDrop,
+  matchesWorkspaceChatScope,
+  type WorkspaceAttachRequest,
+} from '~/utils/workspaceAttachment';
 
 interface ChatFormProps {
   index: number;
@@ -81,6 +97,11 @@ const ChatForm = memo(function ChatForm({
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   useFocusChatEffect(textAreaRef);
   const localize = useLocalize();
+  const { showToast } = useToastContext();
+  const [dragOverWorkspace, setDragOverWorkspace] = useState(false);
+  // A synchronous guard closes the gap before React publishes filesLoading.
+  // Without it two rapid drops can launch duplicate server-side copies.
+  const attachingWorkspaceRef = useRef(false);
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [, setIsScrollable] = useState(false);
@@ -147,6 +168,133 @@ const ChatForm = memo(function ChatForm({
   const disableInputs = useMemo(
     () => requiresKey || invalidAssistant,
     [requiresKey, invalidAssistant],
+  );
+
+  const attachWorkspaceFile = useCallback(
+    async (item: WorkspaceAttachRequest) => {
+      if (attachingWorkspaceRef.current || disableInputs || isSubmitting || filesLoading) {
+        showToast({
+          message: 'Finish the current operation before attaching another file',
+          status: 'error',
+        });
+        return;
+      }
+      // Endpoint-agnostic: managed-user custom endpoints (e.g. CBHR AI)
+      // already support composer files and must not be blocked here.
+      if (!matchesWorkspaceChatScope(item, conversation)) {
+        showToast({
+          message: 'Choose the same workspace as this chat before attaching its files',
+          status: 'error',
+        });
+        return;
+      }
+      const reference =
+        item.kind + ':' + (item.projectId ?? '') + ':' + item.sessionId + ':' + item.fileId;
+      if (Array.from(files.values()).some((f) => f.workspaceReference === reference)) {
+        showToast({ message: item.name + ' is already attached' });
+        return;
+      }
+      const releaseAttach = beginWorkspaceFileAttach(attachingWorkspaceRef, setFilesLoading);
+      if (!releaseAttach) return;
+      const temporaryId = uuidv4();
+      const pending: ExtendedFile = {
+        file_id: temporaryId,
+        filename: item.name,
+        size: item.size,
+        progress: 0.1,
+        workspaceReference: reference,
+        tool_resource: EToolResources.execute_code,
+      };
+      setFiles((prev) => new Map(prev).set(temporaryId, pending));
+      try {
+        const payload = {
+          session_id: item.sessionId,
+          file_id: item.fileId,
+          ...(conversationId !== Constants.NEW_CONVO ? { conversationId } : {}),
+        };
+        const result =
+          item.kind === 'project'
+            ? await dataService.attachProjectWorkspaceFile(item.projectId as string, payload)
+            : await dataService.attachPersonalWorkspaceFile(payload);
+        setFiles((prev) => {
+          const updated = new Map(prev);
+          // The user may have removed the pending chip before the request completed.
+          if (!updated.has(temporaryId)) return prev;
+          updated.delete(temporaryId);
+          updated.set(result.file_id, {
+            ...pending,
+            file_id: result.file_id,
+            filepath: result.filepath,
+            filename: result.filename,
+            size: result.bytes,
+            type: result.type,
+            source: result.source,
+            metadata: result.metadata,
+            progress: 1,
+          });
+          return updated;
+        });
+      } catch {
+        setFiles((prev) => {
+          const updated = new Map(prev);
+          updated.delete(temporaryId);
+          return updated;
+        });
+        showToast({
+          message: 'Unable to attach ' + item.name + '. Check workspace access and try again.',
+          status: 'error',
+        });
+      } finally {
+        // The original attach-to-chat path set this true but never cleared it,
+        // leaving the composer send button disabled after success AND failure.
+        releaseAttach();
+      }
+    },
+    [
+      conversation,
+      conversationId,
+      disableInputs,
+      files,
+      filesLoading,
+      isSubmitting,
+      setFiles,
+      setFilesLoading,
+      showToast,
+    ],
+  );
+
+  // Click-to-attach from Workspace Files uses the exact same authorized path
+  // as native drag/drop. No browser bytes are fetched or reuploaded.
+  useEffect(() => {
+    // The side-panel Paperclip command is global. In multi-chat comparison
+    // mode more than one ChatForm mounts; only the primary composer should
+    // consume it. A direct drop still targets whichever composer received it.
+    if (index !== 0) return;
+    const handler = (event: Event) => {
+      const item = (event as CustomEvent<WorkspaceAttachRequest>).detail;
+      if (isWorkspaceAttachRequest(item)) void attachWorkspaceFile(item);
+    };
+    window.addEventListener(WORKSPACE_ATTACH_EVENT, handler);
+    return () => window.removeEventListener(WORKSPACE_ATTACH_EVENT, handler);
+  }, [attachWorkspaceFile, index]);
+
+  const handleWorkspaceDragOver = useCallback((event: React.DragEvent) => {
+    if (!isWorkspaceFileDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+    setDragOverWorkspace(true);
+  }, []);
+  const handleWorkspaceDrop = useCallback(
+    (event: React.DragEvent) => {
+      if (!isWorkspaceFileDrag(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDragOverWorkspace(false);
+      const item = readWorkspaceFileDrop(event.dataTransfer);
+      if (item) void attachWorkspaceFile(item);
+    },
+    [attachWorkspaceFile],
   );
 
   const handleContainerClick = useCallback(() => {
@@ -471,6 +619,13 @@ const ChatForm = memo(function ChatForm({
 
   return (
     <form
+      onDragOver={handleWorkspaceDragOver}
+      onDrop={handleWorkspaceDrop}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setDragOverWorkspace(false);
+        }
+      }}
       onSubmit={methods.handleSubmit((data) => {
         // Answer mode: composer text answers the paused run instead of
         // starting a new turn (submitText resets the composer itself).
@@ -491,6 +646,7 @@ const ChatForm = memo(function ChatForm({
       className={cn(
         'mx-auto flex w-full flex-row gap-3 transition-[max-width] duration-300 sm:px-2',
         maximizeChatSpace ? 'max-w-full' : 'md:max-w-3xl xl:max-w-4xl',
+        dragOverWorkspace && 'rounded-lg ring-2 ring-blue-500/50',
         centerFormOnLanding &&
           (conversationId == null || conversationId === Constants.NEW_CONVO) &&
           !isSubmitting &&
@@ -754,6 +910,7 @@ function ChatFormWrapper({ index = 0, placeholder }: { index?: number; placehold
       conversation?.spec,
       conversation?.useResponsesApi,
       conversation?.model,
+      conversation?.workspaceId,
       conversation?.maxContextTokens,
       hasMessages,
     ],

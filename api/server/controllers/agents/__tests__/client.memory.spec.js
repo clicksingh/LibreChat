@@ -1,4 +1,5 @@
 const { EModelEndpoint, AgentCapabilities } = require('librechat-data-provider');
+const { createConversationMemoryAgent } = require('../memoryProvider');
 
 /**
  * Pins the capability-flag derivation that `AgentClient::useMemory` uses when
@@ -70,5 +71,72 @@ describe('AgentClient::useMemory — codeEnvAvailable derivation', () => {
        `initialize.js` / `openai.js` / `responses.js` to match. */
     expect(AgentCapabilities.execute_code).toBe('execute_code');
     expect(EModelEndpoint.agents).toBe('agents');
+  });
+});
+
+describe('AgentClient::useMemory — preserve original provider credentials', () => {
+  it('restores CBHR AI from the normalized openAI adapter for a managed ephemeral agent', () => {
+    const primary = {
+      id: 'CBHR AI__zai/glm-5.3-flash___CBHR AI',
+      endpoint: 'CBHR AI',
+      provider: EModelEndpoint.openAI,
+      model: 'zai/glm-5.3-flash',
+      model_parameters: { model: 'zai/glm-5.3-flash', temperature: 0.3 },
+      tools: ['execute_code', 'file_search'],
+      tool_resources: { code: true },
+    };
+    const memory = createConversationMemoryAgent(primary, 'extract user memories');
+    expect(memory.provider).toBe('CBHR AI');
+    expect(memory.endpoint).toBe('CBHR AI');
+    expect(memory.model).toBe('zai/glm-5.3-flash');
+    expect(memory.model_parameters).toEqual(primary.model_parameters);
+    expect(memory.model_parameters).not.toBe(primary.model_parameters);
+    expect(memory.tools).toEqual([]);
+    expect(memory.tool_resources).toBeUndefined();
+    expect(memory.instructions).toBe('extract user memories');
+    expect(primary.provider).toBe(EModelEndpoint.openAI);
+    expect(primary.tools).toEqual(['execute_code', 'file_search']);
+  });
+
+  it('preserves the original configured endpoint for a persisted custom agent', () => {
+    const primary = {
+      id: 'agent_owned',
+      endpoint: 'CompanyCustom',
+      provider: EModelEndpoint.openAI,
+      model: 'tenant-model',
+      model_parameters: { model: 'tenant-model' },
+    };
+    const memory = createConversationMemoryAgent(primary, 'memory');
+    expect(memory.provider).toBe('CompanyCustom');
+    expect(memory.id).toBe('agent_owned');
+  });
+
+  it.each([EModelEndpoint.openAI, EModelEndpoint.anthropic, EModelEndpoint.google])(
+    'leaves built-in %s on the same provider',
+    (provider) => {
+      const memory = createConversationMemoryAgent({
+        id: 'agent_builtin',
+        endpoint: provider,
+        provider,
+        model: 'model',
+        model_parameters: { model: 'model' },
+      });
+      expect(memory.provider).toBe(provider);
+    },
+  );
+
+  it('falls back to provider if source endpoint was not recorded', () => {
+    const memory = createConversationMemoryAgent({
+      id: 'agent_legacy',
+      provider: EModelEndpoint.google,
+      model_parameters: { model: 'gemini' },
+    });
+    expect(memory.provider).toBe(EModelEndpoint.google);
+  });
+
+  it('does not accept absent initialized agent input', () => {
+    expect(() => createConversationMemoryAgent(null)).toThrow(
+      'A primary initialized agent is required',
+    );
   });
 });

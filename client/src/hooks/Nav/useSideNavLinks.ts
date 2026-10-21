@@ -4,6 +4,7 @@ import {
   Bot,
   Brain,
   Bookmark,
+  HardDrive,
   NotebookPen,
   ScrollText,
   ArrowRightToLine,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   Permissions,
+  SystemRoles,
   EModelEndpoint,
   PermissionTypes,
   isParamEndpoint,
@@ -24,6 +26,7 @@ import {
   useMCPServerManager,
   useGetAgentsConfig,
   useHasAccess,
+  useAuthContext,
 } from '~/hooks';
 import MCPBuilderPanel from '~/components/SidePanel/MCPBuilder/MCPBuilderPanel';
 import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
@@ -32,6 +35,7 @@ import PanelSwitch from '~/components/SidePanel/Builder/PanelSwitch';
 import Parameters from '~/components/SidePanel/Parameters/Panel';
 import { MemoryPanel } from '~/components/SidePanel/Memories';
 import FilesPanel from '~/components/SidePanel/Files/Panel';
+import WorkspacePanel from '~/components/SidePanel/Workspace/Panel';
 import { PromptsAccordion } from '~/components/Prompts';
 import { SkillsAccordion } from '~/components/Skills';
 
@@ -92,6 +96,8 @@ export default function useSideNavLinks({
 
   const { agentsConfig } = useGetAgentsConfig({ endpointsConfig });
   const { skillsEnabled } = useAgentCapabilities(agentsConfig?.capabilities);
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
 
   const Links = useMemo(() => {
     const links: NavLink[] = [];
@@ -170,12 +176,25 @@ export default function useSideNavLinks({
       });
     }
 
+    if (!isManagedUser) {
+      links.push({
+        title: 'com_sidepanel_attach_files',
+        label: '',
+        icon: AttachmentIcon,
+        id: 'files',
+        Component: FilesPanel,
+      });
+    }
+
+    // 8S3D.1: personal workspace file browser is always available (every
+    // authenticated user has one, implicitly); project workspaces are
+    // reachable from the same panel once the user has access to any.
     links.push({
-      title: 'com_sidepanel_attach_files',
+      title: isManagedUser ? 'com_ui_files' : 'com_sidepanel_workspace',
       label: '',
-      icon: AttachmentIcon,
-      id: 'files',
-      Component: FilesPanel,
+      icon: HardDrive,
+      id: 'workspace',
+      Component: WorkspacePanel,
     });
 
     if (
@@ -226,6 +245,7 @@ export default function useSideNavLinks({
     hasAccessToPrompts,
     hasAccessToSkills,
     skillsEnabled,
+    isManagedUser,
     hasAccessToMemories,
     hasAccessToReadMemories,
     interfaceConfig.parameters,

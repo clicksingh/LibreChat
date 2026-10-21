@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import { useRecoilState, useRecoilValue, useSetRecoilState, useRecoilCallback } from 'recoil';
@@ -15,6 +15,7 @@ import {
   isEphemeralAgentId,
   isAssistantsEndpoint,
   getDefaultParamsEndpoint,
+  SystemRoles,
 } from 'librechat-data-provider';
 import type {
   TPreset,
@@ -42,14 +43,18 @@ import { useResetChatBadges } from './useChatBadges';
 import { useApplyModelSpecEffects } from './Agents';
 import { useAgentsMapContext } from '~/Providers';
 import { usePauseGlobalAudio } from './Audio';
-import { useHasAccess } from '~/hooks';
+import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
+import { getManagedNewChatPreset, applyManagedNewChatPreset } from '~/utils/managedDefault';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: startupConfig } = useGetStartupConfig();
+  const { user } = useAuthContext();
+  const isManagedUser = user?.role === SystemRoles.USER;
   const getConversation = useGetConversation(index);
+  const activeConversation = useRecoilValue(store.conversationByKeySelector(index));
   const applyModelSpecEffects = useApplyModelSpecEffects();
   const clearAllConversations = store.useClearConvoState();
   const defaultPreset = useRecoilValue(store.defaultPreset);
@@ -99,6 +104,17 @@ const useNewConvo = (index = 0) => {
           'chatProjectId',
         );
         const explicitChatProjectId = conversation.chatProjectId;
+        // 8S3D.1: buildDefaultConvo() below rebuilds `conversation` from a
+        // preset/default template and drops any field it doesn't know
+        // about — workspaceId (set via the Workspace panel's "Use for new
+        // chat") would otherwise silently vanish the moment the user picks
+        // a model/endpoint, exactly like chatProjectId does without this
+        // same explicit re-apply.
+        const hasExplicitWorkspaceId = Object.prototype.hasOwnProperty.call(
+          conversation,
+          'workspaceId',
+        );
+        const explicitWorkspaceId = conversation.workspaceId;
         const activePreset =
           // use default preset only when it's defined,
           // preset is not provided,
@@ -215,6 +231,10 @@ const useNewConvo = (index = 0) => {
           } else {
             delete conversation.chatProjectId;
           }
+
+          if (hasExplicitWorkspaceId) {
+            conversation.workspaceId = explicitWorkspaceId ?? null;
+          }
         }
 
         if (disableParams === true) {
@@ -319,7 +339,11 @@ const useNewConvo = (index = 0) => {
         isParamEndpoint(_preset?.endpoint ?? '', _preset?.endpointType ?? '');
       const template =
         paramEndpoint === true && templateConvoId && templateConvoId === Constants.NEW_CONVO
-          ? { endpoint: _template.endpoint, chatProjectId: _template.chatProjectId }
+          ? {
+              endpoint: _template.endpoint,
+              chatProjectId: _template.chatProjectId,
+              workspaceId: _template.workspaceId,
+            }
           : _template;
 
       const conversation = {
@@ -332,15 +356,50 @@ const useNewConvo = (index = 0) => {
       };
 
       let preset = _preset;
+      // Preserve the V16 server-managed endpoint default when upstream adds
+      // agent-map-aware model-spec selection. Do not fall back to stale storage.
+      const managedPreset = getManagedNewChatPreset({
+        isManagedUser,
+        conversationId: conversation.conversationId,
+        template: _template,
+        startupConfig,
+        endpointsConfig,
+        modelsConfig: modelsData ?? modelsQuery.data,
+      });
       const result = getDefaultModelSpec(startupConfig, endpointsConfig, agentsMap);
-      const defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
-      const shouldApplyModelSpec =
+      let defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
+      let shouldApplyModelSpec =
         result?.softDefault != null
           ? !hasModelSelection(_template)
           : startupConfig?.modelSpecs?.prioritize === true ||
             (startupConfig?.interface?.modelSelect ?? true) !== true ||
             (result?.last != null &&
               Object.keys(_template).filter((key) => key !== 'chatProjectId').length === 0);
+
+      const explicitAgentOrAssistant =
+        isAgentsEndpoint(_template.endpoint ?? _preset?.endpoint ?? '') ||
+        isAssistantsEndpoint(_template.endpoint ?? _preset?.endpoint ?? '') ||
+        Boolean(
+          _template.agent_id ||
+            _template.assistant_id ||
+            _preset?.agent_id ||
+            _preset?.assistant_id,
+        );
+
+      if (managedPreset) {
+        // Force the current company endpoint even when ChatRoute supplies
+        // a stale preset from localStorage, an old model spec, or URL params.
+        // Normalize endpointType as well: otherwise a saved provider type can
+        // survive buildDefaultConvo and dispatch to a personal-key provider.
+        preset = managedPreset;
+        Object.assign(
+          conversation,
+          applyManagedNewChatPreset(conversation, managedPreset, endpointsConfig),
+        );
+      } else if (isManagedUser && !explicitAgentOrAssistant) {
+        defaultModelSpec = result?.default ?? result?.softDefault;
+        shouldApplyModelSpec = defaultModelSpec != null;
+      }
       if (!preset && startupConfig && shouldApplyModelSpec && defaultModelSpec) {
         preset = getModelSpecPreset(defaultModelSpec);
       }
@@ -397,14 +456,40 @@ const useNewConvo = (index = 0) => {
       mutateAsync,
       resetBadges,
       startupConfig,
+      isManagedUser,
       saveBadgesState,
       endpointsConfig,
+      modelsQuery.data,
       getConversation,
       pauseGlobalAudio,
       switchToConversation,
       applyModelSpecEffects,
     ],
   );
+
+  useEffect(() => {
+    if (
+      !isManagedUser ||
+      !activeConversation ||
+      activeConversation.conversationId !== Constants.NEW_CONVO ||
+      activeConversation.endpoint
+    )
+      return;
+    const endpointsReady = Object.keys(endpointsConfig ?? {}).some((endpoint) =>
+      Boolean(endpointsConfig?.[endpoint]),
+    );
+    const modelsReady = Object.keys(modelsQuery.data ?? {}).length > 0;
+    if (!endpointsReady || !modelsReady) return;
+    newConversation({
+      template: {
+        chatProjectId: activeConversation.chatProjectId,
+        workspaceId: activeConversation.workspaceId,
+      },
+      buildDefault: true,
+      keepAddedConvos: true,
+      disableFocus: true,
+    });
+  }, [activeConversation, endpointsConfig, isManagedUser, modelsQuery.data, newConversation]);
 
   return {
     switchToConversation,

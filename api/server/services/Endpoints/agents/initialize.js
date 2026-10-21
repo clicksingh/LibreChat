@@ -47,6 +47,7 @@ const {
   isFatalAgentInitializationError,
 } = require('~/server/services/ToolService');
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+const { resolveEffectiveCodeEnv, resolveWorkspaceContext } = require('./authorization');
 const {
   getSkillToolDeps,
   getSkillDbMethods,
@@ -185,7 +186,19 @@ const initializeClient = async ({
    *      allowlist with the toggle on = full accessible catalog. */
   const enabledCapabilities = new Set(appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities);
   const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
-  const codeEnvAvailable = enabledCapabilities.has(AgentCapabilities.execute_code);
+  const codeEnvAvailable = await resolveEffectiveCodeEnv(
+    req,
+    enabledCapabilities.has(AgentCapabilities.execute_code),
+  );
+  await resolveWorkspaceContext(req);
+  if (codeEnvAvailable) {
+    const { syncPersonalQuota } = require('~/server/services/Workspace/quotaSync');
+    // Nonblocking: quota sync must not prevent a legitimate active chat.
+    Promise.resolve()
+      .then(() => syncPersonalQuota(req.user.id, req.user.role))
+      .catch(() => {});
+  }
+
   const backgroundToolsAvailable = enabledCapabilities.has(AgentCapabilities.run_in_background);
   const toolIntentsAvailable = enabledCapabilities.has(AgentCapabilities.tool_intents);
   const statefulSessionsAvailable = enabledCapabilities.has(
@@ -249,6 +262,16 @@ const initializeClient = async ({
     async ([primaryAgent, modelsConfig]) => {
       if (!primaryAgent) {
         throw new Error('Agent not found');
+      }
+      // Existing archived-agent conversations remain readable and resumable;
+      // starting a new chat with an archived agent is forbidden.
+      if (
+        primaryAgent.lifecycle_state === 'archived' &&
+        (!req.body?.conversationId || req.body.conversationId === 'new')
+      ) {
+        const err = new Error('This agent is archived and cannot start a new conversation.');
+        err.status = 400;
+        throw err;
       }
 
       const validationResult = await validateAgentModel({
@@ -1109,6 +1132,7 @@ const initializeClient = async ({
     spec: endpointOption.spec,
     iconURL: endpointOption.iconURL,
     chatProjectId: endpointOption.chatProjectId,
+    workspaceId: endpointOption.workspaceId,
     attachments: primaryConfig.requestAttachments ?? primaryConfig.attachments,
     agentContextAttachmentsByAgentId,
     endpointType: endpointOption.endpointType,

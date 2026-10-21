@@ -248,6 +248,46 @@ describe('createEndpointsConfigService', () => {
       expect(mockGetAppConfig).not.toHaveBeenCalled();
     });
 
+    it('elevates a custom endpoint marked default:true to the first (default) position', async () => {
+      const deps = createMockDeps({
+        loadCustomEndpointsConfig: jest.fn().mockReturnValue({
+          'CBHR AI': { userProvide: false, models: { default: ['deepseek-v4-flash'] } },
+        }),
+      });
+      const { getEndpointsConfig } = createEndpointsConfigService(deps);
+      const result = await getEndpointsConfig(
+        fakeReq({
+          config: appConfig({
+            endpoints: {
+              custom: [{ name: 'CBHR AI', default: true }],
+            },
+          }),
+        }),
+      );
+
+      expect(result?.['CBHR AI']?.order).toBe(-1);
+    });
+
+    it('does not alter order for custom endpoints without default:true', async () => {
+      const deps = createMockDeps({
+        loadCustomEndpointsConfig: jest.fn().mockReturnValue({
+          'CBHR AI': { userProvide: false, models: { default: ['deepseek-v4-flash'] } },
+        }),
+      });
+      const { getEndpointsConfig } = createEndpointsConfigService(deps);
+      const result = await getEndpointsConfig(
+        fakeReq({
+          config: appConfig({
+            endpoints: {
+              custom: [{ name: 'CBHR AI' }],
+            },
+          }),
+        }),
+      );
+
+      expect(result?.['CBHR AI']?.order).not.toBe(-1);
+    });
+
     it('passes userId when resolving scoped endpoint config', async () => {
       const mockGetAppConfig = jest.fn().mockResolvedValue(appConfig({ endpoints: {} }));
       const deps = createMockDeps({ getAppConfig: mockGetAppConfig });
