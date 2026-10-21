@@ -136,10 +136,21 @@ async function resolveAuthorizedFileGrants({
   });
   const authorized = authorizedFileGrants({ req, sessionFiles: files, dbFiles });
   const attested = [];
+  // Re-check the same user, tenant and workspace-attachment boundaries used
+  // to authorize the grant. The broader per-file-id query may return records
+  // for another tenant sharing the same storage identity; those bytes must
+  // never be selected for a signed execution grant.
+  const userId = String(req.user.id);
+  const tenantId = req.user?.tenantId == null ? null : String(req.user.tenantId);
   for (const grant of authorized) {
     const original = dbFiles.find((file) => {
       const ref = file?.metadata?.codeEnvRef;
+      const user = file?.user?.toString?.() ?? file?.user;
+      const tenant = file?.tenantId?.toString?.() ?? file?.tenantId;
       return (
+        user === userId &&
+        (tenantId === null ? tenant == null : tenant === tenantId) &&
+        (grant.kind !== 'project' || file.metadata?.workspaceFileAttachment === true) &&
         ref?.kind === grant.kind &&
         ref.id === grant.owner &&
         ref.storage_session_id === grant.session_id &&
