@@ -106,8 +106,8 @@ async function resolveWorkspaceContext(req) {
   if (req._workspaceContextResolved) {
     return req.workspaceContext;
   }
-  req._workspaceContextResolved = true;
-
+  // Do not cache a successful resolution before membership/active-state checks.
+  // A denied first call must never become an undefined (personal) fallback on retry.
   const user = req?.user;
   if (!user?.id) {
     return undefined;
@@ -127,6 +127,8 @@ async function resolveWorkspaceContext(req) {
     desiredWorkspaceId = req.body.workspaceId;
   }
   if (!desiredWorkspaceId) {
+    // Context-free requests may be cached; rejected workspace resolutions may not.
+    req._workspaceContextResolved = true;
     return undefined;
   }
 
@@ -144,6 +146,7 @@ async function resolveWorkspaceContext(req) {
   }
 
   req.workspaceContext = { kind: 'project', workspaceId: String(desiredWorkspaceId) };
+  req._workspaceContextResolved = true;
   syncProjectQuotaFireAndForget(req.workspaceContext.workspaceId);
   return req.workspaceContext;
 }

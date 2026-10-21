@@ -63,6 +63,33 @@ describe('resolveWorkspaceContext (8S3D.1)', () => {
     expect(req.workspaceContext).toBeUndefined();
   });
 
+  it('repeated calls after a denied membership never downgrade to personal scope', async () => {
+    mockGetConvo.mockResolvedValue({ workspaceId: 'ws_restricted' });
+    mockGetWorkspace.mockResolvedValue({ _id: 'ws_restricted', state: 'active' });
+    mockCheckPermission.mockResolvedValue(false);
+    const request = makeReq({ body: { conversationId: 'convo_restricted' } });
+
+    await expect(resolveWorkspaceContext(request)).rejects.toMatchObject({ status: 403 });
+    expect(request.workspaceContext).toBeUndefined();
+    expect(request._workspaceContextResolved).not.toBe(true);
+
+    // If an upstream layer catches the first denial, downstream must still
+    // deny rather than return undefined and execute against the personal pool.
+    await expect(resolveWorkspaceContext(request)).rejects.toMatchObject({ status: 403 });
+    expect(mockCheckPermission).toHaveBeenCalledTimes(2);
+    expect(request.workspaceContext).toBeUndefined();
+  });
+
+  it('archived-workspace rejection cannot be cached as personal scope', async () => {
+    mockGetConvo.mockResolvedValue({ workspaceId: 'ws_archived' });
+    mockGetWorkspace.mockResolvedValue({ _id: 'ws_archived', state: 'archived' });
+    const request = makeReq({ body: { conversationId: 'convo_archived' } });
+    await expect(resolveWorkspaceContext(request)).rejects.toMatchObject({ status: 404 });
+    await expect(resolveWorkspaceContext(request)).rejects.toMatchObject({ status: 404 });
+    expect(mockGetWorkspace).toHaveBeenCalledTimes(2);
+    expect(request._workspaceContextResolved).not.toBe(true);
+  });
+
   it('throws 404 for an archived workspace, even for the owner', async () => {
     mockGetConvo.mockResolvedValue({ workspaceId: 'ws_1' });
     mockGetWorkspace.mockResolvedValue({ _id: 'ws_1', state: 'archived' });
