@@ -765,7 +765,7 @@ export const uploadAgentAvatar = (data: m.AgentAvatarVariables): Promise<a.Agent
 };
 
 export const getFileDownload = async (userId: string, file_id: string): Promise<AxiosResponse> => {
-  return request.getResponse(`${endpoints.files()}/download/${userId}/${file_id}`, {
+  return request.getResponse<Blob>(`${endpoints.files()}/download/${userId}/${file_id}`, {
     responseType: 'blob',
     headers: {
       Accept: 'application/octet-stream',
@@ -785,7 +785,7 @@ export const getSharedFileDownload = async (
   shareId: string,
   file_id: string,
 ): Promise<AxiosResponse> => {
-  return request.getResponse(endpoints.sharedFileDownload(shareId, file_id), {
+  return request.getResponse<Blob>(endpoints.sharedFileDownload(shareId, file_id), {
     responseType: 'blob',
     headers: {
       Accept: 'application/octet-stream',
@@ -794,7 +794,7 @@ export const getSharedFileDownload = async (
 };
 
 export const getCodeOutputDownload = async (url: string): Promise<AxiosResponse> => {
-  return request.getResponse(url, {
+  return request.getResponse<Blob>(url, {
     responseType: 'blob',
     headers: {
       Accept: 'application/octet-stream',
@@ -1487,7 +1487,7 @@ export function downloadPersonalWorkspaceFile(
   sessionId: string,
   fileId: string,
 ): Promise<AxiosResponse<Blob>> {
-  return request.getResponse(endpoints.personalWorkspaceFileDownload(sessionId, fileId), {
+  return request.getResponse<Blob>(endpoints.personalWorkspaceFileDownload(sessionId, fileId), {
     responseType: 'blob',
     headers: { Accept: 'application/octet-stream' },
   });
@@ -1553,7 +1553,7 @@ export function downloadProjectWorkspaceFile(
   sessionId: string,
   fileId: string,
 ): Promise<AxiosResponse<Blob>> {
-  return request.getResponse(
+  return request.getResponse<Blob>(
     endpoints.projectWorkspaceFileDownload(workspaceId, sessionId, fileId),
     {
       responseType: 'blob',
