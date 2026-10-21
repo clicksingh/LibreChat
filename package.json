@@ -231,7 +231,8 @@
     "protobufjs": "^7.6.5",
     "gaxios": {
       "uuid": "^11.1.1"
-    }
+    },
+    "fast-uri": "^3.1.9"
   },
   "nodemonConfig": {
     "ignore": [
