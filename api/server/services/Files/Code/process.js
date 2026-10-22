@@ -85,7 +85,9 @@ const createDownloadFallback = ({
   const downloadPath = `${basePath}/api/files/code/download/${session_id}/${id}`;
   return {
     filename: name,
-    filepath: projectGrant ? `${downloadPath}?grant=${encodeURIComponent(projectGrant)}` : downloadPath,
+    filepath: projectGrant
+      ? `${downloadPath}?grant=${encodeURIComponent(projectGrant)}`
+      : downloadPath,
     expiresAt,
     conversationId,
     toolCallId,

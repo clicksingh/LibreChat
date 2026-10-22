@@ -1,9 +1,6 @@
 'use strict';
 
-const {
-  signProjectFallback,
-  verifyProjectFallback,
-} = require('./fallbackGrant');
+const { signProjectFallback, verifyProjectFallback } = require('./fallbackGrant');
 
 describe('project CodeAPI fallback grants', () => {
   const previousSecret = process.env.JWT_SECRET;
@@ -36,22 +33,22 @@ describe('project CodeAPI fallback grants', () => {
 
   test('rejects a different authenticated user or tenant', () => {
     const token = issue();
-    expect(() => verify(token, {
-      req: { user: { id: 'member-b', tenantId: 'tenant-a' } },
-    })).toThrow('CODE_PROJECT_FALLBACK_DENIED');
-    expect(() => verify(token, {
-      req: { user: { id: 'member-a', tenantId: 'tenant-b' } },
-    })).toThrow('CODE_PROJECT_FALLBACK_DENIED');
+    expect(() =>
+      verify(token, {
+        req: { user: { id: 'member-b', tenantId: 'tenant-a' } },
+      }),
+    ).toThrow('CODE_PROJECT_FALLBACK_DENIED');
+    expect(() =>
+      verify(token, {
+        req: { user: { id: 'member-a', tenantId: 'tenant-b' } },
+      }),
+    ).toThrow('CODE_PROJECT_FALLBACK_DENIED');
   });
 
   test('rejects a different execution session or file even with same user', () => {
     const token = issue();
-    expect(() => verify(token, { sessionId: 'session-b' })).toThrow(
-      'CODE_PROJECT_FALLBACK_DENIED',
-    );
-    expect(() => verify(token, { fileId: 'file-b' })).toThrow(
-      'CODE_PROJECT_FALLBACK_DENIED',
-    );
+    expect(() => verify(token, { sessionId: 'session-b' })).toThrow('CODE_PROJECT_FALLBACK_DENIED');
+    expect(() => verify(token, { fileId: 'file-b' })).toThrow('CODE_PROJECT_FALLBACK_DENIED');
   });
 
   test('rejects tampering, wrong signature, malformed token and multiple query values', () => {
@@ -77,9 +74,11 @@ describe('project CodeAPI fallback grants', () => {
     } finally {
       now.mockRestore();
     }
-    expect(() => issue({
-      expiresAt: Date.now() + 2 * 24 * 60 * 60 * 1000,
-    })).toThrow('CODE_PROJECT_FALLBACK_DENIED');
+    expect(() =>
+      issue({
+        expiresAt: Date.now() + 2 * 24 * 60 * 60 * 1000,
+      }),
+    ).toThrow('CODE_PROJECT_FALLBACK_DENIED');
   });
 
   test('refuses unsigned project grants or missing signing secret', () => {

@@ -349,7 +349,9 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
       // Revalidate the live project's active state and caller membership
       // on EACH download, including after project archival or revocation.
       try {
-        const { resolveWorkspaceContextExplicit } = require('~/server/services/Endpoints/agents/authorization');
+        const {
+          resolveWorkspaceContextExplicit,
+        } = require('~/server/services/Endpoints/agents/authorization');
         req.workspaceContext = await resolveWorkspaceContextExplicit(req, downloadScope.id);
       } catch (error) {
         return res.status(error?.status === 404 ? 404 : 403).send('Forbidden');
@@ -368,11 +370,7 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
      * uses a signed origin claim and live server membership verification.
      * CodeAPI receives only server-derived storage identity. */
     /** @type {AxiosResponse<ReadableStream> | undefined} */
-    const response = await getDownloadStream(
-      `${session_id}/${fileId}`,
-      downloadScope,
-      req,
-    );
+    const response = await getDownloadStream(`${session_id}/${fileId}`, downloadScope, req);
     res.set(response.headers);
     response.data.pipe(res);
   } catch (error) {

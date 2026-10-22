@@ -28,14 +28,16 @@ function normalizeTenant(value) {
 function signProjectFallback({ req, outputScope, sessionId, fileId, expiresAt }) {
   if (
     outputScope?.kind !== 'project' ||
-    typeof outputScope.id !== 'string' || !outputScope.id.trim() ||
-    !req?.user?.id || !sessionId || !fileId
+    typeof outputScope.id !== 'string' ||
+    !outputScope.id.trim() ||
+    !req?.user?.id ||
+    !sessionId ||
+    !fileId
   ) {
     throw invalid();
   }
   const now = Date.now();
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now ||
-      expiresAt > now + MAX_LIFETIME_MS) {
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now || expiresAt > now + MAX_LIFETIME_MS) {
     throw invalid();
   }
   const payload = {
@@ -54,15 +56,17 @@ function signProjectFallback({ req, outputScope, sessionId, fileId, expiresAt })
 
 /** Verify identity, tenant, requested file and expiry before any CodeAPI fetch. */
 function verifyProjectFallback({ token, req, sessionId, fileId }) {
-  if (typeof token !== 'string' || token.length > MAX_TOKEN_LENGTH ||
-      !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(token)) {
+  if (
+    typeof token !== 'string' ||
+    token.length > MAX_TOKEN_LENGTH ||
+    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/.test(token)
+  ) {
     throw invalid();
   }
   const [body, signature] = token.split('.');
   const provided = Buffer.from(signature, 'base64url');
   const expected = mac(body);
-  if (provided.length !== expected.length ||
-      !crypto.timingSafeEqual(provided, expected)) {
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
     throw invalid();
   }
   let payload;
@@ -72,21 +76,25 @@ function verifyProjectFallback({ token, req, sessionId, fileId }) {
     throw invalid();
   }
   const now = Date.now();
-  if (!payload || payload.v !== 1 ||
-      typeof payload.u !== 'string' ||
-      typeof payload.w !== 'string' || !payload.w.trim() ||
-      typeof payload.s !== 'string' ||
-      typeof payload.f !== 'string' ||
-      !Number.isSafeInteger(payload.iat) ||
-      !Number.isSafeInteger(payload.exp) ||
-      payload.iat > now + 60_000 ||
-      payload.exp <= now ||
-      payload.exp <= payload.iat ||
-      payload.exp > payload.iat + MAX_LIFETIME_MS ||
-      payload.u !== String(req?.user?.id ?? '') ||
-      payload.t !== normalizeTenant(req?.user?.tenantId) ||
-      payload.s !== String(sessionId) ||
-      payload.f !== String(fileId)) {
+  if (
+    !payload ||
+    payload.v !== 1 ||
+    typeof payload.u !== 'string' ||
+    typeof payload.w !== 'string' ||
+    !payload.w.trim() ||
+    typeof payload.s !== 'string' ||
+    typeof payload.f !== 'string' ||
+    !Number.isSafeInteger(payload.iat) ||
+    !Number.isSafeInteger(payload.exp) ||
+    payload.iat > now + 60_000 ||
+    payload.exp <= now ||
+    payload.exp <= payload.iat ||
+    payload.exp > payload.iat + MAX_LIFETIME_MS ||
+    payload.u !== String(req?.user?.id ?? '') ||
+    payload.t !== normalizeTenant(req?.user?.tenantId) ||
+    payload.s !== String(sessionId) ||
+    payload.f !== String(fileId)
+  ) {
     throw invalid();
   }
   return { kind: 'project', id: payload.w };
