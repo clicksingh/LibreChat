@@ -1772,8 +1772,6 @@ async function loadToolsForExecution({
     }
   }
 
-  const codeExecutionEnabledForRun =
-    enabledCapabilities?.has(AgentCapabilities.execute_code) === true;
   // A requested bash_tool is authorized by both agent-level execute_code
   // selection and the requester RUN_CODE.USE capability, not by whether
   // the optional deferred-tool registry has already materialized it.
@@ -1797,7 +1795,10 @@ async function loadToolsForExecution({
   }
 
   const isDocumentVisualQATool = toolNames.includes(Tools.document_visual_qa);
-  if (isDocumentVisualQATool && codeExecutionEnabledForRun) {
+  // Document page QA reads CodeAPI workspace artifacts and must not bypass the
+  // agent's execute_code opt-in. The global capability plus RUN_CODE.USE alone
+  // cannot grant this tool to an agent without code execution enabled.
+  if (isDocumentVisualQATool && codeExecutionEnabled) {
     try {
       const documentVisualQATool = createDocumentVisualQATool({ req });
       allLoadedTools.push(documentVisualQATool);
