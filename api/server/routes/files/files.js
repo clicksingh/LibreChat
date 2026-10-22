@@ -336,7 +336,9 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
     let downloadScope = { kind: 'user', id: req.user.id };
     if (req.query.grant !== undefined) {
       try {
-        const { resolveWorkspaceContextExplicit } = require('~/server/services/Endpoints/agents/authorization');
+        const {
+          resolveWorkspaceContextExplicit,
+        } = require('~/server/services/Endpoints/agents/authorization');
         downloadScope = await authorizeProjectFallback({
           token: req.query.grant,
           req,
