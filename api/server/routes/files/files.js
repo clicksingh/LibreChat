@@ -31,6 +31,7 @@ const {
 } = require('~/server/services/Files/process');
 const { fileAccess } = require('~/server/middleware/accessResources/fileAccess');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+const { verifyProjectFallback } = require('~/server/services/Files/Code/fallbackGrant');
 const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
 const { hasCapability } = require('~/server/middleware/roles/capabilities');
 const { checkPermission } = require('~/server/services/PermissionService');
@@ -329,6 +330,32 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
       return res.status(400).send('Bad request');
     }
 
+    // The old link format remains PERSONAL only. Project fallbacks must
+    // carry a purpose-bound signed grant issued at artifact generation.
+    // Never accept client-selected kind/id or downgrade an invalid grant.
+    let downloadScope = { kind: 'user', id: req.user.id };
+    if (req.query.grant !== undefined) {
+      try {
+        downloadScope = verifyProjectFallback({
+          token: req.query.grant,
+          req,
+          sessionId: session_id,
+          fileId,
+        });
+      } catch (_error) {
+        return res.status(403).send('Forbidden');
+      }
+
+      // Revalidate the live project's active state and caller membership
+      // on EACH download, including after project archival or revocation.
+      try {
+        const { resolveWorkspaceContextExplicit } = require('~/server/services/Endpoints/agents/authorization');
+        req.workspaceContext = await resolveWorkspaceContextExplicit(req, downloadScope.id);
+      } catch (error) {
+        return res.status(error?.status === 404 ? 404 : 403).send('Forbidden');
+      }
+    }
+
     const { getDownloadStream } = getStrategyFunctions(FileSources.execute_code);
     if (!getDownloadStream) {
       logger.warn(
@@ -337,20 +364,13 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
       return res.status(501).send('Not Implemented');
     }
 
-    /* Code-output downloads are always user-private — `processCodeOutput`
-     * persists every code-execution artifact under
-     * `metadata.codeEnvRef.kind === 'user'` regardless of which skill
-     * the run invoked. Pass `kind: 'user'` + `id: <userId>` so codeapi's
-     * `sessionAuth` resolves the matching `<tenant>:user:<userId>`
-     * sessionKey; without these query params it 400s with
-     * "kind must be one of: skill, agent, user". */
+    /* Personal legacy fallback remains user-scoped. Project fallback
+     * uses a signed origin claim and live server membership verification.
+     * CodeAPI receives only server-derived storage identity. */
     /** @type {AxiosResponse<ReadableStream> | undefined} */
     const response = await getDownloadStream(
       `${session_id}/${fileId}`,
-      {
-        kind: 'user',
-        id: req.user.id,
-      },
+      downloadScope,
       req,
     );
     res.set(response.headers);
