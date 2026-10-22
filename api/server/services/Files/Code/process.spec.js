@@ -869,6 +869,34 @@ describe('Code Process', () => {
       });
     });
 
+    test('oversized project output yields a signed project-only fallback', async () => {
+      const previous = process.env.JWT_SECRET;
+      const projectReq = {
+        ...mockReq,
+        user: { id: 'member-a', tenantId: 'tenant-a' },
+        workspaceContext: { kind: 'project', workspaceId: 'project-a' },
+      };
+      try {
+        process.env.JWT_SECRET = 'synthetic-fallback-process-test-secret-only';
+        fileSizeLimitConfig.value = 1000;
+        mockAxios.mockResolvedValue({ data: Buffer.alloc(5000) });
+        const { file: result } = await processCodeOutput({ ...baseParams, req: projectReq });
+        expect(result.filepath).toContain('/api/files/code/download/session-123/file-id-123?grant=');
+        const token = new URL('http://local.test' + result.filepath).searchParams.get('grant');
+        expect(require('./fallbackGrant').verifyProjectFallback({
+          token,
+          req: projectReq,
+          sessionId: 'session-123',
+          fileId: 'file-id-123',
+        })).toEqual({ kind: 'project', id: 'project-a' });
+        expect(createFile).not.toHaveBeenCalled();
+      } finally {
+        fileSizeLimitConfig.value = 20 * 1024 * 1024;
+        if (previous === undefined) delete process.env.JWT_SECRET;
+        else process.env.JWT_SECRET = previous;
+      }
+    });
+
     describe('fallback behavior', () => {
       it('should fallback to download URL when saveBuffer is not available', async () => {
         const smallBuffer = Buffer.alloc(100);
