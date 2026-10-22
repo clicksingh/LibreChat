@@ -97,9 +97,14 @@ describe('project CodeAPI fallback grants', () => {
     const req = { user: { id: 'member-a', tenantId: 'tenant-a' } };
     const resolver = jest.fn().mockResolvedValue({ kind: 'project', workspaceId: 'project-a' });
     const token = issue();
-    await expect(authorizeProjectFallback({
-      token, req, ...target, resolveWorkspaceContextExplicit: resolver,
-    })).resolves.toEqual({ kind: 'project', id: 'project-a' });
+    await expect(
+      authorizeProjectFallback({
+        token,
+        req,
+        ...target,
+        resolveWorkspaceContextExplicit: resolver,
+      }),
+    ).resolves.toEqual({ kind: 'project', id: 'project-a' });
     expect(resolver).toHaveBeenCalledWith(req, 'project-a');
     expect(req.workspaceContext).toEqual({ kind: 'project', workspaceId: 'project-a' });
   });
@@ -108,10 +113,17 @@ describe('project CodeAPI fallback grants', () => {
     const token = issue();
     for (const deniedStatus of [403, 404]) {
       const req = { user: { id: 'member-a', tenantId: 'tenant-a' } };
-      const resolver = jest.fn().mockRejectedValue(Object.assign(new Error('Denied'), { status: deniedStatus }));
-      await expect(authorizeProjectFallback({
-        token, req, ...target, resolveWorkspaceContextExplicit: resolver,
-      })).rejects.toMatchObject({ status: deniedStatus });
+      const resolver = jest
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('Denied'), { status: deniedStatus }));
+      await expect(
+        authorizeProjectFallback({
+          token,
+          req,
+          ...target,
+          resolveWorkspaceContextExplicit: resolver,
+        }),
+      ).rejects.toMatchObject({ status: deniedStatus });
       expect(req.workspaceContext).toBeUndefined();
     }
   });
@@ -119,9 +131,14 @@ describe('project CodeAPI fallback grants', () => {
   test('rejects a resolver that changes project scope rather than confirming it', async () => {
     const req = { user: { id: 'member-a', tenantId: 'tenant-a' } };
     const resolver = jest.fn().mockResolvedValue({ kind: 'project', workspaceId: 'project-b' });
-    await expect(authorizeProjectFallback({
-      token: issue(), req, ...target, resolveWorkspaceContextExplicit: resolver,
-    })).rejects.toThrow('CODE_PROJECT_FALLBACK_DENIED');
+    await expect(
+      authorizeProjectFallback({
+        token: issue(),
+        req,
+        ...target,
+        resolveWorkspaceContextExplicit: resolver,
+      }),
+    ).rejects.toThrow('CODE_PROJECT_FALLBACK_DENIED');
     expect(req.workspaceContext).toBeUndefined();
   });
 
