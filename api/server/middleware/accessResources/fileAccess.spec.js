@@ -161,6 +161,38 @@ describe('fileAccess middleware', () => {
       expect(res.status).toHaveBeenCalledWith(403);
     });
 
+    test('denies a generated project CodeAPI file after workspace membership is revoked', async () => {
+      const projectId = new mongoose.Types.ObjectId().toString();
+      await createFile({
+        user: testUser._id.toString(),
+        file_id: 'project_generated_without_acl',
+        filepath: '/test/generated-output.pdf',
+        filename: 'generated-output.pdf',
+        type: 'application/pdf',
+        size: 256,
+        metadata: {
+          // Generated output is not a borrowed source attachment.
+          // codeEnvRef itself must preserve live project authorization.
+          codeEnvRef: {
+            kind: 'project',
+            id: projectId,
+            storage_session_id: 'qa-session',
+            file_id: 'generated-output',
+          },
+        },
+      });
+
+      req.params.file_id = 'project_generated_without_acl';
+      await fileAccess(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Forbidden',
+        message: 'Insufficient permissions to access this file',
+      });
+    });
+
     test('should allow tenant-scoped users to access owned legacy files without tenantId', async () => {
       await createFile({
         user: testUser._id.toString(),
