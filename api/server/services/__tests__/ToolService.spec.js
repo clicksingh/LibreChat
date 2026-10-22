@@ -2142,6 +2142,27 @@ describe('ToolService - Action Capability Gating', () => {
       expect(mockCreateBashExecutionTool).toHaveBeenCalledTimes(1);
     });
 
+    it('does not load document_visual_qa for an authorized user when the agent did not opt into execute_code', async () => {
+      const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+      mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+      const req = createMockReq(capabilities);
+
+      for (const tools of [[], [Tools.document_visual_qa]]) {
+        mockCreateDocumentVisualQATool.mockClear();
+        const result = await loadToolsForExecution({
+          req,
+          res: {},
+          agent: { id: 'agent_without_code', tools },
+          toolNames: [Tools.document_visual_qa],
+          toolRegistry: new Map(),
+          actionsEnabled: false,
+        });
+
+        expect(mockCreateDocumentVisualQATool).not.toHaveBeenCalled();
+        expect(result.loadedTools.map((tool) => tool.name)).not.toContain(Tools.document_visual_qa);
+      }
+    });
+
     it('loadToolsForExecution DOES create document_visual_qa for an allowed user (positive control)', async () => {
       const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
