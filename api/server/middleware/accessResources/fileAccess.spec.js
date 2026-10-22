@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 const { tenantStorage } = require('@librechat/data-schemas');
-const { ResourceType, PrincipalType, PrincipalModel } = require('librechat-data-provider');
+const {
+  ResourceType,
+  PrincipalType,
+  PrincipalModel,
+  PermissionBits,
+} = require('librechat-data-provider');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { fileAccess } = require('./fileAccess');
 const { User, Role, AclEntry } = require('~/db/models');
@@ -152,10 +157,96 @@ describe('fileAccess middleware', () => {
         size: 128,
         metadata: {
           workspaceFileAttachment: true,
-          codeEnvRef: { kind: 'project', id: projectId, storage_session_id: 'qa', file_id: 'source' },
+          codeEnvRef: {
+            kind: 'project',
+            id: projectId,
+            storage_session_id: 'qa',
+            file_id: 'source',
+          },
         },
       });
       req.params.file_id = 'project_borrowed_without_acl';
+      await fileAccess(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+    });
+
+    test('denies a generated project CodeAPI file after workspace membership is revoked', async () => {
+      const projectId = new mongoose.Types.ObjectId().toString();
+      await createFile({
+        user: testUser._id.toString(),
+        file_id: 'project_generated_without_acl',
+        filepath: '/test/generated-output.pdf',
+        filename: 'generated-output.pdf',
+        type: 'application/pdf',
+        size: 256,
+        metadata: {
+          // Generated output is not a borrowed source attachment.
+          // codeEnvRef itself must preserve live project authorization.
+          codeEnvRef: {
+            kind: 'project',
+            id: projectId,
+            storage_session_id: 'qa-session',
+            file_id: 'generated-output',
+          },
+        },
+      });
+
+      req.params.file_id = 'project_generated_without_acl';
+      await fileAccess(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Forbidden',
+        message: 'Insufficient permissions to access this file',
+      });
+    });
+
+    test('allows a generated project artifact only while an explicit workspace grant remains', async () => {
+      const projectId = new mongoose.Types.ObjectId();
+      await createFile({
+        user: testUser._id.toString(),
+        file_id: 'project_generated_then_revoked',
+        filepath: '/test/generated-report.pdf',
+        filename: 'generated-report.pdf',
+        type: 'application/pdf',
+        size: 512,
+        metadata: {
+          codeEnvRef: {
+            kind: 'project',
+            id: projectId.toString(),
+            storage_session_id: 'qa-session',
+            file_id: 'generated-report',
+          },
+        },
+      });
+
+      await AclEntry.create({
+        principalType: PrincipalType.USER,
+        principalId: testUser._id,
+        principalModel: PrincipalModel.USER,
+        resourceType: ResourceType.WORKSPACE,
+        resourceId: projectId,
+        permBits: PermissionBits.EDIT,
+        grantedBy: otherUser._id,
+      });
+
+      req.params.file_id = 'project_generated_then_revoked';
+      await fileAccess(req, res, next);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+
+      await AclEntry.deleteMany({
+        principalType: PrincipalType.USER,
+        principalId: testUser._id,
+        resourceType: ResourceType.WORKSPACE,
+        resourceId: projectId,
+      });
+      next.mockClear();
+      res.status.mockClear();
+      res.json.mockClear();
+
       await fileAccess(req, res, next);
       expect(next).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(403);

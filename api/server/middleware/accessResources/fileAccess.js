@@ -118,11 +118,12 @@ const fileAccess = async (req, res, next) => {
       return denyFileAccess(res);
     }
 
-    // A file imported from a PROJECT workspace is an ACL-bound borrowed
-    // artifact, even though its private chat copy is owned by this user.
-    // Revocation must prevent future downloads/preview access.
+    // Any CodeAPI PROJECT artifact remains bound to live workspace permissions,
+    // even when the private generated-file copy belongs to this user.
+    // This includes both borrowed attachments and newly generated outputs.
+    // Ownership of the copy must not bypass workspace revocation.
     const ref = file.metadata?.codeEnvRef;
-    if (file.metadata?.workspaceFileAttachment === true && ref?.kind === 'project') {
+    if (ref?.kind === 'project') {
       const allowed = await checkPermission({
         userId,
         role: userRole,
