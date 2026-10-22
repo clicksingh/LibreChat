@@ -14,7 +14,13 @@ const mockRequireJwtAuth = jest.fn((req, _res, next) => {
   req.authStrategy = 'jwt';
   next();
 });
-const mockCreateHandler = jest.fn(() => mockRetireHandler);
+
+// Track handler creation calls
+let handlerCreationCalls = [];
+const mockCreateHandler = jest.fn((deps) => {
+  handlerCreationCalls.push(deps);
+  return mockRetireHandler;
+});
 
 jest.mock('@librechat/data-schemas', () => ({
   getTenantId: jest.fn(() => 'tenant-route'),
@@ -29,8 +35,12 @@ jest.mock('~/db/models', () => ({
   AuditEvent: {},
 }));
 
+// Mock must return the handler factory inline
 jest.mock('~/server/services/Device/ownerCurrentRetireHandler', () => ({
-  createOwnerCurrentRetireHandler: (...args) => mockCreateHandler(...args),
+  createOwnerCurrentRetireHandler: jest.fn((deps) => {
+    handlerCreationCalls.push(deps);
+    return mockRetireHandler;
+  }),
 }));
 
 const devicesRouter = require('../devices');
@@ -66,8 +76,8 @@ describe('Device owner routes', () => {
   });
 
   it('constructs the handler once with server-owned dependencies', () => {
-    expect(mockCreateHandler).toHaveBeenCalledTimes(1);
-    const deps = mockCreateHandler.mock.calls[0][0];
+    expect(handlerCreationCalls).toHaveLength(1);
+    const deps = handlerCreationCalls[0];
     expect(deps).toHaveProperty('db');
     expect(deps).toHaveProperty('tenantContext');
     expect(typeof deps.tenantContext.getActiveTenantId).toBe('function');

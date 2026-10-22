@@ -68,4 +68,18 @@ const auditEventSchema: Schema<IAuditEvent> = new Schema({
 auditEventSchema.index({ tenantId: 1, deviceId: 1, ts: -1 });
 auditEventSchema.index({ tenantId: 1, ownerId: 1, ts: -1 });
 
+// CRITICAL: Unique index prevents duplicate audit events from concurrent writes
+// Ensures audit sequence integrity for compliance and forensics
+auditEventSchema.index(
+  { tenantId: 1, deviceId: 1, epoch: 1, seq: 1 },
+  { 
+    unique: true,
+    partialFilterExpression: {
+      deviceId: { $type: 'string' },
+      epoch: { $type: 'number' },
+      seq: { $type: 'number' }
+    }
+  }
+);
+
 export default auditEventSchema;
