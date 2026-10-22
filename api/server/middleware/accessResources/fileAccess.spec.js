@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 const { tenantStorage } = require('@librechat/data-schemas');
-const { ResourceType, PrincipalType, PrincipalModel, PermissionBits } = require('librechat-data-provider');
+const {
+  ResourceType,
+  PrincipalType,
+  PrincipalModel,
+  PermissionBits,
+} = require('librechat-data-provider');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { fileAccess } = require('./fileAccess');
 const { User, Role, AclEntry } = require('~/db/models');
@@ -152,7 +157,12 @@ describe('fileAccess middleware', () => {
         size: 128,
         metadata: {
           workspaceFileAttachment: true,
-          codeEnvRef: { kind: 'project', id: projectId, storage_session_id: 'qa', file_id: 'source' },
+          codeEnvRef: {
+            kind: 'project',
+            id: projectId,
+            storage_session_id: 'qa',
+            file_id: 'source',
+          },
         },
       });
       req.params.file_id = 'project_borrowed_without_acl';
