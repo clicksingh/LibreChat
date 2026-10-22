@@ -402,6 +402,55 @@ describe('Code Process', () => {
       );
     });
 
+    it('harvests project output from the signed project bucket and saves the matching ref', async () => {
+      mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
+      const projectReq = {
+        ...mockReq,
+        user: { id: 'project-member', tenantId: 'tenant-one' },
+        workspaceContext: { kind: 'project', workspaceId: 'project-verified' },
+      };
+
+      const { file: result } = await processCodeOutput({ ...baseParams, req: projectReq });
+
+      expect(getCodeApiAuthHeaders).toHaveBeenCalledWith(projectReq);
+      expect(mockAxios).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'get',
+        url: 'https://code-api.example.com/download/session-123/file-id-123?kind=project&id=project-verified',
+      }));
+      expect(result.metadata.codeEnvRef).toEqual({
+        kind: 'project',
+        id: 'project-verified',
+        storage_session_id: 'session-123',
+        file_id: 'file-id-123',
+      });
+      expect(result.user).toBe('project-member');
+      expect(result.tenantId).toBe('tenant-one');
+    });
+
+    it('keeps an ordinary personal output user-private', async () => {
+      mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
+      const { file } = await processCodeOutput(baseParams);
+      expect(mockAxios).toHaveBeenCalledWith(expect.objectContaining({
+        url: 'https://code-api.example.com/download/session-123/file-id-123?kind=user&id=user-123',
+      }));
+      expect(file.metadata.codeEnvRef).toMatchObject({ kind: 'user', id: 'user-123' });
+    });
+
+    it('rejects malformed or empty verified workspace scope without downgrading to user or fallback', async () => {
+      for (const context of [
+        { kind: 'project' },
+        { kind: 'project', workspaceId: '' },
+        { kind: 'user', workspaceId: 'foreign-user' },
+      ]) {
+        mockAxios.mockClear();
+        await expect(processCodeOutput({
+          ...baseParams,
+          req: { ...mockReq, workspaceContext: context },
+        })).rejects.toThrow('CODE_OUTPUT_SCOPE_INVALID');
+        expect(mockAxios).not.toHaveBeenCalled();
+      }
+    });
+
     describe('image file processing', () => {
       it('should process image files using convertImage', async () => {
         const imageParams = { ...baseParams, name: 'chart.png' };
