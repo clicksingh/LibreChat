@@ -87,6 +87,9 @@ describe('CodeAPI fallback HTTP route authorization (synthetic)', () => {
     const response = await request(app).get(DOWNLOAD_PATH).query({ grant: grant() });
     expect(response.status).toBe(200);
     expect(response.body.toString()).toBe('isolated-test-output');
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
     expect(resolveWorkspaceContextExplicit).toHaveBeenCalledTimes(1);
     expect(resolveWorkspaceContextExplicit).toHaveBeenCalledWith(
       expect.objectContaining({ user: expect.objectContaining({ id: 'member-a' }) }),
