@@ -135,6 +135,39 @@ describe('CodeAPI fallback HTTP route authorization (synthetic)', () => {
     expect(getDownloadStream).not.toHaveBeenCalled();
   });
 
+  test.each([
+    [401, 403],
+    [403, 403],
+    [404, 404],
+  ])('propagates intentional workspace status %s as HTTP %s', async (upstream, expected) => {
+    resolveWorkspaceContextExplicit.mockRejectedValueOnce(
+      Object.assign(new Error('Access check denied'), { status: upstream }),
+    );
+    const response = await request(app).get(DOWNLOAD_PATH).query({ grant: grant() });
+    expect(response.status).toBe(expected);
+    expect(getDownloadStream).not.toHaveBeenCalled();
+  });
+
+  test('unexpected workspace database failure returns 500, not misleading 403', async () => {
+    resolveWorkspaceContextExplicit.mockRejectedValueOnce(new Error('synthetic MongoDB outage'));
+    const response = await request(app).get(DOWNLOAD_PATH).query({ grant: grant() });
+    expect(response.status).toBe(500);
+    expect(response.text).toBe('Error downloading file');
+    expect(getDownloadStream).not.toHaveBeenCalled();
+  });
+
+  test('missing fallback signing configuration returns 500 without streaming', async () => {
+    const token = grant();
+    delete process.env.JWT_SECRET;
+    try {
+      const response = await request(app).get(DOWNLOAD_PATH).query({ grant: token });
+      expect(response.status).toBe(500);
+      expect(getDownloadStream).not.toHaveBeenCalled();
+    } finally {
+      process.env.JWT_SECRET = 'synthetic-pr35-route-testing-only-not-a-real-secret';
+    }
+  });
+
   test('a resolver returning another project cannot authorize the download', async () => {
     resolveWorkspaceContextExplicit.mockResolvedValueOnce({
       kind: 'project',
