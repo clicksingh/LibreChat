@@ -62,7 +62,8 @@ describe('project CodeAPI fallback grants', () => {
     expect(() => verify(alternate.split('.')[0] + '.' + signature)).toThrow(
       'CODE_PROJECT_FALLBACK_DENIED',
     );
-    expect(() => verify(body + '.' + signature.replace(/.$/, 'A'))).toThrow(
+    const flipped = (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1);
+    expect(() => verify(body + '.' + flipped)).toThrow(
       'CODE_PROJECT_FALLBACK_DENIED',
     );
     expect(() => verify(['token', token])).toThrow('CODE_PROJECT_FALLBACK_DENIED');
