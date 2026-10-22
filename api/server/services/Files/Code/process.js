@@ -382,6 +382,31 @@ const runPreviewFinalize = ({ finalize, fileId, previewRevision, onResolved }) =
  * @param {string} params.messageId - The current message ID.
  * @returns {Promise<{ file: MongoFile & { messageId: string, toolCallId: string }, finalize?: () => Promise<MongoFile | null> }>}
  */
+/**
+ * Normal harvested output follows the verified execution scope, not the
+ * input skill's storage kind. Personal outputs stay user-private, whereas
+ * project execution writes under CodeAPI's signed project workspace bucket.
+ * An invalid server workspace context must not silently downgrade to user.
+ */
+const resolveCodeOutputScope = (req) => {
+  const context = req?.workspaceContext;
+  if (context != null) {
+    if (
+      context.kind !== 'project' ||
+      typeof context.workspaceId !== 'string' ||
+      !context.workspaceId.trim()
+    ) {
+      throw new Error('CODE_OUTPUT_SCOPE_INVALID');
+    }
+    return { kind: 'project', id: context.workspaceId };
+  }
+  const userId = req?.user?.id;
+  if (userId == null || !String(userId).trim()) {
+    throw new Error('CODE_OUTPUT_SCOPE_UNAUTHENTICATED');
+  }
+  return { kind: 'user', id: String(userId) };
+};
+
 const processCodeOutput = async ({
   req,
   id,
@@ -393,6 +418,9 @@ const processCodeOutput = async ({
   agentId,
   freshClaimAfter,
 }) => {
+  // Resolve outside the download/fallback catch: invalid scope must fail
+  // closed rather than generating an unaudited user-scope download link.
+  const outputScope = resolveCodeOutputScope(req);
   const appConfig = req.config;
   const currentDate = new Date();
   const baseURL = getCodeBaseURL();
@@ -409,12 +437,10 @@ const processCodeOutput = async ({
   try {
     const formattedDate = currentDate.toISOString();
     const authHeaders = await getCodeApiAuthHeaders(req);
-    /* Code-output files are always user-private — no skill execution
-     * produces a skill-scoped output bucket. The download URL must
-     * carry `?kind=user&id=<userId>` so codeapi's `sessionAuth`
-     * resolves the matching `<tenant>:user:<userId>` sessionKey. See
-     * codeapi #1455 / Phase C. */
-    const downloadQuery = buildCodeEnvDownloadQuery({ kind: 'user', id: req.user.id });
+    /* CodeAPI generates personal outputs in user buckets and project
+     * outputs in signed project buckets. Never derive this from agent tool
+     * input kind, file name, or a caller-controlled download parameter. */
+    const downloadQuery = buildCodeEnvDownloadQuery(outputScope);
     const response = await axios({
       method: 'get',
       url: `${baseURL}/download/${session_id}/${id}${downloadQuery}`,
@@ -449,12 +475,11 @@ const processCodeOutput = async ({
       };
     }
 
-    /* Code-output files belong to the user who ran the execution.
-     * SessionKey on codeapi will be `<tenant>:user:<userId>` for these,
-     * so cache and access stay user-private. */
+    /* Preserve the actual CodeAPI storage owner in the persisted ref.
+     * The LibreChat File record still retains the requesting user/tenant;
+     * membership and final download authorization remain server-checked. */
     const codeEnvRef = {
-      kind: 'user',
-      id: req.user.id,
+      ...outputScope,
       storage_session_id: session_id,
       file_id: id,
     };
