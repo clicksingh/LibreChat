@@ -51,7 +51,9 @@ describe('CodeAPI fallback HTTP route authorization (synthetic)', () => {
     process.env.JWT_SECRET = 'synthetic-pr35-route-testing-only-not-a-real-secret';
     jest.clearAllMocks();
     getStrategyFunctions.mockImplementation((source) => {
-      expect(source).toBe(FileSources.execute_code);
+      if (source !== FileSources.execute_code) {
+        throw new Error('Unexpected synthetic download strategy');
+      }
       return { getDownloadStream };
     });
     getDownloadStream.mockImplementation(async () => ({
