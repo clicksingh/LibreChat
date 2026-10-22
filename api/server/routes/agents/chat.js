@@ -19,8 +19,11 @@ const { initializeClient } = require('~/server/services/Endpoints/agents');
 const AgentController = require('~/server/controllers/agents/request');
 const ResumeController = require('~/server/controllers/agents/resume');
 const addTitle = require('~/server/services/Endpoints/agents/title');
-const { getRoleByName } = require('~/models');
-const { enforceManagedChatEndpoint } = require('~/server/middleware/enforceManagedChatEndpoint');
+const { getRoleByName, getAgent } = require('~/models');
+const {
+  enforceManagedChatEndpoint,
+  createAuthorizeManagedSavedAgent,
+} = require('~/server/middleware/enforceManagedChatEndpoint');
 
 const router = express.Router();
 
@@ -78,6 +81,7 @@ router.use(moderateText);
 router.use(checkAgentAccess);
 router.use(enforceManagedChatEndpoint);
 router.use(checkAgentResourceAccess);
+router.use(createAuthorizeManagedSavedAgent({ getAgent }));
 router.use(validateConvoAccess);
 router.use(buildEndpointOption);
 

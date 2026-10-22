@@ -3,6 +3,8 @@ const {
   enforceManagedChatEndpoint,
   rejectManagedAssistantEndpoint,
   resolveFundedDefault,
+  createAuthorizeManagedSavedAgent,
+  matchesManagedAgentPolicy,
 } = require('./enforceManagedChatEndpoint');
 
 const COMPANY_ENDPOINT = 'CBHR AI';
@@ -167,15 +169,19 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(req.body).toEqual(body);
   });
 
-  it('denies ordinary users invoking persisted agents with unchecked model policy', () => {
-    const body = {
-      endpoint: 'agents',
-      agent_id: 'agent_approved',
-      model: 'my-model',
-      spec: 'saved-agent',
-    };
-    const req = makeReq({ ...body });
-    const { next } = invoke(req);
+  it('defers compatible saved-agent review until after resource ACL', () => {
+    const req = makeReq({ endpoint: 'agents', agent_id: 'agent_approved' });
+    const { next, res } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.managedSavedAgentCandidate).toEqual({ id: 'agent_approved' });
+  });
+
+  it('rejects addedConvo multi-agent model bypasses for staff', () => {
+    const req = makeReq({ endpoint: COMPANY_ENDPOINT, addedConvo: {
+      endpoint: 'agents', agent_id: 'agent_other', model: 'unfunded',
+    } });
+    const { next, res } = invoke(req);
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);
   });
@@ -288,5 +294,92 @@ describe('legacy assistants outside the ordinary managed chat route', () => {
     rejectManagedAssistantEndpoint(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+describe('saved-agent model checks, after existing resource VIEW ACL', () => {
+  const allowed = {
+    id: 'agent_approved', provider: COMPANY_ENDPOINT, model: COMPANY_MODEL,
+    model_parameters: { model: COMPANY_MODEL, reasoning_effort: 'xhigh' },
+  };
+
+  async function checkAgent(saved = allowed, role = SystemRoles.USER) {
+    const req = makeReq({
+      endpoint: 'agents', agent_id: 'agent_approved', model: 'forged',
+      model_parameters: { apiKey: 'forged' }, reasoning_effort: 'xhigh',
+    }, role);
+    const preflight = invoke(req);
+    const response = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    const next = jest.fn();
+    const getAgent = jest.fn().mockResolvedValue(saved);
+    const authorize = createAuthorizeManagedSavedAgent({ getAgent });
+    await authorize(req, response, next);
+    return { req, preflight, response, next, getAgent };
+  }
+
+  it('accepts matching single-agent record and strips request overrides', async () => {
+    const { req, next, response, getAgent } = await checkAgent();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalled();
+    expect(getAgent).toHaveBeenCalledWith({ id: 'agent_approved' });
+    expect(req.managedSavedAgentAuth).toEqual({
+      id: 'agent_approved', model: COMPANY_MODEL, endpoint: COMPANY_ENDPOINT,
+    });
+    expect(req.body.model).toBe(COMPANY_MODEL);
+    expect(req.body).not.toHaveProperty('model_parameters');
+    expect(req.body).not.toHaveProperty('reasoning_effort');
+    expect(req.body.agent_id).toBe('agent_approved');
+  });
+
+  it.each([
+    [{ ...allowed, provider: 'another-endpoint' }, 'wrong-provider'],
+    [{ ...allowed, model: 'unauthorized-model' }, 'wrong-model'],
+    [{ ...allowed, model_parameters: { model: 'unauthorized-model' } }, 'parameter-model'],
+    [{ ...allowed, edges: [{ source: 'start', target: 'other' }] }, 'graph'],
+    [{ ...allowed, agent_ids: ['agent_other'] }, 'legacy-chain'],
+    [{ ...allowed, agent_ids: 'malformed-nested-agent' }, 'malformed-chain'],
+    [{ ...allowed, subagents: { enabled: true, agent_ids: ['agent_other'] } }, 'subagents'],
+    [null, 'missing-agent'],
+  ])('denies a saved agent with %s (%s)', async (saved) => {
+    const { req, next, response } = await checkAgent(saved);
+    expect(next).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(req.managedSavedAgentAuth).toBeUndefined();
+  });
+
+  it('does not query saved agents before VIEW ACL completes', () => {
+    const req = makeReq({ endpoint: 'agents', agent_id: 'agent_approved' });
+    const getAgent = jest.fn();
+    const authorize = createAuthorizeManagedSavedAgent({ getAgent });
+    const { next } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(getAgent).not.toHaveBeenCalled();
+    expect(typeof authorize).toBe('function');
+  });
+
+  it('does not query/alter admin saved-agent model selection', async () => {
+    const req = makeReq({ endpoint: 'agents', agent_id: 'agent_admin' }, SystemRoles.ADMIN);
+    const getAgent = jest.fn();
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const next = jest.fn();
+    await createAuthorizeManagedSavedAgent({ getAgent })(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(getAgent).not.toHaveBeenCalled();
+  });
+
+  it('checks persisted model using any configured provider and slug', () => {
+    const config = makeConfig();
+    config.modelSpecs.list[0].preset.endpoint = 'Project Engine';
+    config.endpoints.custom[0].name = 'Project Engine';
+    config.endpoints.custom[0].models.default = ['manufacturer-q/model-7'];
+    const funded = resolveFundedDefault(config);
+    expect(matchesManagedAgentPolicy({
+      id: 'agent_q', provider: 'Project Engine',
+      model: 'manufacturer-q/model-7',
+    }, funded)).toBe(true);
+    expect(matchesManagedAgentPolicy({
+      id: 'agent_q', provider: 'Project Engine',
+      model: 'another-model',
+    }, funded)).toBe(false);
   });
 });

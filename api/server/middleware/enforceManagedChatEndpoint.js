@@ -81,14 +81,13 @@ function enforceManagedChatEndpoint(req, res, next) {
     'thinkingLevel', 'reasoning', 'effort',
   ]) delete body[field];
 
-  // Saved agents may carry a persisted, privileged model selected before the
-  // current central policy. Their VIEW ACL is *not* model authorization.
-  // Refuse non-admin saved-agent execution until stored agent models can be
-  // independently checked against the effective model policy.
-  if (isExplicitPersistedAgent(body)) {
+  // A second conversation can independently resolve a different saved agent
+  // and provider. Non-admins cannot create such a graph until every model in
+  // that graph can be authorized against the same effective policy.
+  if (body.addedConvo != null) {
     return res.status(403).json({
       error: 'Company model required',
-      message: 'This saved agent cannot run under the current company model policy.',
+      message: 'Multiple-model conversations are not available for this account.',
     });
   }
 
@@ -99,6 +98,20 @@ function enforceManagedChatEndpoint(req, res, next) {
       error: 'Managed model unavailable',
       message: 'The company-provided model is temporarily unavailable.',
     });
+  }
+
+  // A persisted agent must first pass the existing resource VIEW ACL.
+  // We defer the model check until AFTER the access-control middleware, so
+  // unauthorized callers cannot use the model guard to inspect agent data.
+  if (isExplicitPersistedAgent(body)) {
+    if (req.params?.endpoint && req.params.endpoint !== body.endpoint) {
+      return res.status(400).json({
+        error: 'Invalid agent request',
+        message: 'Agent endpoint route does not match the selected agent endpoint.',
+      });
+    }
+    req.managedSavedAgentCandidate = { id: body.agent_id };
+    return next();
   }
 
   const previousEndpoint = typeof body.endpoint === 'string' ? body.endpoint : '(missing)';
@@ -152,6 +165,75 @@ function enforceManagedChatEndpoint(req, res, next) {
 }
 
 /**
+ * The normal saved-agent VIEW ACL runs BEFORE this middleware.
+ * Check the persisted model rather than trusting the browser's model.
+ * A matching, single-agent record is accepted; subagent/multi-agent graphs
+ * remain blocked until each nested model is independently authorized.
+ *
+ * An accepted agent is read a second time by buildOptions, which verifies
+ * the same persisted provider/model and strips all stored effort overrides
+ * from the request-scoped copy, without modifying the saved database record.
+ */
+function createAuthorizeManagedSavedAgent({ getAgent }) {
+  if (typeof getAgent !== 'function') throw new TypeError('getAgent required');
+  return async (req, res, next) => {
+    if (req.user?.role === SystemRoles.ADMIN || !req.managedSavedAgentCandidate) {
+      return next();
+    }
+    const funded = resolveFundedDefault(req.config);
+    if (!funded) {
+      return res.status(503).json({
+        error: 'Managed model unavailable',
+        message: 'The company-provided model is temporarily unavailable.',
+      });
+    }
+    if (!req.user?.id || req.body?.agent_id !== req.managedSavedAgentCandidate.id) {
+      return res.status(403).json({ error: 'Company model required' });
+    }
+    let agent;
+    try {
+      agent = await getAgent({ id: req.managedSavedAgentCandidate.id });
+    } catch (err) {
+      logger.error('[managed-agent] Unable to resolve saved agent after ACL', err);
+      return res.status(503).json({ error: 'Saved agent temporarily unavailable' });
+    }
+    if (!matchesManagedAgentPolicy(agent, funded)) {
+      return res.status(403).json({
+        error: 'Company model required',
+        message: 'This saved agent uses a model or agent graph outside company policy.',
+      });
+    }
+    req.managedSavedAgentAuth = {
+      id: agent.id,
+      endpoint: funded.endpoint,
+      model: funded.model,
+    };
+    for (const key of [
+      'apiKey', 'baseURL', 'key', 'provider', 'model_parameters',
+      'modelOptions', 'modelLabel', 'chatGptLabel', 'effort',
+      'thinking', 'thinkingBudget', 'thinkingLevel', 'reasoning_effort',
+    ]) delete req.body[key];
+    req.body.model = funded.model;
+    return next();
+  };
+}
+
+function matchesManagedAgentPolicy(agent, funded) {
+  if (!agent || !funded || typeof agent.id !== 'string') return false;
+  if (agent.provider !== funded.endpoint || agent.model !== funded.model) return false;
+  const params = agent.model_parameters;
+  if (params != null && (typeof params !== 'object' || Array.isArray(params))) return false;
+  if (params?.model != null && params.model !== funded.model) return false;
+  // Saved multi-agent graphs can route subsequent turns through other models.
+  if (agent.agent_ids != null &&
+      (!Array.isArray(agent.agent_ids) || agent.agent_ids.length)) return false;
+  if (agent.edges != null &&
+      (!Array.isArray(agent.edges) || agent.edges.length)) return false;
+  if (agent.subagents?.enabled === true || agent.subagents?.agent_ids?.length) return false;
+  return true;
+}
+
+/**
  * Legacy assistants use separate /api/assistants/v1|v2/chat handlers, so they
  * never pass through the normal chat endpoint normalizer. An assistant ID
  * cannot be safely converted into a CBHR AI model request; reject USER here
@@ -171,4 +253,6 @@ module.exports = {
   enforceManagedChatEndpoint,
   rejectManagedAssistantEndpoint,
   resolveFundedDefault,
+  createAuthorizeManagedSavedAgent,
+  matchesManagedAgentPolicy,
 };
