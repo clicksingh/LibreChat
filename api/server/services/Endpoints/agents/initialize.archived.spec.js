@@ -24,6 +24,11 @@ jest.mock('@librechat/api', () => ({
 
 jest.mock('~/server/controllers/agents/callbacks', () => ({
   createToolEndCallback: jest.fn(() => jest.fn()),
+  // Match all callback factories invoked before initializeClient awaits its
+  // primary-agent validation. Missing factories throw early and leave the
+  // legitimate archived-agent rejection unobserved by the test.
+  createAttachmentEmitter: jest.fn(() => jest.fn()),
+  createBackgroundCodeResultHandler: jest.fn(() => jest.fn()),
   getDefaultHandlers: jest.fn(() => ({})),
 }));
 
