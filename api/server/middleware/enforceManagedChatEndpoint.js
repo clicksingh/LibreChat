@@ -267,7 +267,25 @@ function rejectManagedAssistantEndpoint(req, res, next) {
   return next();
 }
 
+/**
+ * API-key remote-agent endpoints have independent authentication and do not
+ * traverse the interactive chat normalizer. Their agent VIEW/USE permission
+ * alone does not prove a non-admin agent's stored model is the funded default.
+ * Until remote-agent model authorization is implemented, deny non-admin use
+ * after authentication and effective role/config resolution.
+ */
+function rejectNonAdminRemoteAgentApi(req, res, next) {
+  if (req.user?.role !== SystemRoles.ADMIN) {
+    return res.status(403).json({
+      error: 'Company model required',
+      message: 'Remote agent API access requires administrator model authorization.',
+    });
+  }
+  return next();
+}
+
 module.exports = {
+  rejectNonAdminRemoteAgentApi,
   enforceManagedChatEndpoint,
   rejectManagedAssistantEndpoint,
   resolveFundedDefault,

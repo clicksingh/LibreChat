@@ -5,6 +5,7 @@ const {
   resolveFundedDefault,
   createAuthorizeManagedSavedAgent,
   matchesManagedAgentPolicy,
+  rejectNonAdminRemoteAgentApi,
 } = require('./enforceManagedChatEndpoint');
 
 const COMPANY_ENDPOINT = 'CBHR AI';
@@ -414,5 +415,29 @@ describe('saved-agent model checks, after existing resource VIEW ACL', () => {
         funded,
       ),
     ).toBe(false);
+  });
+});
+
+describe('API-key remote-agent alternate request path', () => {
+  it.each([SystemRoles.USER, 'E2E_NOCODE', undefined])(
+    'denies non-admin role %s after remote authentication',
+    (role) => {
+      const req = makeReq({ model: 'different-agent-id' }, role);
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      const next = jest.fn();
+      rejectNonAdminRemoteAgentApi(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(next).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves authenticated ADMIN access without rewriting agent identifier', () => {
+    const req = makeReq({ model: 'approved-agent-id' }, SystemRoles.ADMIN);
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const next = jest.fn();
+    rejectNonAdminRemoteAgentApi(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.body.model).toBe('approved-agent-id');
   });
 });
