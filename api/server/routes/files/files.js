@@ -365,6 +365,12 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
     /** @type {AxiosResponse<ReadableStream> | undefined} */
     const response = await getDownloadStream(`${session_id}/${fileId}`, downloadScope, req);
     res.set(response.headers);
+    // File contents remain access-controlled even after project membership
+    // changes. Do not allow browser/proxy caches or embedding to weaken
+    // future authorization checks or leak fallback grant URLs.
+    res.set('Cache-Control', 'private, no-store');
+    res.set('Referrer-Policy', 'no-referrer');
+    res.set('X-Content-Type-Options', 'nosniff');
     response.data.pipe(res);
   } catch (error) {
     /* `logAxiosError` redacts buffer/stream response bodies — without
