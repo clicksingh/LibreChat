@@ -100,4 +100,24 @@ function verifyProjectFallback({ token, req, sessionId, fileId }) {
   return { kind: 'project', id: payload.w };
 }
 
-module.exports = { signProjectFallback, verifyProjectFallback };
+/**
+ * Join grant verification with LIVE workspace authorization before the route
+ * proxies bytes or mints a project CodeAPI service token.
+ */
+async function authorizeProjectFallback({
+  token,
+  req,
+  sessionId,
+  fileId,
+  resolveWorkspaceContextExplicit,
+}) {
+  const scope = verifyProjectFallback({ token, req, sessionId, fileId });
+  const context = await resolveWorkspaceContextExplicit(req, scope.id);
+  if (context?.kind !== 'project' || String(context.workspaceId) !== scope.id) {
+    throw invalid();
+  }
+  req.workspaceContext = context;
+  return scope;
+}
+
+module.exports = { signProjectFallback, verifyProjectFallback, authorizeProjectFallback };
