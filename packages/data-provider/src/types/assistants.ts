@@ -169,6 +169,8 @@ export type AgentParameterValue = number | string | null;
 
 export type AgentModelParameters = {
   model?: string;
+  /** Model-declared effort label; checked against server-managed capabilities. */
+  reasoning_effort?: string | null;
   temperature: AgentParameterValue;
   maxContextTokens: AgentParameterValue;
   max_context_tokens: AgentParameterValue;
