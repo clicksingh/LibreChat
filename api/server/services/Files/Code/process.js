@@ -40,6 +40,7 @@ const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { convertImage } = require('~/server/services/Files/images/convert');
 const { getRetentionExpiry } = require('~/server/services/Files/retention');
 const { determineFileType } = require('~/server/utils');
+const { signProjectFallback } = require('./fallbackGrant');
 
 const axios = createAxiosInstance();
 
@@ -57,6 +58,8 @@ const axios = createAxiosInstance();
  * @returns {Object} Fallback response with download URL.
  */
 const createDownloadFallback = ({
+  req,
+  outputScope,
   id,
   name,
   agentId,
@@ -67,9 +70,24 @@ const createDownloadFallback = ({
   conversationId,
 }) => {
   const basePath = getBasePath();
+  // Project outputs cannot be recovered by switching to a personal bucket.
+  // Bind the fallback to the server-resolved execution scope and caller.
+  const projectGrant =
+    outputScope.kind === 'project'
+      ? signProjectFallback({
+          req,
+          outputScope,
+          sessionId: session_id,
+          fileId: id,
+          expiresAt,
+        })
+      : null;
+  const downloadPath = `${basePath}/api/files/code/download/${session_id}/${id}`;
   return {
     filename: name,
-    filepath: `${basePath}/api/files/code/download/${session_id}/${id}`,
+    filepath: projectGrant
+      ? `${downloadPath}?grant=${encodeURIComponent(projectGrant)}`
+      : downloadPath,
     expiresAt,
     conversationId,
     toolCallId,
@@ -463,6 +481,8 @@ const processCodeOutput = async ({
       );
       return {
         file: createDownloadFallback({
+          req,
+          outputScope,
           id,
           name,
           agentId,
@@ -638,6 +658,8 @@ const processCodeOutput = async ({
       );
       return {
         file: createDownloadFallback({
+          req,
+          outputScope,
           id,
           name,
           agentId,
@@ -815,6 +837,8 @@ const processCodeOutput = async ({
     // Fallback for download errors - return download URL so user can still manually download
     return {
       file: createDownloadFallback({
+        req,
+        outputScope,
         id,
         name,
         agentId,

@@ -31,6 +31,7 @@ const {
 } = require('~/server/services/Files/process');
 const { fileAccess } = require('~/server/middleware/accessResources/fileAccess');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
+const { authorizeProjectFallback } = require('~/server/services/Files/Code/fallbackGrant');
 const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
 const { hasCapability } = require('~/server/middleware/roles/capabilities');
 const { checkPermission } = require('~/server/services/PermissionService');
@@ -329,6 +330,41 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
       return res.status(400).send('Bad request');
     }
 
+    // The old link format remains PERSONAL only. Project fallbacks must
+    // carry a purpose-bound signed grant issued at artifact generation.
+    // Never accept client-selected kind/id or downgrade an invalid grant.
+    let downloadScope = { kind: 'user', id: req.user.id };
+    if (req.query.grant !== undefined) {
+      try {
+        const {
+          resolveWorkspaceContextExplicit,
+        } = require('~/server/services/Endpoints/agents/authorization');
+        downloadScope = await authorizeProjectFallback({
+          token: req.query.grant,
+          req,
+          sessionId: session_id,
+          fileId,
+          resolveWorkspaceContextExplicit,
+        });
+      } catch (error) {
+        if (error?.status === 404) {
+          return res.status(404).send('Forbidden');
+        }
+        if (
+          error?.status === 401 ||
+          error?.status === 403 ||
+          error?.message === 'CODE_PROJECT_FALLBACK_DENIED'
+        ) {
+          return res.status(403).send('Forbidden');
+        }
+        // Unexpected signing/configuration, database or module failures are
+        // server errors, not a claim that the caller lacks file access.
+        // Do not include signed grant tokens or request URLs in logs.
+        logger.error('[code download] Project fallback authorization unavailable', error?.message);
+        return res.status(500).send('Error downloading file');
+      }
+    }
+
     const { getDownloadStream } = getStrategyFunctions(FileSources.execute_code);
     if (!getDownloadStream) {
       logger.warn(
@@ -337,23 +373,18 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
       return res.status(501).send('Not Implemented');
     }
 
-    /* Code-output downloads are always user-private — `processCodeOutput`
-     * persists every code-execution artifact under
-     * `metadata.codeEnvRef.kind === 'user'` regardless of which skill
-     * the run invoked. Pass `kind: 'user'` + `id: <userId>` so codeapi's
-     * `sessionAuth` resolves the matching `<tenant>:user:<userId>`
-     * sessionKey; without these query params it 400s with
-     * "kind must be one of: skill, agent, user". */
+    /* Personal legacy fallback remains user-scoped. Project fallback
+     * uses a signed origin claim and live server membership verification.
+     * CodeAPI receives only server-derived storage identity. */
     /** @type {AxiosResponse<ReadableStream> | undefined} */
-    const response = await getDownloadStream(
-      `${session_id}/${fileId}`,
-      {
-        kind: 'user',
-        id: req.user.id,
-      },
-      req,
-    );
+    const response = await getDownloadStream(`${session_id}/${fileId}`, downloadScope, req);
     res.set(response.headers);
+    // File contents remain access-controlled even after project membership
+    // changes. Do not allow browser/proxy caches or embedding to weaken
+    // future authorization checks or leak fallback grant URLs.
+    res.set('Cache-Control', 'private, no-store');
+    res.set('Referrer-Policy', 'no-referrer');
+    res.set('X-Content-Type-Options', 'nosniff');
     response.data.pipe(res);
   } catch (error) {
     /* `logAxiosError` redacts buffer/stream response bodies — without

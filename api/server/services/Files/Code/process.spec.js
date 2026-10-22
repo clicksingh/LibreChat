@@ -413,10 +413,12 @@ describe('Code Process', () => {
       const { file: result } = await processCodeOutput({ ...baseParams, req: projectReq });
 
       expect(getCodeApiAuthHeaders).toHaveBeenCalledWith(projectReq);
-      expect(mockAxios).toHaveBeenCalledWith(expect.objectContaining({
-        method: 'get',
-        url: 'https://code-api.example.com/download/session-123/file-id-123?kind=project&id=project-verified',
-      }));
+      expect(mockAxios).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'get',
+          url: 'https://code-api.example.com/download/session-123/file-id-123?kind=project&id=project-verified',
+        }),
+      );
       expect(result.metadata.codeEnvRef).toEqual({
         kind: 'project',
         id: 'project-verified',
@@ -430,9 +432,11 @@ describe('Code Process', () => {
     it('keeps an ordinary personal output user-private', async () => {
       mockAxios.mockResolvedValue({ data: Buffer.alloc(100) });
       const { file } = await processCodeOutput(baseParams);
-      expect(mockAxios).toHaveBeenCalledWith(expect.objectContaining({
-        url: 'https://code-api.example.com/download/session-123/file-id-123?kind=user&id=user-123',
-      }));
+      expect(mockAxios).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://code-api.example.com/download/session-123/file-id-123?kind=user&id=user-123',
+        }),
+      );
       expect(file.metadata.codeEnvRef).toMatchObject({ kind: 'user', id: 'user-123' });
     });
 
@@ -443,10 +447,12 @@ describe('Code Process', () => {
         { kind: 'user', workspaceId: 'foreign-user' },
       ]) {
         mockAxios.mockClear();
-        await expect(processCodeOutput({
-          ...baseParams,
-          req: { ...mockReq, workspaceContext: context },
-        })).rejects.toThrow('CODE_OUTPUT_SCOPE_INVALID');
+        await expect(
+          processCodeOutput({
+            ...baseParams,
+            req: { ...mockReq, workspaceContext: context },
+          }),
+        ).rejects.toThrow('CODE_OUTPUT_SCOPE_INVALID');
         expect(mockAxios).not.toHaveBeenCalled();
       }
     });
@@ -867,6 +873,38 @@ describe('Code Process', () => {
         // Reset to default for other tests
         fileSizeLimitConfig.value = 20 * 1024 * 1024;
       });
+    });
+
+    test('oversized project output yields a signed project-only fallback', async () => {
+      const previous = process.env.JWT_SECRET;
+      const projectReq = {
+        ...mockReq,
+        user: { id: 'member-a', tenantId: 'tenant-a' },
+        workspaceContext: { kind: 'project', workspaceId: 'project-a' },
+      };
+      try {
+        process.env.JWT_SECRET = 'synthetic-fallback-process-test-secret-only';
+        fileSizeLimitConfig.value = 1000;
+        mockAxios.mockResolvedValue({ data: Buffer.alloc(5000) });
+        const { file: result } = await processCodeOutput({ ...baseParams, req: projectReq });
+        expect(result.filepath).toContain(
+          '/api/files/code/download/session-123/file-id-123?grant=',
+        );
+        const token = new URL('http://local.test' + result.filepath).searchParams.get('grant');
+        expect(
+          require('./fallbackGrant').verifyProjectFallback({
+            token,
+            req: projectReq,
+            sessionId: 'session-123',
+            fileId: 'file-id-123',
+          }),
+        ).toEqual({ kind: 'project', id: 'project-a' });
+        expect(createFile).not.toHaveBeenCalled();
+      } finally {
+        fileSizeLimitConfig.value = 20 * 1024 * 1024;
+        if (previous === undefined) delete process.env.JWT_SECRET;
+        else process.env.JWT_SECRET = previous;
+      }
     });
 
     describe('fallback behavior', () => {
