@@ -1,6 +1,10 @@
 'use strict';
 
-const { signProjectFallback, verifyProjectFallback } = require('./fallbackGrant');
+const {
+  signProjectFallback,
+  verifyProjectFallback,
+  authorizeProjectFallback,
+} = require('./fallbackGrant');
 
 describe('project CodeAPI fallback grants', () => {
   const previousSecret = process.env.JWT_SECRET;
@@ -87,6 +91,38 @@ describe('project CodeAPI fallback grants', () => {
     );
     delete process.env.JWT_SECRET;
     expect(() => issue()).toThrow('CODE_PROJECT_FALLBACK_SIGNING_UNAVAILABLE');
+  });
+
+  test('authorizes only the exact active project returned by live membership check', async () => {
+    const req = { user: { id: 'member-a', tenantId: 'tenant-a' } };
+    const resolver = jest.fn().mockResolvedValue({ kind: 'project', workspaceId: 'project-a' });
+    const token = issue();
+    await expect(authorizeProjectFallback({
+      token, req, ...target, resolveWorkspaceContextExplicit: resolver,
+    })).resolves.toEqual({ kind: 'project', id: 'project-a' });
+    expect(resolver).toHaveBeenCalledWith(req, 'project-a');
+    expect(req.workspaceContext).toEqual({ kind: 'project', workspaceId: 'project-a' });
+  });
+
+  test('fails closed on revoked or archived workspace and never binds a project context', async () => {
+    const token = issue();
+    for (const deniedStatus of [403, 404]) {
+      const req = { user: { id: 'member-a', tenantId: 'tenant-a' } };
+      const resolver = jest.fn().mockRejectedValue(Object.assign(new Error('Denied'), { status: deniedStatus }));
+      await expect(authorizeProjectFallback({
+        token, req, ...target, resolveWorkspaceContextExplicit: resolver,
+      })).rejects.toMatchObject({ status: deniedStatus });
+      expect(req.workspaceContext).toBeUndefined();
+    }
+  });
+
+  test('rejects a resolver that changes project scope rather than confirming it', async () => {
+    const req = { user: { id: 'member-a', tenantId: 'tenant-a' } };
+    const resolver = jest.fn().mockResolvedValue({ kind: 'project', workspaceId: 'project-b' });
+    await expect(authorizeProjectFallback({
+      token: issue(), req, ...target, resolveWorkspaceContextExplicit: resolver,
+    })).rejects.toThrow('CODE_PROJECT_FALLBACK_DENIED');
+    expect(req.workspaceContext).toBeUndefined();
   });
 
   test('tenantless personal context cannot be confused with tenant-scoped project', () => {
