@@ -31,3 +31,7 @@ export { default as systemGrantSchema } from './systemGrant';
 export { default as configSchema } from './config';
 export { default as workspaceSchema } from './workspace';
 export { default as quotaPolicySchema } from './quotaPolicy';
+export { default as deviceAuthoritySchema } from './deviceAuthority';
+export { default as pairingSessionSchema } from './pairingSession';
+export { default as challengeSchema } from './challenge';
+export { default as auditEventSchema } from './auditEvent';

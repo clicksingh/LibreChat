@@ -1,0 +1,326 @@
+{
+  "generatedAt": "2026-10-16T04:51:47.065Z",
+  "runner": "tests/device/e1/r2post/durability/run-s4t.cjs",
+  "report": "tests/device/_phase1_evidence/w3b-r2/s4t/S4T-DURABILITY-TEST.md",
+  "ledger": "tests/device/e1/r2post/durability/artifacts/S4T-LEDGER.json",
+  "frozenSourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  },
+  "frozenSourceHashesAfterRun": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  },
+  "hashGateVerdict": "PASS",
+  "postRunHashVerdict": "PASS",
+  "rowCounts": {
+    "rows": 8,
+    "byStatus": {
+      "HARNESS_FAIL": 2,
+      "EXPECTED_RED": 1,
+      "PASS_CURRENT": 5
+    },
+    "harnessFailures": 2,
+    "harnessFailureIds": [
+      "S4T-01",
+      "S4T-03"
+    ],
+    "substrateBlockedRows": [
+      "S4T-01",
+      "S4T-03"
+    ],
+    "fixtureDefectRows": [],
+    "unauthorizedStateRows": [
+      "S4T-01",
+      "S4T-03"
+    ],
+    "allRowsMatchAuthorizedState": false
+  },
+  "rows": [
+    {
+      "id": "S4T-01",
+      "tier": "E1",
+      "status": "HARNESS_FAIL",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": false,
+      "productMethodInvoked": true,
+      "componentsMet": 4,
+      "componentsTotal": 7,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-02",
+      "tier": "E1",
+      "status": "EXPECTED_RED",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 6,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-03",
+      "tier": "E1",
+      "status": "HARNESS_FAIL",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": false,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 8,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-04",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 5,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-05",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 4,
+      "componentsTotal": 4,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-06",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 5,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-07",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 5,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-08",
+      "tier": "E0",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": false,
+      "componentsMet": 7,
+      "componentsTotal": 7,
+      "dbName": null,
+      "dbDropped": null
+    }
+  ],
+  "blockers": [
+    {
+      "row": "S4T-01",
+      "authorizedStatus": "EXPECTED_RED",
+      "observedStatus": "HARNESS_FAIL",
+      "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+      "observedCreateError": {
+        "name": "ValidationError",
+        "code": null,
+        "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+      },
+      "independenceProbe": {
+        "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+        "rowShapeKeys": [
+          "boundGrantId",
+          "boundOwnerId",
+          "boundPairingSessionId",
+          "challengeHash",
+          "consumedAt",
+          "deviceId",
+          "deviceKeyId",
+          "expiresAt",
+          "issuedAt",
+          "purpose",
+          "tenantId"
+        ],
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "threw": true,
+        "error": {
+          "name": "ValidationError",
+          "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+          "paths": [
+            "boundEpoch"
+          ],
+          "perPath": {
+            "boundEpoch": "ValidatorError: `boundEpoch` must be a non-negative integer"
+          }
+        },
+        "persisted": false
+      }
+    },
+    {
+      "row": "S4T-03",
+      "authorizedStatus": "EXPECTED_RED",
+      "observedStatus": "HARNESS_FAIL",
+      "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+      "observedCreateError": {
+        "name": "ValidationError",
+        "code": null,
+        "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+      },
+      "independenceProbe": {
+        "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+        "rowShapeKeys": [
+          "attemptsUsed",
+          "claim",
+          "claimedAt",
+          "consumedAt",
+          "deviceId",
+          "deviceKeyId",
+          "deviceSessionId",
+          "expiresAt",
+          "grantedGrantId",
+          "issuedAt",
+          "issuedFromSourceHash",
+          "lookupTag",
+          "pendingOwnerId",
+          "state",
+          "tenantId"
+        ],
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "threw": true,
+        "error": {
+          "name": "ValidationError",
+          "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer",
+          "paths": [
+            "claim.expectedEpoch"
+          ],
+          "perPath": {
+            "claim.expectedEpoch": "ValidatorError: `expectedEpoch` must be a non-negative integer"
+          }
+        },
+        "persisted": false
+      }
+    }
+  ],
+  "namespaceAudit": {
+    "ok": true,
+    "identical": true,
+    "created": [],
+    "removed": [],
+    "leftovers": [],
+    "plannedDbNames": [
+      "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+      "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+      "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+      "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+      "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+      "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+      "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+    ],
+    "cleanupDrops": []
+  },
+  "fenceProbe": {
+    "probed": 18,
+    "allRefusedBeforeClientConstruction": true
+  },
+  "exitCode": 1,
+  "exitReasons": [
+    "rows not in authorized pre-repair state: S4T-01,S4T-03",
+    "S4T-01 BLOCKED (FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW): Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+    "S4T-03 BLOCKED (FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW): PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+  ],
+  "artifacts": [
+    {
+      "file": "artifacts/S4T-PREFLIGHT.json",
+      "bytes": 1804
+    },
+    {
+      "file": "artifacts/S4T-FENCE-PROBE.json",
+      "bytes": 9456
+    },
+    {
+      "file": "artifacts/S4T-PRE-RUN-BASELINE.json",
+      "bytes": 11566
+    },
+    {
+      "file": "artifacts/S4T-01-row.json",
+      "bytes": 10999
+    },
+    {
+      "file": "artifacts/S4T-02-row.json",
+      "bytes": 8833
+    },
+    {
+      "file": "artifacts/S4T-03-row.json",
+      "bytes": 13007
+    },
+    {
+      "file": "artifacts/S4T-04-row.json",
+      "bytes": 7925
+    },
+    {
+      "file": "artifacts/S4T-05-row.json",
+      "bytes": 8727
+    },
+    {
+      "file": "artifacts/S4T-06-row.json",
+      "bytes": 11082
+    },
+    {
+      "file": "artifacts/S4T-07-row.json",
+      "bytes": 10419
+    },
+    {
+      "file": "artifacts/S4T-NAMESPACE-AUDIT.json",
+      "bytes": 1055
+    },
+    {
+      "file": "artifacts/S4T-INTEGRITY.json",
+      "bytes": 1147
+    },
+    {
+      "file": "artifacts/S4T-08-row.json",
+      "bytes": 7444
+    },
+    {
+      "file": "artifacts/S4T-BLOCKER.json",
+      "bytes": 5485
+    },
+    {
+      "file": "artifacts/S4T-LEDGER.json",
+      "bytes": 102253
+    }
+  ]
+}

@@ -1,0 +1,276 @@
+{
+  "gateOrder": "assertPreConnect (total fence) -> construct (MongoClient)",
+  "probed": 18,
+  "allRefusedBeforeClientConstruction": true,
+  "results": [
+    {
+      "dbName": "cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000)",
+          "cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000 is forbidden: accepted S2-T lane database",
+          "cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000 is forbidden: non-s4t r2 lane database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000)",
+          "cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000 is forbidden: accepted post-S1 T0 lane database",
+          "cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000 is forbidden: non-s4t r2 lane database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_r2_post_s1_diag_abcdef",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_r2_post_s1_diag_abcdef)",
+          "cbhr_rdc_phase1_r2_post_s1_diag_abcdef is forbidden: non-s4t r2 lane database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_preflight_20261010",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_preflight_20261010)",
+          "cbhr_rdc_phase1_preflight_20261010 is forbidden: pre-existing preflight database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_governor_nullgrant_probe_20261010)",
+          "cbhr_rdc_phase1_governor_nullgrant_probe_20261010 is forbidden: pre-existing governor probe database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_w3_e1_onepc_20261012_aaaaaa",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_w3_e1_onepc_20261012_aaaaaa)",
+          "cbhr_rdc_phase1_w3_e1_onepc_20261012_aaaaaa is forbidden: immutable historical w3 lane database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_w2c_i10_20261012_bbbbbb",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_w2c_i10_20261012_bbbbbb)",
+          "cbhr_rdc_phase1_w2c_i10_20261012_bbbbbb is forbidden: immutable historical w2 lane database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_r1_hostile_x",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_r1_hostile_x)",
+          "cbhr_rdc_phase1_r1_hostile_x is forbidden: immutable historical r1 lane database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_r2_s4t_)"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_bad-name",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed cbhr_rdc_phase1_r2_s4t_bad-name)"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "devices_prod",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed devices_prod)",
+          "devices_prod is forbidden: production-like name"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "deviceauthorities",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed deviceauthorities)",
+          "deviceauthorities is forbidden: production-like name"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "librechat",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed librechat)",
+          "librechat is forbidden: production-like name"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "production",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed production)",
+          "production is forbidden: production-like name"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "admin",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed admin)",
+          "admin is a Mongo system database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "local",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed local)",
+          "local is a Mongo system database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "config",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name must match /^cbhr_rdc_phase1_r2_s4t_[A-Za-z0-9_]+$/ (observed config)",
+          "config is a Mongo system database"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    },
+    {
+      "dbName": "",
+      "refused": true,
+      "refusal": {
+        "name": "S4TFenceViolation",
+        "code": "FENCE_VIOLATION",
+        "problems": [
+          "database name is required"
+        ],
+        "clientCreated": false
+      },
+      "clientConstructions": 0,
+      "refusedBeforeClientConstruction": true
+    }
+  ]
+}

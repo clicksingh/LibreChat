@@ -1,0 +1,172 @@
+{
+  "id": "S4T-08",
+  "tier": "E0",
+  "status": "PASS_CURRENT",
+  "authorizedStatus": "PASS_CURRENT",
+  "matchesAuthorizedState": true,
+  "productMethodInvoked": false,
+  "expectedOracle": "PASS iff all binding source hashes remain exact, accepted S1/S2/S3/T0/T0A/T1/T1R evidence is untouched, all owned databases are dropped and no foreign database changed",
+  "repairPredicate": null,
+  "components": [
+    {
+      "name": "binding_source_hashes_unchanged",
+      "oracle": "all six authorized binding sources still hash to their frozen values after the run",
+      "actual": "preflightOk=true postRunOk=true problems=[]",
+      "met": true,
+      "tier": "E0"
+    },
+    {
+      "name": "dependency_surface_unchanged",
+      "oracle": "the composed dependency surface (binding sources + device model/schema pairs + barrels) is byte-identical before and after the run",
+      "actual": "files=15 unchanged=true changed=[] missingAfter=[]",
+      "met": true,
+      "tier": "E0"
+    },
+    {
+      "name": "prior_lane_evidence_untouched",
+      "oracle": "accepted S1/S2/S3/T0/T0A/T1/T1R durable evidence bytes are unchanged by this lane",
+      "actual": "files=59 unchanged=true changed=[] missingAfter=[]",
+      "met": true,
+      "tier": "E0"
+    },
+    {
+      "name": "all_owned_databases_dropped",
+      "oracle": "no cbhr_rdc_phase1_r2_s4t_* database survives the run",
+      "actual": "leftovers=[] identical=true ok=true; cleanupDrops=[]",
+      "met": true,
+      "tier": "E0"
+    },
+    {
+      "name": "no_foreign_database_changes",
+      "oracle": "no database outside the s4t namespace was created or removed",
+      "actual": "foreignCreated=[] foreignRemoved=[] identical=true",
+      "met": true,
+      "tier": "E0"
+    },
+    {
+      "name": "fence_refused_foreign_names_before_client_construction",
+      "oracle": "every foreign/hostile database name is refused by the fence before any MongoClient is constructed",
+      "actual": "probed=18 allRefusedBeforeClientConstruction=true",
+      "met": true,
+      "tier": "E0"
+    },
+    {
+      "name": "runner_owned_cleanup_drops_succeeded",
+      "oracle": "every runner-owned database drop reported success",
+      "actual": "[]",
+      "met": true,
+      "tier": "E0"
+    }
+  ],
+  "actual": {
+    "scenario": "E0 namespace/integrity row: binding-source hash re-verification, dependency-surface byte comparison, prior-lane evidence byte comparison, server-wide database inventory diff and fence-ordering proof",
+    "preflightHashes": {
+      "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+      "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+      "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+      "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+      "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+      "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+    },
+    "postRunHashes": {
+      "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+      "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+      "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+      "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+      "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+      "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+    },
+    "postRunHashProblems": [],
+    "dependencySurface": {
+      "files": 15,
+      "comparison": {
+        "unchanged": true,
+        "changed": [],
+        "missingAfter": [],
+        "added": []
+      }
+    },
+    "priorLaneEvidence": {
+      "files": 59,
+      "comparison": {
+        "unchanged": true,
+        "changed": [],
+        "missingAfter": [],
+        "added": []
+      }
+    },
+    "namespaceAudit": {
+      "before": [
+        "admin",
+        "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+        "cbhr_rdc_phase1_preflight_20261010",
+        "config",
+        "local"
+      ],
+      "after": [
+        "admin",
+        "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+        "cbhr_rdc_phase1_preflight_20261010",
+        "config",
+        "local"
+      ],
+      "created": [],
+      "removed": [],
+      "foreignCreated": [],
+      "foreignRemoved": [],
+      "leftovers": [],
+      "leftoverOwned": [],
+      "identical": true,
+      "ok": true,
+      "leftoverBeforeCleanup": [],
+      "leftoversDropped": [],
+      "plannedDbNames": [
+        "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+        "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+        "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+        "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+        "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+        "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+        "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+      ]
+    },
+    "cleanupDrops": [],
+    "fenceOrderingProbe": {
+      "gateOrder": "assertPreConnect (total fence) -> construct (MongoClient)",
+      "probed": 18,
+      "allRefusedBeforeClientConstruction": true,
+      "refusedNames": [
+        "cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000",
+        "cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000",
+        "cbhr_rdc_phase1_r2_post_s1_diag_abcdef",
+        "cbhr_rdc_phase1_preflight_20261010",
+        "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+        "cbhr_rdc_phase1_w3_e1_onepc_20261012_aaaaaa",
+        "cbhr_rdc_phase1_w2c_i10_20261012_bbbbbb",
+        "cbhr_rdc_phase1_r1_hostile_x",
+        "cbhr_rdc_phase1_r2_s4t_",
+        "cbhr_rdc_phase1_r2_s4t_bad-name",
+        "devices_prod",
+        "deviceauthorities",
+        "librechat",
+        "production",
+        "admin",
+        "local",
+        "config",
+        ""
+      ],
+      "detailArtifact": "tests/device/e1/r2post/durability/artifacts/S4T-FENCE-PROBE.json"
+    }
+  },
+  "dbName": null,
+  "dbDropped": null,
+  "dbReadBack": null,
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

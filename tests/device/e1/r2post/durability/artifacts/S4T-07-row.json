@@ -1,0 +1,219 @@
+{
+  "id": "S4T-07",
+  "tier": "E1",
+  "status": "PASS_CURRENT",
+  "authorizedStatus": "PASS_CURRENT",
+  "matchesAuthorizedState": true,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff Mongo 7.0.43 on replica set cbhrRdcP1 with a writable primary, driver 6.21.0, genuine model constructors with no composition facade, and no connection/server write-concern default that could mask a missing create-site option",
+  "repairPredicate": null,
+  "components": [
+    {
+      "name": "mongo_topology_matches_frozen_lab",
+      "oracle": "Mongo 7.0.43, replica set cbhrRdcP1, writable primary, mongodb driver 6.21.0",
+      "actual": "{\"setName\":\"cbhrRdcP1\",\"isWritablePrimary\":true,\"serverVersion\":\"7.0.43\",\"driverVersion\":\"6.21.0\",\"nodeVersion\":\"v22.19.0\",\"pid\":50384,\"databaseName\":\"cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261\"}",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_mongoose_model_constructors_no_facade",
+      "oracle": "each device model is the genuine createModels(mongoose) constructor (typeof function, schema present, identity-equal to the live mongoose registration)",
+      "actual": "{\"DeviceAuthority\":{\"modelName\":\"DeviceAuthority\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorities\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true},\"PairingSession\":{\"modelName\":\"PairingSession\",\"typeofModel\":\"function\",\"collection\":\"pairingsessions\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true},\"Challenge\":{\"modelName\":\"Challenge\",\"typeofModel\":\"function\",\"collection\":\"challenges\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true},\"AuditEvent\":{\"modelName\":\"AuditEvent\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorityevents\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}}",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "frozen_factories_accept_the_raw_registry",
+      "oracle": "all three frozen factories compose against the RAW registry object (no plain-object facade exists in this lane)",
+      "actual": "[{\"factory\":\"createAuthorityService\",\"guardAnchor\":\"api/server/services/Device/authorityService.js:174-189\",\"accepted\":true,\"error\":null,\"serviceKind\":\"object\"},{\"factory\":\"createRegistrationService\",\"guardAnchor\":\"api/server/services/Device/registrationService.js:166-189\",\"accepted\":true,\"error\":null,\"serviceKind\":\"object\"},{\"factory\":\"createPairingSessionService\",\"guardAnchor\":\"api/server/services/Device/pairingSessionService.js:182-230\",\"accepted\":true,\"error\":null,\"serviceKind\":\"object\"}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "no_connection_level_majority_journal_default",
+      "oracle": "no connection/generation-level write concern is masking the create-site option omission: the driver/connection default is absent and the server default RW concern carries no journal:true",
+      "actual": "{\"uri\":\"mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=cbhrRdcP1&serverSelectionTimeoutMS=5000&retryWrites=false\",\"uriCarriesWriteConcernParam\":false,\"driverClientOptionsWriteConcern\":null,\"mongooseConnectionOptionsWriteConcern\":null,\"resolvedServerDefaultWriteConcern\":{\"w\":\"majority\",\"wtimeout\":0},\"serverRwError\":null,\"serverDefaultJournalTrue\":false,\"connectionLevelWriteConcernAbsent\":true,\"connectionLevelMajorityJournalResolved\":false}",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "registry_registered_on_the_live_connection",
+      "oracle": "the registry used by the rows is the one registered on the live mongoose connection used to write",
+      "actual": "mongooseDatabaseName=cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261 fencedDbName=cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "real-substrate control: topology, driver version, genuine model-constructor identity, raw-registry factory composition and the connection/server write-concern default probe",
+    "topologyProbe": {
+      "setName": "cbhrRdcP1",
+      "isWritablePrimary": true,
+      "serverVersion": "7.0.43",
+      "driverVersion": "6.21.0",
+      "nodeVersion": "v22.19.0",
+      "pid": 50384,
+      "databaseName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+    },
+    "modelIdentity": {
+      "DeviceAuthority": {
+        "modelName": "DeviceAuthority",
+        "typeofModel": "function",
+        "collection": "deviceauthorities",
+        "schemaPresent": true,
+        "identityMatchesMongooseRegistration": true
+      },
+      "PairingSession": {
+        "modelName": "PairingSession",
+        "typeofModel": "function",
+        "collection": "pairingsessions",
+        "schemaPresent": true,
+        "identityMatchesMongooseRegistration": true
+      },
+      "Challenge": {
+        "modelName": "Challenge",
+        "typeofModel": "function",
+        "collection": "challenges",
+        "schemaPresent": true,
+        "identityMatchesMongooseRegistration": true
+      },
+      "AuditEvent": {
+        "modelName": "AuditEvent",
+        "typeofModel": "function",
+        "collection": "deviceauthorityevents",
+        "schemaPresent": true,
+        "identityMatchesMongooseRegistration": true
+      }
+    },
+    "registryTypeof": {
+      "User": "function",
+      "Token": "function",
+      "Session": "function",
+      "Balance": "function",
+      "Conversation": "function",
+      "ChatProject": "function",
+      "Workspace": "function",
+      "QuotaPolicy": "function",
+      "DeviceAuthority": "function",
+      "PairingSession": "function",
+      "Challenge": "function",
+      "AuditEvent": "function",
+      "Message": "function",
+      "Agent": "function",
+      "AgentApiKey": "function",
+      "AgentCategory": "function",
+      "MCPServer": "function",
+      "Role": "function",
+      "Action": "function",
+      "Assistant": "function",
+      "File": "function",
+      "Banner": "function",
+      "Key": "function",
+      "PluginAuth": "function",
+      "Transaction": "function",
+      "Preset": "function",
+      "Prompt": "function",
+      "PromptGroup": "function",
+      "Skill": "function",
+      "SkillFile": "function",
+      "SkillSyncCredential": "function",
+      "SkillSyncStatus": "function",
+      "ConversationTag": "function",
+      "SharedLink": "function",
+      "ToolCall": "function",
+      "MemoryEntry": "function",
+      "AccessRole": "function",
+      "AclEntry": "function",
+      "SystemGrant": "function",
+      "Group": "function",
+      "Config": "function"
+    },
+    "composition": [
+      {
+        "factory": "createAuthorityService",
+        "guardAnchor": "api/server/services/Device/authorityService.js:174-189",
+        "accepted": true,
+        "error": null,
+        "serviceKind": "object"
+      },
+      {
+        "factory": "createRegistrationService",
+        "guardAnchor": "api/server/services/Device/registrationService.js:166-189",
+        "accepted": true,
+        "error": null,
+        "serviceKind": "object"
+      },
+      {
+        "factory": "createPairingSessionService",
+        "guardAnchor": "api/server/services/Device/pairingSessionService.js:182-230",
+        "accepted": true,
+        "error": null,
+        "serviceKind": "object"
+      }
+    ],
+    "connectionProbe": {
+      "uri": "mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=cbhrRdcP1&serverSelectionTimeoutMS=5000&retryWrites=false",
+      "uriCarriesWriteConcernParam": false,
+      "driverClientOptionsWriteConcern": null,
+      "mongooseConnectionOptionsWriteConcern": null,
+      "resolvedServerDefaultWriteConcern": {
+        "w": "majority",
+        "wtimeout": 0
+      },
+      "serverRwError": null,
+      "serverDefaultJournalTrue": false,
+      "connectionLevelWriteConcernAbsent": true,
+      "connectionLevelMajorityJournalResolved": false
+    },
+    "staticAnchors": [
+      "packages/data-schemas/src/models/index.ts — createModels(mongoose) returns genuine Model constructors",
+      "tests/device/e1/r2post/durability/harness.cjs — the raw registry is passed to the factories; no facade is constructed"
+    ],
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+    "collectionCounts": {
+      "deviceauthorities": 0,
+      "pairingsessions": 0,
+      "challenges": 0,
+      "deviceauthorityevents": 0
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [],
+    "auditSinkEventCount": 0,
+    "captureRecords": 0,
+    "captureLabels": [],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

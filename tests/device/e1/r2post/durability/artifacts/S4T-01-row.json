@@ -1,0 +1,215 @@
+{
+  "id": "S4T-01",
+  "tier": "E1",
+  "status": "HARNESS_FAIL",
+  "authorizedStatus": "EXPECTED_RED",
+  "matchesAuthorizedState": false,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff beginRegistration's genuine Challenge.create call carries an explicit options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}, with the row durably readable back; current expected state EXPECTED_RED",
+  "repairPredicate": "captured Challenge.create call includes an array-form options object with writeConcern.w==='majority' and writeConcern.j===true",
+  "components": [
+    {
+      "name": "begin_registration_invoked_the_genuine_create_site",
+      "oracle": "beginRegistration passes the tenant policy gate and invokes the genuine Challenge.create site exactly once",
+      "actual": "Challenge.create calls captured=1 capturedArgCount=1 capturedKeys=[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "begin_registration_returned_a_minted_challenge",
+      "oracle": "beginRegistration returns a success envelope carrying a fresh challenge and its hash",
+      "actual": "beginOk=false challengeHashPresent=false returnedLength=null error.code=WRITE_OUTCOME_UNCERTAIN error.message=Unclassified write failure; fail closed; captured createError={\"name\":\"ValidationError\",\"code\":null,\"message\":\"Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer\"}",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "challenge_row_durable_read_back",
+      "oracle": "the registration challenge row is readable back through the genuine model and the raw driver with consumedAt still null",
+      "actual": "rawDriverDocPresent=false modelLeanPresent=false",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "challenge_create_carries_explicit_majority_journal",
+      "oracle": "the captured Model.create call includes an options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=0 missingExplicitOptionsCount=1 ambiguousOptionsOverloadCount=0 observed=[{\"label\":\"registration-begin-challenge-create\",\"model\":\"Challenge\",\"method\":\"create\",\"argCount\":1,\"hasOptionsArgument\":false,\"documentsAreArray\":false,\"unambiguousOptionsOverload\":false,\"writeConcern\":null,\"explicitMajorityJournal\":false,\"ok\":false}]",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "captured_row_shape_matches_the_product_row_shape",
+      "oracle": "the captured create payload keys equal the frozen product row shape read from the product bytes",
+      "actual": "capturedKeys=[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"] reconstructedKeys=[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"] equal=true",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "validator_rejection_is_orthogonal_to_the_missing_option",
+      "oracle": "the same product row shape still fails validation when every argument is the array-form options overload with explicit majority+journal",
+      "actual": "{\"overload\":\"Model.create([row], { writeConcern: { w: \\\"majority\\\", j: true } }) (array form)\",\"rowShapeKeys\":[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"],\"requestedWriteConcern\":{\"w\":\"majority\",\"j\":true},\"threw\":true,\"error\":{\"name\":\"ValidationError\",\"message\":\"Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer\",\"paths\":[\"boundEpoch\"],\"perPath\":{\"boundEpoch\":\"ValidatorError: `boundEpoch` must be a non-negative integer\"}},\"persisted\":false}",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_challenge_constructor_used",
+      "oracle": "the Challenge model is the genuine createModels(mongoose) constructor registered on the live connection",
+      "actual": "{\"modelName\":\"Challenge\",\"typeofModel\":\"function\",\"collection\":\"challenges\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "registrationService.beginRegistration invoked with the fixed trusted tenant policy against the genuine registry; the frozen product bytes call db.Challenge.create(row) with a single argument",
+    "invocation": {
+      "method": "createRegistrationService(...).beginRegistration",
+      "tenantId": "tenant-w3a-i11-fixed",
+      "requestSource": "lab-local-endpoint"
+    },
+    "beginResult": {
+      "ok": false,
+      "challengeHashPresent": false,
+      "challengeReturnedLength": null,
+      "error": {
+        "name": "DeviceError",
+        "code": "WRITE_OUTCOME_UNCERTAIN",
+        "message": "Unclassified write failure; fail closed",
+        "httpStatus": 500,
+        "disposition": "terminal",
+        "retryable": false
+      }
+    },
+    "requestedWriteConcern": {
+      "w": "majority",
+      "j": true
+    },
+    "createCallVerdict": {
+      "callCount": 1,
+      "pinnedCount": 0,
+      "allPinned": false,
+      "anyPinned": false,
+      "missingExplicitOptionsCount": 1,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "registration-begin-challenge-create",
+          "model": "Challenge",
+          "method": "create",
+          "argCount": 1,
+          "hasOptionsArgument": false,
+          "documentsAreArray": false,
+          "unambiguousOptionsOverload": false,
+          "writeConcern": null,
+          "explicitMajorityJournal": false,
+          "ok": false
+        }
+      ]
+    },
+    "createCallError": {
+      "name": "ValidationError",
+      "code": null,
+      "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+    },
+    "durableReadBack": {
+      "rawDriverDocPresent": false,
+      "modelLeanMatch": false
+    },
+    "repairPredicateAbsent": true,
+    "blocker": {
+      "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+      "causeClass": "product/substrate defect (not a fixture defect)",
+      "authorizedStatus": "EXPECTED_RED",
+      "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable row read-back; the frozen challenge schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable row to read back",
+      "observedCreateError": {
+        "name": "ValidationError",
+        "code": null,
+        "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+      },
+      "independenceProbe": {
+        "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+        "rowShapeKeys": [
+          "boundGrantId",
+          "boundOwnerId",
+          "boundPairingSessionId",
+          "challengeHash",
+          "consumedAt",
+          "deviceId",
+          "deviceKeyId",
+          "expiresAt",
+          "issuedAt",
+          "purpose",
+          "tenantId"
+        ],
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "threw": true,
+        "error": {
+          "name": "ValidationError",
+          "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+          "paths": [
+            "boundEpoch"
+          ],
+          "perPath": {
+            "boundEpoch": "ValidatorError: `boundEpoch` must be a non-negative integer"
+          }
+        },
+        "persisted": false
+      },
+      "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+      "staticAnchors": [
+        "packages/data-schemas/src/schema/challenge.ts:52-60 — boundEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+        "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+      ]
+    },
+    "staticAnchor": "api/server/services/Device/registrationService.js:362 — await db.Challenge.create(row) (one argument, no options object)",
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+    "collectionCounts": {
+      "deviceauthorities": 0,
+      "pairingsessions": 0,
+      "challenges": 0,
+      "deviceauthorityevents": 0
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [],
+    "auditSinkEventCount": 0,
+    "captureRecords": 2,
+    "captureLabels": [
+      "registration-begin-challenge-create"
+    ],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

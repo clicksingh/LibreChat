@@ -1,0 +1,2197 @@
+{
+  "commission": "PHASE1-LOCAL-AUTHORITY-001/W3B-R2-S4T",
+  "workstream": "W3-B / R2 / S4T (CREATE-PATH DURABILITY TEST-FIRST)",
+  "authorization": "cbhr-rdc/docs/GOVERNOR-W3B-R2-S4T-DURABILITY-TEST-AUTHORIZATION-20261015.md",
+  "frozenHead": "a3fb9754bce5a940cb0f78161985b93c20d74727",
+  "runner": "tests/device/e1/r2post/durability/run-s4t.cjs",
+  "generatedAt": "2026-10-16T04:51:47.065Z",
+  "nodeVersion": "v22.19.0",
+  "runnerPid": 50384,
+  "mongo": {
+    "uri": "mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=cbhrRdcP1&serverSelectionTimeoutMS=5000&retryWrites=false",
+    "requiredReplicaSet": "cbhrRdcP1",
+    "requiredServerVersion": "7.0.43",
+    "pinnedDriverVersion": "6.21.0"
+  },
+  "dbPrefix": "cbhr_rdc_phase1_r2_s4t_",
+  "frozenSourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  },
+  "frozenSourceHashesAfterRun": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  },
+  "frozenHashRecheck": [
+    {
+      "path": "api/server/services/Device/registrationService.js",
+      "observed": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+      "authorized": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+      "match": true
+    },
+    {
+      "path": "api/server/services/Device/pairingSessionService.js",
+      "observed": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+      "authorized": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+      "match": true
+    },
+    {
+      "path": "api/server/services/Device/authorityService.js",
+      "observed": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+      "authorized": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+      "match": true
+    },
+    {
+      "path": "api/server/services/Device/auditSink.js",
+      "observed": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+      "authorized": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+      "match": true
+    },
+    {
+      "path": "packages/data-schemas/src/schema/auditEvent.ts",
+      "observed": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+      "authorized": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+      "match": true
+    },
+    {
+      "path": "api/server/services/Device/errors.js",
+      "observed": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039",
+      "authorized": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039",
+      "match": true
+    }
+  ],
+  "repairPredicateLaw": "a create row is pinned only when the captured Model.create call includes an options object with writeConcern.w==='majority' and writeConcern.j===true; a connection/server default does not satisfy F8",
+  "authorizedRowStates": {
+    "S4T-01": "EXPECTED_RED",
+    "S4T-02": "EXPECTED_RED",
+    "S4T-03": "EXPECTED_RED",
+    "S4T-04": "PASS_CURRENT",
+    "S4T-05": "PASS_CURRENT",
+    "S4T-06": "PASS_CURRENT",
+    "S4T-07": "PASS_CURRENT",
+    "S4T-08": "PASS_CURRENT"
+  },
+  "rows": [
+    {
+      "id": "S4T-01",
+      "tier": "E1",
+      "status": "HARNESS_FAIL",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": false,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff beginRegistration's genuine Challenge.create call carries an explicit options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}, with the row durably readable back; current expected state EXPECTED_RED",
+      "repairPredicate": "captured Challenge.create call includes an array-form options object with writeConcern.w==='majority' and writeConcern.j===true",
+      "components": [
+        {
+          "name": "begin_registration_invoked_the_genuine_create_site",
+          "oracle": "beginRegistration passes the tenant policy gate and invokes the genuine Challenge.create site exactly once",
+          "actual": "Challenge.create calls captured=1 capturedArgCount=1 capturedKeys=[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "begin_registration_returned_a_minted_challenge",
+          "oracle": "beginRegistration returns a success envelope carrying a fresh challenge and its hash",
+          "actual": "beginOk=false challengeHashPresent=false returnedLength=null error.code=WRITE_OUTCOME_UNCERTAIN error.message=Unclassified write failure; fail closed; captured createError={\"name\":\"ValidationError\",\"code\":null,\"message\":\"Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer\"}",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "challenge_row_durable_read_back",
+          "oracle": "the registration challenge row is readable back through the genuine model and the raw driver with consumedAt still null",
+          "actual": "rawDriverDocPresent=false modelLeanPresent=false",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "challenge_create_carries_explicit_majority_journal",
+          "oracle": "the captured Model.create call includes an options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=0 missingExplicitOptionsCount=1 ambiguousOptionsOverloadCount=0 observed=[{\"label\":\"registration-begin-challenge-create\",\"model\":\"Challenge\",\"method\":\"create\",\"argCount\":1,\"hasOptionsArgument\":false,\"documentsAreArray\":false,\"unambiguousOptionsOverload\":false,\"writeConcern\":null,\"explicitMajorityJournal\":false,\"ok\":false}]",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "captured_row_shape_matches_the_product_row_shape",
+          "oracle": "the captured create payload keys equal the frozen product row shape read from the product bytes",
+          "actual": "capturedKeys=[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"] reconstructedKeys=[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"] equal=true",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "validator_rejection_is_orthogonal_to_the_missing_option",
+          "oracle": "the same product row shape still fails validation when every argument is the array-form options overload with explicit majority+journal",
+          "actual": "{\"overload\":\"Model.create([row], { writeConcern: { w: \\\"majority\\\", j: true } }) (array form)\",\"rowShapeKeys\":[\"boundGrantId\",\"boundOwnerId\",\"boundPairingSessionId\",\"challengeHash\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"expiresAt\",\"issuedAt\",\"purpose\",\"tenantId\"],\"requestedWriteConcern\":{\"w\":\"majority\",\"j\":true},\"threw\":true,\"error\":{\"name\":\"ValidationError\",\"message\":\"Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer\",\"paths\":[\"boundEpoch\"],\"perPath\":{\"boundEpoch\":\"ValidatorError: `boundEpoch` must be a non-negative integer\"}},\"persisted\":false}",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_challenge_constructor_used",
+          "oracle": "the Challenge model is the genuine createModels(mongoose) constructor registered on the live connection",
+          "actual": "{\"modelName\":\"Challenge\",\"typeofModel\":\"function\",\"collection\":\"challenges\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "registrationService.beginRegistration invoked with the fixed trusted tenant policy against the genuine registry; the frozen product bytes call db.Challenge.create(row) with a single argument",
+        "invocation": {
+          "method": "createRegistrationService(...).beginRegistration",
+          "tenantId": "tenant-w3a-i11-fixed",
+          "requestSource": "lab-local-endpoint"
+        },
+        "beginResult": {
+          "ok": false,
+          "challengeHashPresent": false,
+          "challengeReturnedLength": null,
+          "error": {
+            "name": "DeviceError",
+            "code": "WRITE_OUTCOME_UNCERTAIN",
+            "message": "Unclassified write failure; fail closed",
+            "httpStatus": 500,
+            "disposition": "terminal",
+            "retryable": false
+          }
+        },
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "createCallVerdict": {
+          "callCount": 1,
+          "pinnedCount": 0,
+          "allPinned": false,
+          "anyPinned": false,
+          "missingExplicitOptionsCount": 1,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "registration-begin-challenge-create",
+              "model": "Challenge",
+              "method": "create",
+              "argCount": 1,
+              "hasOptionsArgument": false,
+              "documentsAreArray": false,
+              "unambiguousOptionsOverload": false,
+              "writeConcern": null,
+              "explicitMajorityJournal": false,
+              "ok": false
+            }
+          ]
+        },
+        "createCallError": {
+          "name": "ValidationError",
+          "code": null,
+          "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+        },
+        "durableReadBack": {
+          "rawDriverDocPresent": false,
+          "modelLeanMatch": false
+        },
+        "repairPredicateAbsent": true,
+        "blocker": {
+          "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+          "causeClass": "product/substrate defect (not a fixture defect)",
+          "authorizedStatus": "EXPECTED_RED",
+          "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable row read-back; the frozen challenge schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable row to read back",
+          "observedCreateError": {
+            "name": "ValidationError",
+            "code": null,
+            "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+          },
+          "independenceProbe": {
+            "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+            "rowShapeKeys": [
+              "boundGrantId",
+              "boundOwnerId",
+              "boundPairingSessionId",
+              "challengeHash",
+              "consumedAt",
+              "deviceId",
+              "deviceKeyId",
+              "expiresAt",
+              "issuedAt",
+              "purpose",
+              "tenantId"
+            ],
+            "requestedWriteConcern": {
+              "w": "majority",
+              "j": true
+            },
+            "threw": true,
+            "error": {
+              "name": "ValidationError",
+              "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+              "paths": [
+                "boundEpoch"
+              ],
+              "perPath": {
+                "boundEpoch": "ValidatorError: `boundEpoch` must be a non-negative integer"
+              }
+            },
+            "persisted": false
+          },
+          "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+          "staticAnchors": [
+            "packages/data-schemas/src/schema/challenge.ts:52-60 — boundEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+            "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+          ]
+        },
+        "staticAnchor": "api/server/services/Device/registrationService.js:362 — await db.Challenge.create(row) (one argument, no options object)",
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+        "collectionCounts": {
+          "deviceauthorities": 0,
+          "pairingsessions": 0,
+          "challenges": 0,
+          "deviceauthorityevents": 0
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [],
+        "auditSinkEventCount": 0,
+        "captureRecords": 2,
+        "captureLabels": [
+          "registration-begin-challenge-create"
+        ],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-02",
+      "tier": "E1",
+      "status": "EXPECTED_RED",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff completeRegistration's genuine DeviceAuthority.create call carries an explicit options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}, with the pending authority row durably readable back; current expected state EXPECTED_RED",
+      "repairPredicate": "captured DeviceAuthority.create call includes an array-form options object with writeConcern.w==='majority' and writeConcern.j===true",
+      "components": [
+        {
+          "name": "complete_registration_reached_product_path",
+          "oracle": "completeRegistration verifies the registration PoP, spends the challenge and reaches the DeviceAuthority create site",
+          "actual": "ok=true deviceId=e3bc786f-0a52-497e-867e-02ff4f07626a deviceKeyIdMatchesThumbprint=true error.code=null; DeviceAuthority.create calls captured=1; challengeSpent=true",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "device_authority_registration_row_durable_read_back",
+          "oracle": "the pending authority row created by the registration transition is readable back through the genuine model and the raw driver",
+          "actual": "rawDriverDocPresent=true identityState=pending leaseState=never epoch=0 deviceKeyIdMatches=true; modelLeanPresent=true",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "registration_challenge_spent_before_authority_create",
+          "oracle": "the registration challenge was consumed by the single-use CAS before the authority row was inserted",
+          "actual": "challengeRowPresent=true consumedAt=\"2026-10-03T04:00:00.000Z\"",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "device_authority_create_carries_explicit_majority_journal",
+          "oracle": "the captured DeviceAuthority.create call includes an options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=0 missingExplicitOptionsCount=1 ambiguousOptionsOverloadCount=0 observed=[{\"label\":\"device-authority-registration-create\",\"model\":\"DeviceAuthority\",\"method\":\"create\",\"argCount\":1,\"hasOptionsArgument\":false,\"documentsAreArray\":false,\"unambiguousOptionsOverload\":false,\"writeConcern\":null,\"explicitMajorityJournal\":false,\"ok\":true}]",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "real_audit_event_create_carries_explicit_majority_journal",
+          "oracle": "the genuine product auditSink adapter writes AuditEvent with an explicit writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"real-audit-event-create\",\"model\":\"AuditEvent\",\"method\":\"create\",\"argCount\":2,\"hasOptionsArgument\":true,\"documentsAreArray\":true,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]; auditSinkOutcomes=[{\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_device_authority_constructor_used",
+          "oracle": "the DeviceAuthority model is the genuine createModels(mongoose) constructor registered on the live connection",
+          "actual": "{\"modelName\":\"DeviceAuthority\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorities\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "registrationService.completeRegistration invoked with a valid Ed25519 registration PoP over the frozen canonical form and a fixture registration challenge; the frozen product bytes call db.DeviceAuthority.create(row) with a single argument",
+        "invocation": {
+          "method": "createRegistrationService(...).completeRegistration",
+          "tenantId": "tenant-w3a-i11-fixed",
+          "domainTag": "cbhr:device:registration:v1",
+          "challengeSource": "fixture row (beginRegistration is blocked pre-repair by the S4T-01 validator defect)",
+          "challengeSpentByCas": true
+        },
+        "envelope": {
+          "ok": true,
+          "matched": null,
+          "code": null,
+          "deviceId": "e3bc786f-0a52-497e-867e-02ff4f07626a",
+          "deviceKeyId": "UlY_J1s-2XZTnZD6oFR-9GBFFZ3VIdF7nS4Rebpvcbs",
+          "error": null,
+          "authority": {
+            "_id": "e3bc786f-0a52-497e-867e-02ff4f07626a",
+            "tenantId": "tenant-w3a-i11-fixed",
+            "epoch": 0,
+            "leaseState": "never",
+            "identityState": "pending",
+            "ownerId": null,
+            "grantId": null,
+            "deviceKeyId": "UlY_J1s-2XZTnZD6oFR-9GBFFZ3VIdF7nS4Rebpvcbs"
+          },
+          "pairingSession": null
+        },
+        "auditSinkOutcomes": [
+          {
+            "ok": true
+          }
+        ],
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "createCallVerdict": {
+          "callCount": 1,
+          "pinnedCount": 0,
+          "allPinned": false,
+          "anyPinned": false,
+          "missingExplicitOptionsCount": 1,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "device-authority-registration-create",
+              "model": "DeviceAuthority",
+              "method": "create",
+              "argCount": 1,
+              "hasOptionsArgument": false,
+              "documentsAreArray": false,
+              "unambiguousOptionsOverload": false,
+              "writeConcern": null,
+              "explicitMajorityJournal": false,
+              "ok": true
+            }
+          ]
+        },
+        "auditCreateVerdict": {
+          "callCount": 1,
+          "pinnedCount": 1,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "real-audit-event-create",
+              "model": "AuditEvent",
+              "method": "create",
+              "argCount": 2,
+              "hasOptionsArgument": true,
+              "documentsAreArray": true,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "durableReadBack": {
+          "rawDriverDocPresent": true,
+          "rawIdentityState": "pending",
+          "rawLeaseState": "never",
+          "rawEpoch": 0,
+          "rawDeviceKeyIdMatchesThumbprint": true,
+          "modelLeanPresent": true
+        },
+        "repairPredicateAbsent": true,
+        "staticAnchor": "api/server/services/Device/registrationService.js:672 — await db.DeviceAuthority.create(row) (one argument, no options object)",
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+        "collectionCounts": {
+          "deviceauthorities": 1,
+          "pairingsessions": 0,
+          "challenges": 1,
+          "deviceauthorityevents": 1
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [
+          {
+            "ok": true
+          }
+        ],
+        "auditSinkEventCount": 1,
+        "captureRecords": 2,
+        "captureLabels": [
+          "device-authority-registration-create",
+          "real-audit-event-create"
+        ],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-03",
+      "tier": "E1",
+      "status": "HARNESS_FAIL",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": false,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff issuePairingSession's genuine PairingSession.create call carries an explicit options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}, with the session durably readable back; current expected state EXPECTED_RED",
+      "repairPredicate": "captured PairingSession.create call includes an array-form options object with writeConcern.w==='majority' and writeConcern.j===true",
+      "components": [
+        {
+          "name": "issue_pairing_session_invoked_the_genuine_create_site",
+          "oracle": "issuePairingSession verifies the device PoP against the DB-stored key, completes the guarded supersede update and invokes the genuine PairingSession.create site exactly once",
+          "actual": "create calls captured=1 supersede update calls captured=1 capturedArgCount=1 capturedKeys=[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "issue_pairing_session_returned_a_minted_code",
+          "oracle": "issuePairingSession returns a success envelope carrying the one-time pairing code and the created session",
+          "actual": "issueOk=false codeReturnedLength=null error.code=WRITE_OUTCOME_UNCERTAIN error.message=Unclassified write failure; fail closed; captured createError={\"name\":\"ValidationError\",\"code\":null,\"message\":\"PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer\"}",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "pairing_session_row_durable_read_back",
+          "oracle": "the open pairing session is readable back through the genuine model and the raw driver",
+          "actual": "rawDriverDocPresent=false modelLeanPresent=false",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "pairing_session_create_carries_explicit_majority_journal",
+          "oracle": "the captured PairingSession.create call includes an options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=0 missingExplicitOptionsCount=1 ambiguousOptionsOverloadCount=0 observed=[{\"label\":\"pairing-session-issue-create\",\"model\":\"PairingSession\",\"method\":\"create\",\"argCount\":1,\"hasOptionsArgument\":false,\"documentsAreArray\":false,\"unambiguousOptionsOverload\":false,\"writeConcern\":null,\"explicitMajorityJournal\":false,\"ok\":false}]",
+          "met": false,
+          "tier": "E1"
+        },
+        {
+          "name": "supersede_update_carries_explicit_majority_journal",
+          "oracle": "the genuine PairingSession.updateOne supersede path carries writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"pairing-session-supersede-update\",\"model\":\"PairingSession\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "captured_row_shape_matches_the_product_row_shape",
+          "oracle": "the captured create payload keys equal the frozen product row shape read from the product bytes",
+          "actual": "capturedKeys=[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"] reconstructedKeys=[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"] equal=true",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "validator_rejection_is_orthogonal_to_the_missing_option",
+          "oracle": "the same product row shape still fails validation when passed through the array-form options overload with explicit majority+journal",
+          "actual": "{\"overload\":\"Model.create([row], { writeConcern: { w: \\\"majority\\\", j: true } }) (array form)\",\"rowShapeKeys\":[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"],\"requestedWriteConcern\":{\"w\":\"majority\",\"j\":true},\"threw\":true,\"error\":{\"name\":\"ValidationError\",\"message\":\"PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer\",\"paths\":[\"claim.expectedEpoch\"],\"perPath\":{\"claim.expectedEpoch\":\"ValidatorError: `expectedEpoch` must be a non-negative integer\"}},\"persisted\":false}",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_pairing_session_constructor_used",
+          "oracle": "the PairingSession model is the genuine createModels(mongoose) constructor registered on the live connection",
+          "actual": "{\"modelName\":\"PairingSession\",\"typeofModel\":\"function\",\"collection\":\"pairingsessions\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "pairingSessionService.issuePairingSession invoked with a valid Ed25519 pairing-open PoP against a genuine seeded authority row; the frozen product bytes call db.PairingSession.create(row) with a single argument",
+        "invocation": {
+          "method": "createPairingSessionService(...).issuePairingSession",
+          "tenantId": "tenant-w3a-i11-fixed",
+          "deviceId": "s4t-03-device",
+          "deviceKeyId": "key-s4t-03-device",
+          "domainTag": "cbhr:device:pairing-open:v1"
+        },
+        "envelope": {
+          "ok": false,
+          "codeReturnedLength": null,
+          "pairingSessionId": null,
+          "error": {
+            "name": "DeviceError",
+            "code": "WRITE_OUTCOME_UNCERTAIN",
+            "message": "Unclassified write failure; fail closed",
+            "httpStatus": 500,
+            "disposition": "terminal",
+            "retryable": false
+          }
+        },
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "createCallVerdict": {
+          "callCount": 1,
+          "pinnedCount": 0,
+          "allPinned": false,
+          "anyPinned": false,
+          "missingExplicitOptionsCount": 1,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "pairing-session-issue-create",
+              "model": "PairingSession",
+              "method": "create",
+              "argCount": 1,
+              "hasOptionsArgument": false,
+              "documentsAreArray": false,
+              "unambiguousOptionsOverload": false,
+              "writeConcern": null,
+              "explicitMajorityJournal": false,
+              "ok": false
+            }
+          ]
+        },
+        "supersedeUpdateVerdict": {
+          "callCount": 1,
+          "pinnedCount": 1,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "pairing-session-supersede-update",
+              "model": "PairingSession",
+              "method": "updateOne",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "createCallError": {
+          "name": "ValidationError",
+          "code": null,
+          "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+        },
+        "durableReadBack": {
+          "rawDriverDocPresent": false,
+          "modelLeanPresent": false
+        },
+        "repairPredicateAbsent": true,
+        "blocker": {
+          "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+          "causeClass": "product/substrate defect (not a fixture defect)",
+          "authorizedStatus": "EXPECTED_RED",
+          "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable session read-back; the frozen pairingSession schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable session to read back",
+          "observedCreateError": {
+            "name": "ValidationError",
+            "code": null,
+            "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+          },
+          "independenceProbe": {
+            "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+            "rowShapeKeys": [
+              "attemptsUsed",
+              "claim",
+              "claimedAt",
+              "consumedAt",
+              "deviceId",
+              "deviceKeyId",
+              "deviceSessionId",
+              "expiresAt",
+              "grantedGrantId",
+              "issuedAt",
+              "issuedFromSourceHash",
+              "lookupTag",
+              "pendingOwnerId",
+              "state",
+              "tenantId"
+            ],
+            "requestedWriteConcern": {
+              "w": "majority",
+              "j": true
+            },
+            "threw": true,
+            "error": {
+              "name": "ValidationError",
+              "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer",
+              "paths": [
+                "claim.expectedEpoch"
+              ],
+              "perPath": {
+                "claim.expectedEpoch": "ValidatorError: `expectedEpoch` must be a non-negative integer"
+              }
+            },
+            "persisted": false
+          },
+          "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+          "staticAnchors": [
+            "packages/data-schemas/src/schema/pairingSession.ts:98-106 — claim.expectedEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+            "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+          ]
+        },
+        "staticAnchor": "api/server/services/Device/pairingSessionService.js:805 — await db.PairingSession.create(row) (one argument, no options object)",
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+        "collectionCounts": {
+          "deviceauthorities": 1,
+          "pairingsessions": 0,
+          "challenges": 0,
+          "deviceauthorityevents": 0
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [],
+        "auditSinkEventCount": 0,
+        "captureRecords": 3,
+        "captureLabels": [
+          "pairing-session-issue-create",
+          "pairing-session-supersede-update"
+        ],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-04",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff every real Challenge.updateOne spend path (registrationService completion and authorityService.spendChallenge) carries writeConcern {w:'majority', j:true}",
+      "repairPredicate": null,
+      "components": [
+        {
+          "name": "registration_completion_challenge_spend_committed",
+          "oracle": "the registration completion path consumed the challenge through db.Challenge.updateOne",
+          "actual": "deviceId=d27a4b4e-49dd-4dd0-9898-fafda20212db consumedAt=\"2026-10-03T04:00:00.000Z\" registrationSpendCallCount=1",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "registration_challenge_spend_carries_majority_journal",
+          "oracle": "the registrationService challenge spend passes writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"challenge-spend-cas\",\"model\":\"Challenge\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "authority_spend_challenge_carries_majority_journal",
+          "oracle": "authorityService.spendChallenge passes writeConcern {w:'majority', j:true} on the Challenge CAS",
+          "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"challenge-spend-cas\",\"model\":\"Challenge\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "authority_spend_challenge_committed",
+          "oracle": "the fenced challenge-spend CAS matched exactly one document and consumed the row",
+          "actual": "spend.matched=1 spend.ok=true consumedAt=\"2026-10-03T04:00:00.000Z\"",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_challenge_constructor_used",
+          "oracle": "the Challenge model is the genuine createModels(mongoose) constructor registered on the live connection",
+          "actual": "{\"modelName\":\"Challenge\",\"typeofModel\":\"function\",\"collection\":\"challenges\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "two real challenge-spend paths: (A) registrationService.completeRegistration spends a fixture registration challenge; (B) authorityService.spendChallenge consumes a fixture pairing-claim challenge",
+        "registrationSpend": {
+          "envelope": {
+            "ok": true,
+            "matched": null,
+            "code": null,
+            "deviceId": "d27a4b4e-49dd-4dd0-9898-fafda20212db",
+            "deviceKeyId": "rRIjRXmzHb5uvWwkOLGMb8GLy5EcvdTCxr3LZtYOFYY",
+            "error": null,
+            "authority": {
+              "_id": "d27a4b4e-49dd-4dd0-9898-fafda20212db",
+              "tenantId": "tenant-w3a-i11-fixed",
+              "epoch": 0,
+              "leaseState": "never",
+              "identityState": "pending",
+              "ownerId": null,
+              "grantId": null,
+              "deviceKeyId": "rRIjRXmzHb5uvWwkOLGMb8GLy5EcvdTCxr3LZtYOFYY"
+            },
+            "pairingSession": null
+          },
+          "challengeSource": "fixture row",
+          "challengeConsumedAt": "2026-10-03T04:00:00.000Z",
+          "verdict": {
+            "callCount": 1,
+            "pinnedCount": 1,
+            "allPinned": true,
+            "anyPinned": true,
+            "missingExplicitOptionsCount": 0,
+            "ambiguousOptionsOverloadCount": 0,
+            "calls": [
+              {
+                "label": "challenge-spend-cas",
+                "model": "Challenge",
+                "method": "updateOne",
+                "argCount": 3,
+                "hasOptionsArgument": true,
+                "documentsAreArray": null,
+                "unambiguousOptionsOverload": true,
+                "writeConcern": {
+                  "w": "majority",
+                  "j": true
+                },
+                "explicitMajorityJournal": true,
+                "ok": true
+              }
+            ]
+          }
+        },
+        "authoritySpend": {
+          "envelope": {
+            "ok": true,
+            "matched": 1,
+            "code": null,
+            "deviceId": null,
+            "deviceKeyId": null,
+            "error": null,
+            "authority": null,
+            "pairingSession": null
+          },
+          "challengeSource": "fixture row",
+          "challengeConsumedAt": "2026-10-03T04:00:00.000Z",
+          "verdict": {
+            "callCount": 1,
+            "pinnedCount": 1,
+            "allPinned": true,
+            "anyPinned": true,
+            "missingExplicitOptionsCount": 0,
+            "ambiguousOptionsOverloadCount": 0,
+            "calls": [
+              {
+                "label": "challenge-spend-cas",
+                "model": "Challenge",
+                "method": "updateOne",
+                "argCount": 3,
+                "hasOptionsArgument": true,
+                "documentsAreArray": null,
+                "unambiguousOptionsOverload": true,
+                "writeConcern": {
+                  "w": "majority",
+                  "j": true
+                },
+                "explicitMajorityJournal": true,
+                "ok": true
+              }
+            ]
+          }
+        },
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "staticAnchors": [
+          "registrationService.js:609-619 — db.Challenge.updateOne(filter, update, { writeConcern: AUTHORITY_WRITE_CONCERN })",
+          "authorityService.js:255-258 — performUpdate(model, filter, update) always passes { writeConcern: AUTHORITY_WRITE_CONCERN }"
+        ],
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+        "collectionCounts": {
+          "deviceauthorities": 1,
+          "pairingsessions": 0,
+          "challenges": 2,
+          "deviceauthorityevents": 1
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [
+          {
+            "ok": true
+          }
+        ],
+        "auditSinkEventCount": 1,
+        "captureRecords": 3,
+        "captureLabels": [
+          "challenge-spend-cas",
+          "real-audit-event-create"
+        ],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-05",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff one real accepted-S2 authority CAS transition (revokeLease) commits through a DeviceAuthority.updateOne carrying writeConcern {w:'majority', j:true}",
+      "repairPredicate": null,
+      "components": [
+        {
+          "name": "authority_cas_transition_committed",
+          "oracle": "the accepted S2 revoke transition commits exactly one generation change on the genuine authority row",
+          "actual": "matched=1 epoch 0 -> 1; leaseState active -> revoked; error.code=null",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "authority_cas_update_carries_majority_journal",
+          "oracle": "the authority CAS update carries writeConcern {w:'majority', j:true}",
+          "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"authority-cas-revoke\",\"model\":\"DeviceAuthority\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "real_audit_event_create_carries_explicit_majority_journal",
+          "oracle": "the post-CAS real AuditEvent write goes through the genuine auditSink adapter with an explicit majority+journal concern",
+          "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"real-audit-event-create\",\"model\":\"AuditEvent\",\"method\":\"create\",\"argCount\":2,\"hasOptionsArgument\":true,\"documentsAreArray\":true,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]; auditSinkOutcomes=[{\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_device_authority_constructor_used",
+          "oracle": "the DeviceAuthority model is the genuine createModels(mongoose) constructor registered on the live connection",
+          "actual": "{\"modelName\":\"DeviceAuthority\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorities\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "one real accepted-S2 authority transition (revokeLease at g -> g+1) executed through the genuine authority service against the genuine DeviceAuthority model",
+        "invocation": {
+          "method": "createAuthorityService(...).revokeLease",
+          "deviceId": "s4t-05-device",
+          "epoch": 0,
+          "ownerId": "principal-w3a-i11-owner-a"
+        },
+        "envelope": {
+          "ok": true,
+          "matched": 1,
+          "code": null,
+          "deviceId": null,
+          "deviceKeyId": null,
+          "error": null,
+          "authority": {
+            "_id": "s4t-05-device",
+            "tenantId": "tenant-w3a-i11-fixed",
+            "epoch": 1,
+            "leaseState": "revoked",
+            "identityState": "active",
+            "ownerId": "principal-w3a-i11-owner-a",
+            "grantId": "s4t-05-grant-0",
+            "deviceKeyId": "key-s4t-05-device"
+          },
+          "pairingSession": null
+        },
+        "authorityBefore": {
+          "_id": "s4t-05-device",
+          "tenantId": "tenant-w3a-i11-fixed",
+          "deviceKeyId": "key-s4t-05-device",
+          "devicePublicKey": "MCowBQYDK2VwAyEAdacZXjGeSAn8ew33Zv-UHvliJ0xNWN-bAcInE-8doSs",
+          "identityState": "active",
+          "leaseState": "active",
+          "epoch": 0,
+          "ownerId": "principal-w3a-i11-owner-a",
+          "grantId": "s4t-05-grant-0",
+          "retiredAt": null,
+          "retiredBy": null,
+          "activatedAt": "2026-10-03T04:00:00.000Z",
+          "expiresAt": "2026-10-05T04:00:00.000Z",
+          "renewedAt": null,
+          "renewalCount": 0,
+          "revokedAt": null,
+          "revokedBy": null,
+          "grantedByPairingSessionId": null,
+          "grantProof": null,
+          "prevOwner": null,
+          "prevGrantId": null,
+          "prevEpoch": null,
+          "__v": 0
+        },
+        "authorityAfter": {
+          "_id": "s4t-05-device",
+          "tenantId": "tenant-w3a-i11-fixed",
+          "deviceKeyId": "key-s4t-05-device",
+          "devicePublicKey": "MCowBQYDK2VwAyEAdacZXjGeSAn8ew33Zv-UHvliJ0xNWN-bAcInE-8doSs",
+          "identityState": "active",
+          "leaseState": "revoked",
+          "epoch": 1,
+          "ownerId": "principal-w3a-i11-owner-a",
+          "grantId": "s4t-05-grant-0",
+          "retiredAt": null,
+          "retiredBy": null,
+          "activatedAt": "2026-10-03T04:00:00.000Z",
+          "expiresAt": "2026-10-05T04:00:00.000Z",
+          "renewedAt": null,
+          "renewalCount": 0,
+          "revokedAt": "2026-10-03T04:00:00.000Z",
+          "revokedBy": "principal-w3a-i11-owner-a",
+          "grantedByPairingSessionId": null,
+          "grantProof": null,
+          "prevOwner": null,
+          "prevGrantId": "s4t-05-grant-0",
+          "prevEpoch": 0,
+          "__v": 0
+        },
+        "casVerdict": {
+          "callCount": 1,
+          "pinnedCount": 1,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "authority-cas-revoke",
+              "model": "DeviceAuthority",
+              "method": "updateOne",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "auditCreateVerdict": {
+          "callCount": 1,
+          "pinnedCount": 1,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "real-audit-event-create",
+              "model": "AuditEvent",
+              "method": "create",
+              "argCount": 2,
+              "hasOptionsArgument": true,
+              "documentsAreArray": true,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "auditSinkOutcomes": [
+          {
+            "ok": true
+          }
+        ],
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "staticAnchor": "authorityService.js:852-857 + 255-258 — revokeLease -> performUpdate(db.DeviceAuthority, filter, pipeline) with { writeConcern: AUTHORITY_WRITE_CONCERN }",
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+        "collectionCounts": {
+          "deviceauthorities": 1,
+          "pairingsessions": 0,
+          "challenges": 0,
+          "deviceauthorityevents": 1
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [
+          {
+            "ok": true
+          }
+        ],
+        "auditSinkEventCount": 1,
+        "captureRecords": 2,
+        "captureLabels": [
+          "authority-cas-revoke",
+          "real-audit-event-create"
+        ],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-06",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff every genuine PairingSession update/consume write in the issue-supersede, rejoin and redeem paths carries writeConcern {w:'majority', j:true}",
+      "repairPredicate": null,
+      "components": [
+        {
+          "name": "pairing_session_update_and_consume_paths_reached_product_code",
+          "oracle": "issuePairingSession supersede, rejoinPendingPairing and redeemPairingCode all reach the genuine PairingSession update statics",
+          "actual": "supersedeUpdateCalls=1 (issueOk=false, creation blocked by the disclosed S4T-03 validator defect); rejoinOk=true rejoinError.code=null; redeemOk=true redeemError.code=null",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "pairing_session_writes_carry_majority_journal",
+          "oracle": "every genuine PairingSession update/consume write in the issue/rejoin/redeem path passes writeConcern {w:'majority', j:true}",
+          "actual": "callCount=3 pinnedCount=3 observed=[{\"label\":\"pairing-session-update\",\"model\":\"PairingSession\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true},{\"label\":\"pairing-session-find-one-and-update\",\"model\":\"PairingSession\",\"method\":\"findOneAndUpdate\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true},{\"label\":\"pairing-session-find-one-and-update\",\"model\":\"PairingSession\",\"method\":\"findOneAndUpdate\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "redeem_consume_transition_durable",
+          "oracle": "the redeemed session is durably claim_pending with the trusted owner and the attempt counter applied",
+          "actual": "rawPresent=true state=claim_pending pendingOwnerId=principal-w3a-i11-owner-a attemptsUsed=1",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "rejoin_update_transition_durable",
+          "oracle": "the same-owner rejoin increments attemptsUsed without leaving claim_pending",
+          "actual": "rawPresent=true state=claim_pending pendingOwnerId=principal-w3a-i11-owner-a attemptsUsed=2",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_pairing_session_constructor_used",
+          "oracle": "the PairingSession model is the genuine createModels(mongoose) constructor registered on the live connection",
+          "actual": "{\"modelName\":\"PairingSession\",\"typeofModel\":\"function\",\"collection\":\"pairingsessions\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "three genuine PairingSession write paths: the guarded supersede updateOne during issuance, the same-owner rejoin findOneAndUpdate, and the redeem findOneAndUpdate consume CAS",
+        "issue": {
+          "envelope": {
+            "ok": false,
+            "matched": null,
+            "code": null,
+            "deviceId": null,
+            "deviceKeyId": null,
+            "error": {
+              "name": "DeviceError",
+              "code": "WRITE_OUTCOME_UNCERTAIN",
+              "message": "Unclassified write failure; fail closed",
+              "httpStatus": 500,
+              "disposition": "terminal",
+              "retryable": false
+            },
+            "authority": null,
+            "pairingSession": null
+          },
+          "note": "the subsequent PairingSession.create is blocked pre-repair by the disclosed S4T-03 validator defect; the supersede updateOne under test still ran"
+        },
+        "rejoin": {
+          "envelope": {
+            "ok": true,
+            "matched": null,
+            "code": null,
+            "deviceId": null,
+            "deviceKeyId": null,
+            "error": null,
+            "authority": null,
+            "pairingSession": {
+              "_id": "6ad1ad622dab3057a2a0afba",
+              "state": "claim_pending"
+            }
+          }
+        },
+        "redeem": {
+          "envelope": {
+            "ok": true,
+            "matched": null,
+            "code": null,
+            "deviceId": null,
+            "deviceKeyId": null,
+            "error": null,
+            "authority": null,
+            "pairingSession": {
+              "_id": "6ad1ad622dab3057a2a0afbc",
+              "state": "claim_pending"
+            }
+          }
+        },
+        "writeVerdict": {
+          "callCount": 3,
+          "pinnedCount": 3,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "pairing-session-update",
+              "model": "PairingSession",
+              "method": "updateOne",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            },
+            {
+              "label": "pairing-session-find-one-and-update",
+              "model": "PairingSession",
+              "method": "findOneAndUpdate",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            },
+            {
+              "label": "pairing-session-find-one-and-update",
+              "model": "PairingSession",
+              "method": "findOneAndUpdate",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "supersedeUpdateVerdict": {
+          "callCount": 1,
+          "pinnedCount": 1,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "pairing-session-update",
+              "model": "PairingSession",
+              "method": "updateOne",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "rejoinAndRedeemFindOneAndUpdateVerdict": {
+          "callCount": 2,
+          "pinnedCount": 2,
+          "allPinned": true,
+          "anyPinned": true,
+          "missingExplicitOptionsCount": 0,
+          "ambiguousOptionsOverloadCount": 0,
+          "calls": [
+            {
+              "label": "pairing-session-find-one-and-update",
+              "model": "PairingSession",
+              "method": "findOneAndUpdate",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            },
+            {
+              "label": "pairing-session-find-one-and-update",
+              "model": "PairingSession",
+              "method": "findOneAndUpdate",
+              "argCount": 3,
+              "hasOptionsArgument": true,
+              "documentsAreArray": null,
+              "unambiguousOptionsOverload": true,
+              "writeConcern": {
+                "w": "majority",
+                "j": true
+              },
+              "explicitMajorityJournal": true,
+              "ok": true
+            }
+          ]
+        },
+        "durableReadBack": {
+          "rejoinRawPresent": true,
+          "rejoinState": "claim_pending",
+          "rejoinAttemptsUsed": 2,
+          "redeemRawPresent": true,
+          "redeemState": "claim_pending",
+          "redeemPendingOwnerId": "principal-w3a-i11-owner-a",
+          "redeemAttemptsUsed": 1
+        },
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "staticAnchors": [
+          "pairingSessionService.js:592-596 — supersede updateOne with { writeConcern: AUTHORITY_WRITE_CONCERN }",
+          "pairingSessionService.js:933-944 — rejoin findOneAndUpdate with { new: true, writeConcern: AUTHORITY_WRITE_CONCERN }",
+          "pairingSessionService.js:878-895 — redeem findOneAndUpdate with { new: true, writeConcern: AUTHORITY_WRITE_CONCERN }"
+        ],
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+        "collectionCounts": {
+          "deviceauthorities": 1,
+          "pairingsessions": 2,
+          "challenges": 0,
+          "deviceauthorityevents": 0
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [],
+        "auditSinkEventCount": 0,
+        "captureRecords": 3,
+        "captureLabels": [
+          "pairing-session-find-one-and-update",
+          "pairing-session-update"
+        ],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-07",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "expectedOracle": "PASS iff Mongo 7.0.43 on replica set cbhrRdcP1 with a writable primary, driver 6.21.0, genuine model constructors with no composition facade, and no connection/server write-concern default that could mask a missing create-site option",
+      "repairPredicate": null,
+      "components": [
+        {
+          "name": "mongo_topology_matches_frozen_lab",
+          "oracle": "Mongo 7.0.43, replica set cbhrRdcP1, writable primary, mongodb driver 6.21.0",
+          "actual": "{\"setName\":\"cbhrRdcP1\",\"isWritablePrimary\":true,\"serverVersion\":\"7.0.43\",\"driverVersion\":\"6.21.0\",\"nodeVersion\":\"v22.19.0\",\"pid\":50384,\"databaseName\":\"cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261\"}",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "genuine_mongoose_model_constructors_no_facade",
+          "oracle": "each device model is the genuine createModels(mongoose) constructor (typeof function, schema present, identity-equal to the live mongoose registration)",
+          "actual": "{\"DeviceAuthority\":{\"modelName\":\"DeviceAuthority\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorities\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true},\"PairingSession\":{\"modelName\":\"PairingSession\",\"typeofModel\":\"function\",\"collection\":\"pairingsessions\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true},\"Challenge\":{\"modelName\":\"Challenge\",\"typeofModel\":\"function\",\"collection\":\"challenges\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true},\"AuditEvent\":{\"modelName\":\"AuditEvent\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorityevents\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}}",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "frozen_factories_accept_the_raw_registry",
+          "oracle": "all three frozen factories compose against the RAW registry object (no plain-object facade exists in this lane)",
+          "actual": "[{\"factory\":\"createAuthorityService\",\"guardAnchor\":\"api/server/services/Device/authorityService.js:174-189\",\"accepted\":true,\"error\":null,\"serviceKind\":\"object\"},{\"factory\":\"createRegistrationService\",\"guardAnchor\":\"api/server/services/Device/registrationService.js:166-189\",\"accepted\":true,\"error\":null,\"serviceKind\":\"object\"},{\"factory\":\"createPairingSessionService\",\"guardAnchor\":\"api/server/services/Device/pairingSessionService.js:182-230\",\"accepted\":true,\"error\":null,\"serviceKind\":\"object\"}]",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "no_connection_level_majority_journal_default",
+          "oracle": "no connection/generation-level write concern is masking the create-site option omission: the driver/connection default is absent and the server default RW concern carries no journal:true",
+          "actual": "{\"uri\":\"mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=cbhrRdcP1&serverSelectionTimeoutMS=5000&retryWrites=false\",\"uriCarriesWriteConcernParam\":false,\"driverClientOptionsWriteConcern\":null,\"mongooseConnectionOptionsWriteConcern\":null,\"resolvedServerDefaultWriteConcern\":{\"w\":\"majority\",\"wtimeout\":0},\"serverRwError\":null,\"serverDefaultJournalTrue\":false,\"connectionLevelWriteConcernAbsent\":true,\"connectionLevelMajorityJournalResolved\":false}",
+          "met": true,
+          "tier": "E1"
+        },
+        {
+          "name": "registry_registered_on_the_live_connection",
+          "oracle": "the registry used by the rows is the one registered on the live mongoose connection used to write",
+          "actual": "mongooseDatabaseName=cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261 fencedDbName=cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+          "met": true,
+          "tier": "E1"
+        }
+      ],
+      "actual": {
+        "scenario": "real-substrate control: topology, driver version, genuine model-constructor identity, raw-registry factory composition and the connection/server write-concern default probe",
+        "topologyProbe": {
+          "setName": "cbhrRdcP1",
+          "isWritablePrimary": true,
+          "serverVersion": "7.0.43",
+          "driverVersion": "6.21.0",
+          "nodeVersion": "v22.19.0",
+          "pid": 50384,
+          "databaseName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+        },
+        "modelIdentity": {
+          "DeviceAuthority": {
+            "modelName": "DeviceAuthority",
+            "typeofModel": "function",
+            "collection": "deviceauthorities",
+            "schemaPresent": true,
+            "identityMatchesMongooseRegistration": true
+          },
+          "PairingSession": {
+            "modelName": "PairingSession",
+            "typeofModel": "function",
+            "collection": "pairingsessions",
+            "schemaPresent": true,
+            "identityMatchesMongooseRegistration": true
+          },
+          "Challenge": {
+            "modelName": "Challenge",
+            "typeofModel": "function",
+            "collection": "challenges",
+            "schemaPresent": true,
+            "identityMatchesMongooseRegistration": true
+          },
+          "AuditEvent": {
+            "modelName": "AuditEvent",
+            "typeofModel": "function",
+            "collection": "deviceauthorityevents",
+            "schemaPresent": true,
+            "identityMatchesMongooseRegistration": true
+          }
+        },
+        "registryTypeof": {
+          "User": "function",
+          "Token": "function",
+          "Session": "function",
+          "Balance": "function",
+          "Conversation": "function",
+          "ChatProject": "function",
+          "Workspace": "function",
+          "QuotaPolicy": "function",
+          "DeviceAuthority": "function",
+          "PairingSession": "function",
+          "Challenge": "function",
+          "AuditEvent": "function",
+          "Message": "function",
+          "Agent": "function",
+          "AgentApiKey": "function",
+          "AgentCategory": "function",
+          "MCPServer": "function",
+          "Role": "function",
+          "Action": "function",
+          "Assistant": "function",
+          "File": "function",
+          "Banner": "function",
+          "Key": "function",
+          "PluginAuth": "function",
+          "Transaction": "function",
+          "Preset": "function",
+          "Prompt": "function",
+          "PromptGroup": "function",
+          "Skill": "function",
+          "SkillFile": "function",
+          "SkillSyncCredential": "function",
+          "SkillSyncStatus": "function",
+          "ConversationTag": "function",
+          "SharedLink": "function",
+          "ToolCall": "function",
+          "MemoryEntry": "function",
+          "AccessRole": "function",
+          "AclEntry": "function",
+          "SystemGrant": "function",
+          "Group": "function",
+          "Config": "function"
+        },
+        "composition": [
+          {
+            "factory": "createAuthorityService",
+            "guardAnchor": "api/server/services/Device/authorityService.js:174-189",
+            "accepted": true,
+            "error": null,
+            "serviceKind": "object"
+          },
+          {
+            "factory": "createRegistrationService",
+            "guardAnchor": "api/server/services/Device/registrationService.js:166-189",
+            "accepted": true,
+            "error": null,
+            "serviceKind": "object"
+          },
+          {
+            "factory": "createPairingSessionService",
+            "guardAnchor": "api/server/services/Device/pairingSessionService.js:182-230",
+            "accepted": true,
+            "error": null,
+            "serviceKind": "object"
+          }
+        ],
+        "connectionProbe": {
+          "uri": "mongodb://127.0.0.1:27027/?directConnection=true&replicaSet=cbhrRdcP1&serverSelectionTimeoutMS=5000&retryWrites=false",
+          "uriCarriesWriteConcernParam": false,
+          "driverClientOptionsWriteConcern": null,
+          "mongooseConnectionOptionsWriteConcern": null,
+          "resolvedServerDefaultWriteConcern": {
+            "w": "majority",
+            "wtimeout": 0
+          },
+          "serverRwError": null,
+          "serverDefaultJournalTrue": false,
+          "connectionLevelWriteConcernAbsent": true,
+          "connectionLevelMajorityJournalResolved": false
+        },
+        "staticAnchors": [
+          "packages/data-schemas/src/models/index.ts — createModels(mongoose) returns genuine Model constructors",
+          "tests/device/e1/r2post/durability/harness.cjs — the raw registry is passed to the factories; no facade is constructed"
+        ],
+        "fenceDecision": {
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+          "problems": [],
+          "checkedBeforeClient": true,
+          "clientConstructionsBeforeConnect": 0,
+          "clientConstructionsAfterConnect": 1,
+          "fenceEvaluatedBeforeConstruction": true
+        },
+        "captureRecordsRestored": true
+      },
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+      "dbDropped": {
+        "dropped": true,
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+      },
+      "dbReadBack": {
+        "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+        "collectionCounts": {
+          "deviceauthorities": 0,
+          "pairingsessions": 0,
+          "challenges": 0,
+          "deviceauthorityevents": 0
+        },
+        "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+        "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+        "auditSinkCollection": "deviceauthorityevents",
+        "auditSinkOutcomes": [],
+        "auditSinkEventCount": 0,
+        "captureRecords": 0,
+        "captureLabels": [],
+        "captureRestored": true,
+        "observations": {
+          "captureRestoredBeforeReadBack": true
+        },
+        "dropped": {
+          "dropped": true,
+          "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+        }
+      },
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    },
+    {
+      "id": "S4T-08",
+      "tier": "E0",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": false,
+      "expectedOracle": "PASS iff all binding source hashes remain exact, accepted S1/S2/S3/T0/T0A/T1/T1R evidence is untouched, all owned databases are dropped and no foreign database changed",
+      "repairPredicate": null,
+      "components": [
+        {
+          "name": "binding_source_hashes_unchanged",
+          "oracle": "all six authorized binding sources still hash to their frozen values after the run",
+          "actual": "preflightOk=true postRunOk=true problems=[]",
+          "met": true,
+          "tier": "E0"
+        },
+        {
+          "name": "dependency_surface_unchanged",
+          "oracle": "the composed dependency surface (binding sources + device model/schema pairs + barrels) is byte-identical before and after the run",
+          "actual": "files=15 unchanged=true changed=[] missingAfter=[]",
+          "met": true,
+          "tier": "E0"
+        },
+        {
+          "name": "prior_lane_evidence_untouched",
+          "oracle": "accepted S1/S2/S3/T0/T0A/T1/T1R durable evidence bytes are unchanged by this lane",
+          "actual": "files=59 unchanged=true changed=[] missingAfter=[]",
+          "met": true,
+          "tier": "E0"
+        },
+        {
+          "name": "all_owned_databases_dropped",
+          "oracle": "no cbhr_rdc_phase1_r2_s4t_* database survives the run",
+          "actual": "leftovers=[] identical=true ok=true; cleanupDrops=[]",
+          "met": true,
+          "tier": "E0"
+        },
+        {
+          "name": "no_foreign_database_changes",
+          "oracle": "no database outside the s4t namespace was created or removed",
+          "actual": "foreignCreated=[] foreignRemoved=[] identical=true",
+          "met": true,
+          "tier": "E0"
+        },
+        {
+          "name": "fence_refused_foreign_names_before_client_construction",
+          "oracle": "every foreign/hostile database name is refused by the fence before any MongoClient is constructed",
+          "actual": "probed=18 allRefusedBeforeClientConstruction=true",
+          "met": true,
+          "tier": "E0"
+        },
+        {
+          "name": "runner_owned_cleanup_drops_succeeded",
+          "oracle": "every runner-owned database drop reported success",
+          "actual": "[]",
+          "met": true,
+          "tier": "E0"
+        }
+      ],
+      "actual": {
+        "scenario": "E0 namespace/integrity row: binding-source hash re-verification, dependency-surface byte comparison, prior-lane evidence byte comparison, server-wide database inventory diff and fence-ordering proof",
+        "preflightHashes": {
+          "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+          "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+          "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+          "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+          "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+          "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+        },
+        "postRunHashes": {
+          "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+          "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+          "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+          "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+          "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+          "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+        },
+        "postRunHashProblems": [],
+        "dependencySurface": {
+          "files": 15,
+          "comparison": {
+            "unchanged": true,
+            "changed": [],
+            "missingAfter": [],
+            "added": []
+          }
+        },
+        "priorLaneEvidence": {
+          "files": 59,
+          "comparison": {
+            "unchanged": true,
+            "changed": [],
+            "missingAfter": [],
+            "added": []
+          }
+        },
+        "namespaceAudit": {
+          "before": [
+            "admin",
+            "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+            "cbhr_rdc_phase1_preflight_20261010",
+            "config",
+            "local"
+          ],
+          "after": [
+            "admin",
+            "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+            "cbhr_rdc_phase1_preflight_20261010",
+            "config",
+            "local"
+          ],
+          "created": [],
+          "removed": [],
+          "foreignCreated": [],
+          "foreignRemoved": [],
+          "leftovers": [],
+          "leftoverOwned": [],
+          "identical": true,
+          "ok": true,
+          "leftoverBeforeCleanup": [],
+          "leftoversDropped": [],
+          "plannedDbNames": [
+            "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+            "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+            "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+            "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+            "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+            "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+            "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+          ]
+        },
+        "cleanupDrops": [],
+        "fenceOrderingProbe": {
+          "gateOrder": "assertPreConnect (total fence) -> construct (MongoClient)",
+          "probed": 18,
+          "allRefusedBeforeClientConstruction": true,
+          "refusedNames": [
+            "cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000",
+            "cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000",
+            "cbhr_rdc_phase1_r2_post_s1_diag_abcdef",
+            "cbhr_rdc_phase1_preflight_20261010",
+            "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+            "cbhr_rdc_phase1_w3_e1_onepc_20261012_aaaaaa",
+            "cbhr_rdc_phase1_w2c_i10_20261012_bbbbbb",
+            "cbhr_rdc_phase1_r1_hostile_x",
+            "cbhr_rdc_phase1_r2_s4t_",
+            "cbhr_rdc_phase1_r2_s4t_bad-name",
+            "devices_prod",
+            "deviceauthorities",
+            "librechat",
+            "production",
+            "admin",
+            "local",
+            "config",
+            ""
+          ],
+          "detailArtifact": "tests/device/e1/r2post/durability/artifacts/S4T-FENCE-PROBE.json"
+        }
+      },
+      "dbName": null,
+      "dbDropped": null,
+      "dbReadBack": null,
+      "sourceHashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      }
+    }
+  ],
+  "rowProjection": [
+    {
+      "id": "S4T-01",
+      "tier": "E1",
+      "status": "HARNESS_FAIL",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": false,
+      "productMethodInvoked": true,
+      "componentsMet": 4,
+      "componentsTotal": 7,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-02",
+      "tier": "E1",
+      "status": "EXPECTED_RED",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 6,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-03",
+      "tier": "E1",
+      "status": "HARNESS_FAIL",
+      "authorizedStatus": "EXPECTED_RED",
+      "matchesAuthorizedState": false,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 8,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-04",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 5,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-05",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 4,
+      "componentsTotal": 4,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-06",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 5,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-07",
+      "tier": "E1",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": true,
+      "componentsMet": 5,
+      "componentsTotal": 5,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261",
+      "dbDropped": true
+    },
+    {
+      "id": "S4T-08",
+      "tier": "E0",
+      "status": "PASS_CURRENT",
+      "authorizedStatus": "PASS_CURRENT",
+      "matchesAuthorizedState": true,
+      "productMethodInvoked": false,
+      "componentsMet": 7,
+      "componentsTotal": 7,
+      "dbName": null,
+      "dbDropped": null
+    }
+  ],
+  "summary": {
+    "rows": 8,
+    "byStatus": {
+      "HARNESS_FAIL": 2,
+      "EXPECTED_RED": 1,
+      "PASS_CURRENT": 5
+    },
+    "harnessFailures": 2,
+    "harnessFailureIds": [
+      "S4T-01",
+      "S4T-03"
+    ],
+    "substrateBlockedRows": [
+      "S4T-01",
+      "S4T-03"
+    ],
+    "fixtureDefectRows": [],
+    "unauthorizedStateRows": [
+      "S4T-01",
+      "S4T-03"
+    ],
+    "allRowsMatchAuthorizedState": false
+  },
+  "blockers": [
+    {
+      "row": "S4T-01",
+      "authorizedStatus": "EXPECTED_RED",
+      "observedStatus": "HARNESS_FAIL",
+      "blocker": {
+        "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+        "causeClass": "product/substrate defect (not a fixture defect)",
+        "authorizedStatus": "EXPECTED_RED",
+        "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable row read-back; the frozen challenge schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable row to read back",
+        "observedCreateError": {
+          "name": "ValidationError",
+          "code": null,
+          "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+        },
+        "independenceProbe": {
+          "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+          "rowShapeKeys": [
+            "boundGrantId",
+            "boundOwnerId",
+            "boundPairingSessionId",
+            "challengeHash",
+            "consumedAt",
+            "deviceId",
+            "deviceKeyId",
+            "expiresAt",
+            "issuedAt",
+            "purpose",
+            "tenantId"
+          ],
+          "requestedWriteConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "threw": true,
+          "error": {
+            "name": "ValidationError",
+            "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+            "paths": [
+              "boundEpoch"
+            ],
+            "perPath": {
+              "boundEpoch": "ValidatorError: `boundEpoch` must be a non-negative integer"
+            }
+          },
+          "persisted": false
+        },
+        "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+        "staticAnchors": [
+          "packages/data-schemas/src/schema/challenge.ts:52-60 — boundEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+          "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+        ]
+      }
+    },
+    {
+      "row": "S4T-03",
+      "authorizedStatus": "EXPECTED_RED",
+      "observedStatus": "HARNESS_FAIL",
+      "blocker": {
+        "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+        "causeClass": "product/substrate defect (not a fixture defect)",
+        "authorizedStatus": "EXPECTED_RED",
+        "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable session read-back; the frozen pairingSession schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable session to read back",
+        "observedCreateError": {
+          "name": "ValidationError",
+          "code": null,
+          "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+        },
+        "independenceProbe": {
+          "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+          "rowShapeKeys": [
+            "attemptsUsed",
+            "claim",
+            "claimedAt",
+            "consumedAt",
+            "deviceId",
+            "deviceKeyId",
+            "deviceSessionId",
+            "expiresAt",
+            "grantedGrantId",
+            "issuedAt",
+            "issuedFromSourceHash",
+            "lookupTag",
+            "pendingOwnerId",
+            "state",
+            "tenantId"
+          ],
+          "requestedWriteConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "threw": true,
+          "error": {
+            "name": "ValidationError",
+            "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer",
+            "paths": [
+              "claim.expectedEpoch"
+            ],
+            "perPath": {
+              "claim.expectedEpoch": "ValidatorError: `expectedEpoch` must be a non-negative integer"
+            }
+          },
+          "persisted": false
+        },
+        "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+        "staticAnchors": [
+          "packages/data-schemas/src/schema/pairingSession.ts:98-106 — claim.expectedEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+          "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+        ]
+      }
+    }
+  ],
+  "namespaceAudit": {
+    "before": [
+      "admin",
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_preflight_20261010",
+      "config",
+      "local"
+    ],
+    "after": [
+      "admin",
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_preflight_20261010",
+      "config",
+      "local"
+    ],
+    "created": [],
+    "removed": [],
+    "foreignCreated": [],
+    "foreignRemoved": [],
+    "leftovers": [],
+    "leftoverOwned": [],
+    "identical": true,
+    "ok": true,
+    "leftoverBeforeCleanup": [],
+    "leftoversDropped": [],
+    "plannedDbNames": [
+      "cbhr_rdc_phase1_r2_s4t_s4t01registrationchal_88b28919_cebedd91_",
+      "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+      "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+      "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+      "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+      "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+      "cbhr_rdc_phase1_r2_s4t_s4t07realsubstratecontrol_63e99719_20261"
+    ]
+  },
+  "integrity": {
+    "postRunHashes": {
+      "ok": true,
+      "hashes": {
+        "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+        "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+        "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+        "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+        "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+        "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+      },
+      "problems": []
+    },
+    "dependencySurface": {
+      "files": 15,
+      "comparison": {
+        "unchanged": true,
+        "changed": [],
+        "missingAfter": [],
+        "added": []
+      }
+    },
+    "priorLaneEvidence": {
+      "files": 59,
+      "comparison": {
+        "unchanged": true,
+        "changed": [],
+        "missingAfter": [],
+        "added": []
+      }
+    }
+  },
+  "fenceProbe": {
+    "gateOrder": "assertPreConnect (total fence) -> construct (MongoClient)",
+    "probed": 18,
+    "allRefusedBeforeClientConstruction": true,
+    "refusedBeforeClientConstruction": [
+      "cbhr_rdc_phase1_r2_s2t_s2t01_abcd1234_20261015120000",
+      "cbhr_rdc_phase1_r2_t0_h30_composition_deadbeef_20261015120000",
+      "cbhr_rdc_phase1_r2_post_s1_diag_abcdef",
+      "cbhr_rdc_phase1_preflight_20261010",
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_w3_e1_onepc_20261012_aaaaaa",
+      "cbhr_rdc_phase1_w2c_i10_20261012_bbbbbb",
+      "cbhr_rdc_phase1_r1_hostile_x",
+      "cbhr_rdc_phase1_r2_s4t_",
+      "cbhr_rdc_phase1_r2_s4t_bad-name",
+      "devices_prod",
+      "deviceauthorities",
+      "librechat",
+      "production",
+      "admin",
+      "local",
+      "config",
+      ""
+    ],
+    "artifact": "tests/device/e1/r2post/durability/artifacts/S4T-FENCE-PROBE.json"
+  },
+  "cleanupDrops": [],
+  "exit": {
+    "code": 1,
+    "reasons": [
+      "rows not in authorized pre-repair state: S4T-01,S4T-03",
+      "S4T-01 BLOCKED (FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW): Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+      "S4T-03 BLOCKED (FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW): PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+    ]
+  }
+}

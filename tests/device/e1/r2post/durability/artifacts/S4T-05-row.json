@@ -1,0 +1,231 @@
+{
+  "id": "S4T-05",
+  "tier": "E1",
+  "status": "PASS_CURRENT",
+  "authorizedStatus": "PASS_CURRENT",
+  "matchesAuthorizedState": true,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff one real accepted-S2 authority CAS transition (revokeLease) commits through a DeviceAuthority.updateOne carrying writeConcern {w:'majority', j:true}",
+  "repairPredicate": null,
+  "components": [
+    {
+      "name": "authority_cas_transition_committed",
+      "oracle": "the accepted S2 revoke transition commits exactly one generation change on the genuine authority row",
+      "actual": "matched=1 epoch 0 -> 1; leaseState active -> revoked; error.code=null",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "authority_cas_update_carries_majority_journal",
+      "oracle": "the authority CAS update carries writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"authority-cas-revoke\",\"model\":\"DeviceAuthority\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "real_audit_event_create_carries_explicit_majority_journal",
+      "oracle": "the post-CAS real AuditEvent write goes through the genuine auditSink adapter with an explicit majority+journal concern",
+      "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"real-audit-event-create\",\"model\":\"AuditEvent\",\"method\":\"create\",\"argCount\":2,\"hasOptionsArgument\":true,\"documentsAreArray\":true,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]; auditSinkOutcomes=[{\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_device_authority_constructor_used",
+      "oracle": "the DeviceAuthority model is the genuine createModels(mongoose) constructor registered on the live connection",
+      "actual": "{\"modelName\":\"DeviceAuthority\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorities\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "one real accepted-S2 authority transition (revokeLease at g -> g+1) executed through the genuine authority service against the genuine DeviceAuthority model",
+    "invocation": {
+      "method": "createAuthorityService(...).revokeLease",
+      "deviceId": "s4t-05-device",
+      "epoch": 0,
+      "ownerId": "principal-w3a-i11-owner-a"
+    },
+    "envelope": {
+      "ok": true,
+      "matched": 1,
+      "code": null,
+      "deviceId": null,
+      "deviceKeyId": null,
+      "error": null,
+      "authority": {
+        "_id": "s4t-05-device",
+        "tenantId": "tenant-w3a-i11-fixed",
+        "epoch": 1,
+        "leaseState": "revoked",
+        "identityState": "active",
+        "ownerId": "principal-w3a-i11-owner-a",
+        "grantId": "s4t-05-grant-0",
+        "deviceKeyId": "key-s4t-05-device"
+      },
+      "pairingSession": null
+    },
+    "authorityBefore": {
+      "_id": "s4t-05-device",
+      "tenantId": "tenant-w3a-i11-fixed",
+      "deviceKeyId": "key-s4t-05-device",
+      "devicePublicKey": "MCowBQYDK2VwAyEAdacZXjGeSAn8ew33Zv-UHvliJ0xNWN-bAcInE-8doSs",
+      "identityState": "active",
+      "leaseState": "active",
+      "epoch": 0,
+      "ownerId": "principal-w3a-i11-owner-a",
+      "grantId": "s4t-05-grant-0",
+      "retiredAt": null,
+      "retiredBy": null,
+      "activatedAt": "2026-10-03T04:00:00.000Z",
+      "expiresAt": "2026-10-05T04:00:00.000Z",
+      "renewedAt": null,
+      "renewalCount": 0,
+      "revokedAt": null,
+      "revokedBy": null,
+      "grantedByPairingSessionId": null,
+      "grantProof": null,
+      "prevOwner": null,
+      "prevGrantId": null,
+      "prevEpoch": null,
+      "__v": 0
+    },
+    "authorityAfter": {
+      "_id": "s4t-05-device",
+      "tenantId": "tenant-w3a-i11-fixed",
+      "deviceKeyId": "key-s4t-05-device",
+      "devicePublicKey": "MCowBQYDK2VwAyEAdacZXjGeSAn8ew33Zv-UHvliJ0xNWN-bAcInE-8doSs",
+      "identityState": "active",
+      "leaseState": "revoked",
+      "epoch": 1,
+      "ownerId": "principal-w3a-i11-owner-a",
+      "grantId": "s4t-05-grant-0",
+      "retiredAt": null,
+      "retiredBy": null,
+      "activatedAt": "2026-10-03T04:00:00.000Z",
+      "expiresAt": "2026-10-05T04:00:00.000Z",
+      "renewedAt": null,
+      "renewalCount": 0,
+      "revokedAt": "2026-10-03T04:00:00.000Z",
+      "revokedBy": "principal-w3a-i11-owner-a",
+      "grantedByPairingSessionId": null,
+      "grantProof": null,
+      "prevOwner": null,
+      "prevGrantId": "s4t-05-grant-0",
+      "prevEpoch": 0,
+      "__v": 0
+    },
+    "casVerdict": {
+      "callCount": 1,
+      "pinnedCount": 1,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "authority-cas-revoke",
+          "model": "DeviceAuthority",
+          "method": "updateOne",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "auditCreateVerdict": {
+      "callCount": 1,
+      "pinnedCount": 1,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "real-audit-event-create",
+          "model": "AuditEvent",
+          "method": "create",
+          "argCount": 2,
+          "hasOptionsArgument": true,
+          "documentsAreArray": true,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "auditSinkOutcomes": [
+      {
+        "ok": true
+      }
+    ],
+    "requestedWriteConcern": {
+      "w": "majority",
+      "j": true
+    },
+    "staticAnchor": "authorityService.js:852-857 + 255-258 — revokeLease -> performUpdate(db.DeviceAuthority, filter, pipeline) with { writeConcern: AUTHORITY_WRITE_CONCERN }",
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+    "collectionCounts": {
+      "deviceauthorities": 1,
+      "pairingsessions": 0,
+      "challenges": 0,
+      "deviceauthorityevents": 1
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [
+      {
+        "ok": true
+      }
+    ],
+    "auditSinkEventCount": 1,
+    "captureRecords": 2,
+    "captureLabels": [
+      "authority-cas-revoke",
+      "real-audit-event-create"
+    ],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t05authoritycascontrol_f92d5e53_202610"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

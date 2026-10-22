@@ -1,0 +1,202 @@
+{
+  "id": "S4T-02",
+  "tier": "E1",
+  "status": "EXPECTED_RED",
+  "authorizedStatus": "EXPECTED_RED",
+  "matchesAuthorizedState": true,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff completeRegistration's genuine DeviceAuthority.create call carries an explicit options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}, with the pending authority row durably readable back; current expected state EXPECTED_RED",
+  "repairPredicate": "captured DeviceAuthority.create call includes an array-form options object with writeConcern.w==='majority' and writeConcern.j===true",
+  "components": [
+    {
+      "name": "complete_registration_reached_product_path",
+      "oracle": "completeRegistration verifies the registration PoP, spends the challenge and reaches the DeviceAuthority create site",
+      "actual": "ok=true deviceId=e3bc786f-0a52-497e-867e-02ff4f07626a deviceKeyIdMatchesThumbprint=true error.code=null; DeviceAuthority.create calls captured=1; challengeSpent=true",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "device_authority_registration_row_durable_read_back",
+      "oracle": "the pending authority row created by the registration transition is readable back through the genuine model and the raw driver",
+      "actual": "rawDriverDocPresent=true identityState=pending leaseState=never epoch=0 deviceKeyIdMatches=true; modelLeanPresent=true",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "registration_challenge_spent_before_authority_create",
+      "oracle": "the registration challenge was consumed by the single-use CAS before the authority row was inserted",
+      "actual": "challengeRowPresent=true consumedAt=\"2026-10-03T04:00:00.000Z\"",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "device_authority_create_carries_explicit_majority_journal",
+      "oracle": "the captured DeviceAuthority.create call includes an options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=0 missingExplicitOptionsCount=1 ambiguousOptionsOverloadCount=0 observed=[{\"label\":\"device-authority-registration-create\",\"model\":\"DeviceAuthority\",\"method\":\"create\",\"argCount\":1,\"hasOptionsArgument\":false,\"documentsAreArray\":false,\"unambiguousOptionsOverload\":false,\"writeConcern\":null,\"explicitMajorityJournal\":false,\"ok\":true}]",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "real_audit_event_create_carries_explicit_majority_journal",
+      "oracle": "the genuine product auditSink adapter writes AuditEvent with an explicit writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"real-audit-event-create\",\"model\":\"AuditEvent\",\"method\":\"create\",\"argCount\":2,\"hasOptionsArgument\":true,\"documentsAreArray\":true,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]; auditSinkOutcomes=[{\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_device_authority_constructor_used",
+      "oracle": "the DeviceAuthority model is the genuine createModels(mongoose) constructor registered on the live connection",
+      "actual": "{\"modelName\":\"DeviceAuthority\",\"typeofModel\":\"function\",\"collection\":\"deviceauthorities\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "registrationService.completeRegistration invoked with a valid Ed25519 registration PoP over the frozen canonical form and a fixture registration challenge; the frozen product bytes call db.DeviceAuthority.create(row) with a single argument",
+    "invocation": {
+      "method": "createRegistrationService(...).completeRegistration",
+      "tenantId": "tenant-w3a-i11-fixed",
+      "domainTag": "cbhr:device:registration:v1",
+      "challengeSource": "fixture row (beginRegistration is blocked pre-repair by the S4T-01 validator defect)",
+      "challengeSpentByCas": true
+    },
+    "envelope": {
+      "ok": true,
+      "matched": null,
+      "code": null,
+      "deviceId": "e3bc786f-0a52-497e-867e-02ff4f07626a",
+      "deviceKeyId": "UlY_J1s-2XZTnZD6oFR-9GBFFZ3VIdF7nS4Rebpvcbs",
+      "error": null,
+      "authority": {
+        "_id": "e3bc786f-0a52-497e-867e-02ff4f07626a",
+        "tenantId": "tenant-w3a-i11-fixed",
+        "epoch": 0,
+        "leaseState": "never",
+        "identityState": "pending",
+        "ownerId": null,
+        "grantId": null,
+        "deviceKeyId": "UlY_J1s-2XZTnZD6oFR-9GBFFZ3VIdF7nS4Rebpvcbs"
+      },
+      "pairingSession": null
+    },
+    "auditSinkOutcomes": [
+      {
+        "ok": true
+      }
+    ],
+    "requestedWriteConcern": {
+      "w": "majority",
+      "j": true
+    },
+    "createCallVerdict": {
+      "callCount": 1,
+      "pinnedCount": 0,
+      "allPinned": false,
+      "anyPinned": false,
+      "missingExplicitOptionsCount": 1,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "device-authority-registration-create",
+          "model": "DeviceAuthority",
+          "method": "create",
+          "argCount": 1,
+          "hasOptionsArgument": false,
+          "documentsAreArray": false,
+          "unambiguousOptionsOverload": false,
+          "writeConcern": null,
+          "explicitMajorityJournal": false,
+          "ok": true
+        }
+      ]
+    },
+    "auditCreateVerdict": {
+      "callCount": 1,
+      "pinnedCount": 1,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "real-audit-event-create",
+          "model": "AuditEvent",
+          "method": "create",
+          "argCount": 2,
+          "hasOptionsArgument": true,
+          "documentsAreArray": true,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "durableReadBack": {
+      "rawDriverDocPresent": true,
+      "rawIdentityState": "pending",
+      "rawLeaseState": "never",
+      "rawEpoch": 0,
+      "rawDeviceKeyIdMatchesThumbprint": true,
+      "modelLeanPresent": true
+    },
+    "repairPredicateAbsent": true,
+    "staticAnchor": "api/server/services/Device/registrationService.js:672 — await db.DeviceAuthority.create(row) (one argument, no options object)",
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+    "collectionCounts": {
+      "deviceauthorities": 1,
+      "pairingsessions": 0,
+      "challenges": 1,
+      "deviceauthorityevents": 1
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [
+      {
+        "ok": true
+      }
+    ],
+    "auditSinkEventCount": 1,
+    "captureRecords": 2,
+    "captureLabels": [
+      "device-authority-registration-create",
+      "real-audit-event-create"
+    ],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t02deviceauthoritycreate_00e9b291_2026"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "generatedAt": "2026-10-16T04:51:47.065Z",
+  "blockers": [
+    {
+      "row": "S4T-01",
+      "authorizedStatus": "EXPECTED_RED",
+      "observedStatus": "HARNESS_FAIL",
+      "blocker": {
+        "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+        "causeClass": "product/substrate defect (not a fixture defect)",
+        "authorizedStatus": "EXPECTED_RED",
+        "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable row read-back; the frozen challenge schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable row to read back",
+        "observedCreateError": {
+          "name": "ValidationError",
+          "code": null,
+          "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer"
+        },
+        "independenceProbe": {
+          "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+          "rowShapeKeys": [
+            "boundGrantId",
+            "boundOwnerId",
+            "boundPairingSessionId",
+            "challengeHash",
+            "consumedAt",
+            "deviceId",
+            "deviceKeyId",
+            "expiresAt",
+            "issuedAt",
+            "purpose",
+            "tenantId"
+          ],
+          "requestedWriteConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "threw": true,
+          "error": {
+            "name": "ValidationError",
+            "message": "Challenge validation failed: boundEpoch: `boundEpoch` must be a non-negative integer",
+            "paths": [
+              "boundEpoch"
+            ],
+            "perPath": {
+              "boundEpoch": "ValidatorError: `boundEpoch` must be a non-negative integer"
+            }
+          },
+          "persisted": false
+        },
+        "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+        "staticAnchors": [
+          "packages/data-schemas/src/schema/challenge.ts:52-60 — boundEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+          "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+        ]
+      }
+    },
+    {
+      "row": "S4T-03",
+      "authorizedStatus": "EXPECTED_RED",
+      "observedStatus": "HARNESS_FAIL",
+      "blocker": {
+        "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+        "causeClass": "product/substrate defect (not a fixture defect)",
+        "authorizedStatus": "EXPECTED_RED",
+        "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable session read-back; the frozen pairingSession schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable session to read back",
+        "observedCreateError": {
+          "name": "ValidationError",
+          "code": null,
+          "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+        },
+        "independenceProbe": {
+          "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+          "rowShapeKeys": [
+            "attemptsUsed",
+            "claim",
+            "claimedAt",
+            "consumedAt",
+            "deviceId",
+            "deviceKeyId",
+            "deviceSessionId",
+            "expiresAt",
+            "grantedGrantId",
+            "issuedAt",
+            "issuedFromSourceHash",
+            "lookupTag",
+            "pendingOwnerId",
+            "state",
+            "tenantId"
+          ],
+          "requestedWriteConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "threw": true,
+          "error": {
+            "name": "ValidationError",
+            "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer",
+            "paths": [
+              "claim.expectedEpoch"
+            ],
+            "perPath": {
+              "claim.expectedEpoch": "ValidatorError: `expectedEpoch` must be a non-negative integer"
+            }
+          },
+          "persisted": false
+        },
+        "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+        "staticAnchors": [
+          "packages/data-schemas/src/schema/pairingSession.ts:98-106 — claim.expectedEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+          "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+        ]
+      }
+    }
+  ],
+  "note": "Each blocker is a frozen-substrate defect that prevents the authorized EXPECTED_RED state, because the authorization makes that state conditional on proven durable row read-back. The failed rows are NOT red findings and are NOT fixture defects."
+}

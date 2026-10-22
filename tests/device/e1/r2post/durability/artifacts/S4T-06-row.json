@@ -1,0 +1,287 @@
+{
+  "id": "S4T-06",
+  "tier": "E1",
+  "status": "PASS_CURRENT",
+  "authorizedStatus": "PASS_CURRENT",
+  "matchesAuthorizedState": true,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff every genuine PairingSession update/consume write in the issue-supersede, rejoin and redeem paths carries writeConcern {w:'majority', j:true}",
+  "repairPredicate": null,
+  "components": [
+    {
+      "name": "pairing_session_update_and_consume_paths_reached_product_code",
+      "oracle": "issuePairingSession supersede, rejoinPendingPairing and redeemPairingCode all reach the genuine PairingSession update statics",
+      "actual": "supersedeUpdateCalls=1 (issueOk=false, creation blocked by the disclosed S4T-03 validator defect); rejoinOk=true rejoinError.code=null; redeemOk=true redeemError.code=null",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "pairing_session_writes_carry_majority_journal",
+      "oracle": "every genuine PairingSession update/consume write in the issue/rejoin/redeem path passes writeConcern {w:'majority', j:true}",
+      "actual": "callCount=3 pinnedCount=3 observed=[{\"label\":\"pairing-session-update\",\"model\":\"PairingSession\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true},{\"label\":\"pairing-session-find-one-and-update\",\"model\":\"PairingSession\",\"method\":\"findOneAndUpdate\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true},{\"label\":\"pairing-session-find-one-and-update\",\"model\":\"PairingSession\",\"method\":\"findOneAndUpdate\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "redeem_consume_transition_durable",
+      "oracle": "the redeemed session is durably claim_pending with the trusted owner and the attempt counter applied",
+      "actual": "rawPresent=true state=claim_pending pendingOwnerId=principal-w3a-i11-owner-a attemptsUsed=1",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "rejoin_update_transition_durable",
+      "oracle": "the same-owner rejoin increments attemptsUsed without leaving claim_pending",
+      "actual": "rawPresent=true state=claim_pending pendingOwnerId=principal-w3a-i11-owner-a attemptsUsed=2",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_pairing_session_constructor_used",
+      "oracle": "the PairingSession model is the genuine createModels(mongoose) constructor registered on the live connection",
+      "actual": "{\"modelName\":\"PairingSession\",\"typeofModel\":\"function\",\"collection\":\"pairingsessions\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "three genuine PairingSession write paths: the guarded supersede updateOne during issuance, the same-owner rejoin findOneAndUpdate, and the redeem findOneAndUpdate consume CAS",
+    "issue": {
+      "envelope": {
+        "ok": false,
+        "matched": null,
+        "code": null,
+        "deviceId": null,
+        "deviceKeyId": null,
+        "error": {
+          "name": "DeviceError",
+          "code": "WRITE_OUTCOME_UNCERTAIN",
+          "message": "Unclassified write failure; fail closed",
+          "httpStatus": 500,
+          "disposition": "terminal",
+          "retryable": false
+        },
+        "authority": null,
+        "pairingSession": null
+      },
+      "note": "the subsequent PairingSession.create is blocked pre-repair by the disclosed S4T-03 validator defect; the supersede updateOne under test still ran"
+    },
+    "rejoin": {
+      "envelope": {
+        "ok": true,
+        "matched": null,
+        "code": null,
+        "deviceId": null,
+        "deviceKeyId": null,
+        "error": null,
+        "authority": null,
+        "pairingSession": {
+          "_id": "6ad1ad622dab3057a2a0afba",
+          "state": "claim_pending"
+        }
+      }
+    },
+    "redeem": {
+      "envelope": {
+        "ok": true,
+        "matched": null,
+        "code": null,
+        "deviceId": null,
+        "deviceKeyId": null,
+        "error": null,
+        "authority": null,
+        "pairingSession": {
+          "_id": "6ad1ad622dab3057a2a0afbc",
+          "state": "claim_pending"
+        }
+      }
+    },
+    "writeVerdict": {
+      "callCount": 3,
+      "pinnedCount": 3,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "pairing-session-update",
+          "model": "PairingSession",
+          "method": "updateOne",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        },
+        {
+          "label": "pairing-session-find-one-and-update",
+          "model": "PairingSession",
+          "method": "findOneAndUpdate",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        },
+        {
+          "label": "pairing-session-find-one-and-update",
+          "model": "PairingSession",
+          "method": "findOneAndUpdate",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "supersedeUpdateVerdict": {
+      "callCount": 1,
+      "pinnedCount": 1,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "pairing-session-update",
+          "model": "PairingSession",
+          "method": "updateOne",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "rejoinAndRedeemFindOneAndUpdateVerdict": {
+      "callCount": 2,
+      "pinnedCount": 2,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "pairing-session-find-one-and-update",
+          "model": "PairingSession",
+          "method": "findOneAndUpdate",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        },
+        {
+          "label": "pairing-session-find-one-and-update",
+          "model": "PairingSession",
+          "method": "findOneAndUpdate",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "durableReadBack": {
+      "rejoinRawPresent": true,
+      "rejoinState": "claim_pending",
+      "rejoinAttemptsUsed": 2,
+      "redeemRawPresent": true,
+      "redeemState": "claim_pending",
+      "redeemPendingOwnerId": "principal-w3a-i11-owner-a",
+      "redeemAttemptsUsed": 1
+    },
+    "requestedWriteConcern": {
+      "w": "majority",
+      "j": true
+    },
+    "staticAnchors": [
+      "pairingSessionService.js:592-596 — supersede updateOne with { writeConcern: AUTHORITY_WRITE_CONCERN }",
+      "pairingSessionService.js:933-944 — rejoin findOneAndUpdate with { new: true, writeConcern: AUTHORITY_WRITE_CONCERN }",
+      "pairingSessionService.js:878-895 — redeem findOneAndUpdate with { new: true, writeConcern: AUTHORITY_WRITE_CONCERN }"
+    ],
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+    "collectionCounts": {
+      "deviceauthorities": 1,
+      "pairingsessions": 2,
+      "challenges": 0,
+      "deviceauthorityevents": 0
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [],
+    "auditSinkEventCount": 0,
+    "captureRecords": 3,
+    "captureLabels": [
+      "pairing-session-find-one-and-update",
+      "pairing-session-update"
+    ],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t06pairingsessionup_5e4f1513_0ea26357_"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

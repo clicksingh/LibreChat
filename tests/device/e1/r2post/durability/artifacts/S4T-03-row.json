@@ -1,0 +1,254 @@
+{
+  "id": "S4T-03",
+  "tier": "E1",
+  "status": "HARNESS_FAIL",
+  "authorizedStatus": "EXPECTED_RED",
+  "matchesAuthorizedState": false,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff issuePairingSession's genuine PairingSession.create call carries an explicit options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}, with the session durably readable back; current expected state EXPECTED_RED",
+  "repairPredicate": "captured PairingSession.create call includes an array-form options object with writeConcern.w==='majority' and writeConcern.j===true",
+  "components": [
+    {
+      "name": "issue_pairing_session_invoked_the_genuine_create_site",
+      "oracle": "issuePairingSession verifies the device PoP against the DB-stored key, completes the guarded supersede update and invokes the genuine PairingSession.create site exactly once",
+      "actual": "create calls captured=1 supersede update calls captured=1 capturedArgCount=1 capturedKeys=[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "issue_pairing_session_returned_a_minted_code",
+      "oracle": "issuePairingSession returns a success envelope carrying the one-time pairing code and the created session",
+      "actual": "issueOk=false codeReturnedLength=null error.code=WRITE_OUTCOME_UNCERTAIN error.message=Unclassified write failure; fail closed; captured createError={\"name\":\"ValidationError\",\"code\":null,\"message\":\"PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer\"}",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "pairing_session_row_durable_read_back",
+      "oracle": "the open pairing session is readable back through the genuine model and the raw driver",
+      "actual": "rawDriverDocPresent=false modelLeanPresent=false",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "pairing_session_create_carries_explicit_majority_journal",
+      "oracle": "the captured PairingSession.create call includes an options object, via an unambiguous overload, with writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=0 missingExplicitOptionsCount=1 ambiguousOptionsOverloadCount=0 observed=[{\"label\":\"pairing-session-issue-create\",\"model\":\"PairingSession\",\"method\":\"create\",\"argCount\":1,\"hasOptionsArgument\":false,\"documentsAreArray\":false,\"unambiguousOptionsOverload\":false,\"writeConcern\":null,\"explicitMajorityJournal\":false,\"ok\":false}]",
+      "met": false,
+      "tier": "E1"
+    },
+    {
+      "name": "supersede_update_carries_explicit_majority_journal",
+      "oracle": "the genuine PairingSession.updateOne supersede path carries writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"pairing-session-supersede-update\",\"model\":\"PairingSession\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "captured_row_shape_matches_the_product_row_shape",
+      "oracle": "the captured create payload keys equal the frozen product row shape read from the product bytes",
+      "actual": "capturedKeys=[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"] reconstructedKeys=[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"] equal=true",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "validator_rejection_is_orthogonal_to_the_missing_option",
+      "oracle": "the same product row shape still fails validation when passed through the array-form options overload with explicit majority+journal",
+      "actual": "{\"overload\":\"Model.create([row], { writeConcern: { w: \\\"majority\\\", j: true } }) (array form)\",\"rowShapeKeys\":[\"attemptsUsed\",\"claim\",\"claimedAt\",\"consumedAt\",\"deviceId\",\"deviceKeyId\",\"deviceSessionId\",\"expiresAt\",\"grantedGrantId\",\"issuedAt\",\"issuedFromSourceHash\",\"lookupTag\",\"pendingOwnerId\",\"state\",\"tenantId\"],\"requestedWriteConcern\":{\"w\":\"majority\",\"j\":true},\"threw\":true,\"error\":{\"name\":\"ValidationError\",\"message\":\"PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer\",\"paths\":[\"claim.expectedEpoch\"],\"perPath\":{\"claim.expectedEpoch\":\"ValidatorError: `expectedEpoch` must be a non-negative integer\"}},\"persisted\":false}",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_pairing_session_constructor_used",
+      "oracle": "the PairingSession model is the genuine createModels(mongoose) constructor registered on the live connection",
+      "actual": "{\"modelName\":\"PairingSession\",\"typeofModel\":\"function\",\"collection\":\"pairingsessions\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "pairingSessionService.issuePairingSession invoked with a valid Ed25519 pairing-open PoP against a genuine seeded authority row; the frozen product bytes call db.PairingSession.create(row) with a single argument",
+    "invocation": {
+      "method": "createPairingSessionService(...).issuePairingSession",
+      "tenantId": "tenant-w3a-i11-fixed",
+      "deviceId": "s4t-03-device",
+      "deviceKeyId": "key-s4t-03-device",
+      "domainTag": "cbhr:device:pairing-open:v1"
+    },
+    "envelope": {
+      "ok": false,
+      "codeReturnedLength": null,
+      "pairingSessionId": null,
+      "error": {
+        "name": "DeviceError",
+        "code": "WRITE_OUTCOME_UNCERTAIN",
+        "message": "Unclassified write failure; fail closed",
+        "httpStatus": 500,
+        "disposition": "terminal",
+        "retryable": false
+      }
+    },
+    "requestedWriteConcern": {
+      "w": "majority",
+      "j": true
+    },
+    "createCallVerdict": {
+      "callCount": 1,
+      "pinnedCount": 0,
+      "allPinned": false,
+      "anyPinned": false,
+      "missingExplicitOptionsCount": 1,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "pairing-session-issue-create",
+          "model": "PairingSession",
+          "method": "create",
+          "argCount": 1,
+          "hasOptionsArgument": false,
+          "documentsAreArray": false,
+          "unambiguousOptionsOverload": false,
+          "writeConcern": null,
+          "explicitMajorityJournal": false,
+          "ok": false
+        }
+      ]
+    },
+    "supersedeUpdateVerdict": {
+      "callCount": 1,
+      "pinnedCount": 1,
+      "allPinned": true,
+      "anyPinned": true,
+      "missingExplicitOptionsCount": 0,
+      "ambiguousOptionsOverloadCount": 0,
+      "calls": [
+        {
+          "label": "pairing-session-supersede-update",
+          "model": "PairingSession",
+          "method": "updateOne",
+          "argCount": 3,
+          "hasOptionsArgument": true,
+          "documentsAreArray": null,
+          "unambiguousOptionsOverload": true,
+          "writeConcern": {
+            "w": "majority",
+            "j": true
+          },
+          "explicitMajorityJournal": true,
+          "ok": true
+        }
+      ]
+    },
+    "createCallError": {
+      "name": "ValidationError",
+      "code": null,
+      "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+    },
+    "durableReadBack": {
+      "rawDriverDocPresent": false,
+      "modelLeanPresent": false
+    },
+    "repairPredicateAbsent": true,
+    "blocker": {
+      "kind": "FROZEN_SUBSTRATE_VALIDATOR_REJECTS_PRODUCT_ROW",
+      "causeClass": "product/substrate defect (not a fixture defect)",
+      "authorizedStatus": "EXPECTED_RED",
+      "whyTheAuthorizedStatusIsUnreachable": "the authorization makes EXPECTED_RED conditional on proven durable session read-back; the frozen pairingSession schema rejects the product create row through Mongoose validation before any write is sent, so there is no durable session to read back",
+      "observedCreateError": {
+        "name": "ValidationError",
+        "code": null,
+        "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer"
+      },
+      "independenceProbe": {
+        "overload": "Model.create([row], { writeConcern: { w: \"majority\", j: true } }) (array form)",
+        "rowShapeKeys": [
+          "attemptsUsed",
+          "claim",
+          "claimedAt",
+          "consumedAt",
+          "deviceId",
+          "deviceKeyId",
+          "deviceSessionId",
+          "expiresAt",
+          "grantedGrantId",
+          "issuedAt",
+          "issuedFromSourceHash",
+          "lookupTag",
+          "pendingOwnerId",
+          "state",
+          "tenantId"
+        ],
+        "requestedWriteConcern": {
+          "w": "majority",
+          "j": true
+        },
+        "threw": true,
+        "error": {
+          "name": "ValidationError",
+          "message": "PairingSession validation failed: claim.expectedEpoch: `expectedEpoch` must be a non-negative integer",
+          "paths": [
+            "claim.expectedEpoch"
+          ],
+          "perPath": {
+            "claim.expectedEpoch": "ValidatorError: `expectedEpoch` must be a non-negative integer"
+          }
+        },
+        "persisted": false
+      },
+      "repairPredicateStillIndependentlyObservable": "the captured create call has argCount=1 and no options object, so the F8 option omission at this site is proven from the captured arguments regardless of the validator defect",
+      "staticAnchors": [
+        "packages/data-schemas/src/schema/pairingSession.ts:98-106 — claim.expectedEpoch: {type: Number, default: null, min: 0, validate: {validator: Number.isInteger}}",
+        "tests/device/_phase1_evidence/w2-runtime/node_modules/mongoose/lib/model.js:2681-2701 — a non-array first argument makes every argument a document, so `create(doc, options)` is NOT an options overload"
+      ]
+    },
+    "staticAnchor": "api/server/services/Device/pairingSessionService.js:805 — await db.PairingSession.create(row) (one argument, no options object)",
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+    "collectionCounts": {
+      "deviceauthorities": 1,
+      "pairingsessions": 0,
+      "challenges": 0,
+      "deviceauthorityevents": 0
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [],
+    "auditSinkEventCount": 0,
+    "captureRecords": 3,
+    "captureLabels": [
+      "pairing-session-issue-create",
+      "pairing-session-supersede-update"
+    ],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t03pairingsessioncreate_64d0ea3c_20261"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

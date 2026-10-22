@@ -1,0 +1,198 @@
+{
+  "id": "S4T-04",
+  "tier": "E1",
+  "status": "PASS_CURRENT",
+  "authorizedStatus": "PASS_CURRENT",
+  "matchesAuthorizedState": true,
+  "productMethodInvoked": true,
+  "expectedOracle": "PASS iff every real Challenge.updateOne spend path (registrationService completion and authorityService.spendChallenge) carries writeConcern {w:'majority', j:true}",
+  "repairPredicate": null,
+  "components": [
+    {
+      "name": "registration_completion_challenge_spend_committed",
+      "oracle": "the registration completion path consumed the challenge through db.Challenge.updateOne",
+      "actual": "deviceId=d27a4b4e-49dd-4dd0-9898-fafda20212db consumedAt=\"2026-10-03T04:00:00.000Z\" registrationSpendCallCount=1",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "registration_challenge_spend_carries_majority_journal",
+      "oracle": "the registrationService challenge spend passes writeConcern {w:'majority', j:true}",
+      "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"challenge-spend-cas\",\"model\":\"Challenge\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "authority_spend_challenge_carries_majority_journal",
+      "oracle": "authorityService.spendChallenge passes writeConcern {w:'majority', j:true} on the Challenge CAS",
+      "actual": "callCount=1 pinnedCount=1 observed=[{\"label\":\"challenge-spend-cas\",\"model\":\"Challenge\",\"method\":\"updateOne\",\"argCount\":3,\"hasOptionsArgument\":true,\"documentsAreArray\":null,\"unambiguousOptionsOverload\":true,\"writeConcern\":{\"w\":\"majority\",\"j\":true},\"explicitMajorityJournal\":true,\"ok\":true}]",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "authority_spend_challenge_committed",
+      "oracle": "the fenced challenge-spend CAS matched exactly one document and consumed the row",
+      "actual": "spend.matched=1 spend.ok=true consumedAt=\"2026-10-03T04:00:00.000Z\"",
+      "met": true,
+      "tier": "E1"
+    },
+    {
+      "name": "genuine_challenge_constructor_used",
+      "oracle": "the Challenge model is the genuine createModels(mongoose) constructor registered on the live connection",
+      "actual": "{\"modelName\":\"Challenge\",\"typeofModel\":\"function\",\"collection\":\"challenges\",\"schemaPresent\":true,\"identityMatchesMongooseRegistration\":true}",
+      "met": true,
+      "tier": "E1"
+    }
+  ],
+  "actual": {
+    "scenario": "two real challenge-spend paths: (A) registrationService.completeRegistration spends a fixture registration challenge; (B) authorityService.spendChallenge consumes a fixture pairing-claim challenge",
+    "registrationSpend": {
+      "envelope": {
+        "ok": true,
+        "matched": null,
+        "code": null,
+        "deviceId": "d27a4b4e-49dd-4dd0-9898-fafda20212db",
+        "deviceKeyId": "rRIjRXmzHb5uvWwkOLGMb8GLy5EcvdTCxr3LZtYOFYY",
+        "error": null,
+        "authority": {
+          "_id": "d27a4b4e-49dd-4dd0-9898-fafda20212db",
+          "tenantId": "tenant-w3a-i11-fixed",
+          "epoch": 0,
+          "leaseState": "never",
+          "identityState": "pending",
+          "ownerId": null,
+          "grantId": null,
+          "deviceKeyId": "rRIjRXmzHb5uvWwkOLGMb8GLy5EcvdTCxr3LZtYOFYY"
+        },
+        "pairingSession": null
+      },
+      "challengeSource": "fixture row",
+      "challengeConsumedAt": "2026-10-03T04:00:00.000Z",
+      "verdict": {
+        "callCount": 1,
+        "pinnedCount": 1,
+        "allPinned": true,
+        "anyPinned": true,
+        "missingExplicitOptionsCount": 0,
+        "ambiguousOptionsOverloadCount": 0,
+        "calls": [
+          {
+            "label": "challenge-spend-cas",
+            "model": "Challenge",
+            "method": "updateOne",
+            "argCount": 3,
+            "hasOptionsArgument": true,
+            "documentsAreArray": null,
+            "unambiguousOptionsOverload": true,
+            "writeConcern": {
+              "w": "majority",
+              "j": true
+            },
+            "explicitMajorityJournal": true,
+            "ok": true
+          }
+        ]
+      }
+    },
+    "authoritySpend": {
+      "envelope": {
+        "ok": true,
+        "matched": 1,
+        "code": null,
+        "deviceId": null,
+        "deviceKeyId": null,
+        "error": null,
+        "authority": null,
+        "pairingSession": null
+      },
+      "challengeSource": "fixture row",
+      "challengeConsumedAt": "2026-10-03T04:00:00.000Z",
+      "verdict": {
+        "callCount": 1,
+        "pinnedCount": 1,
+        "allPinned": true,
+        "anyPinned": true,
+        "missingExplicitOptionsCount": 0,
+        "ambiguousOptionsOverloadCount": 0,
+        "calls": [
+          {
+            "label": "challenge-spend-cas",
+            "model": "Challenge",
+            "method": "updateOne",
+            "argCount": 3,
+            "hasOptionsArgument": true,
+            "documentsAreArray": null,
+            "unambiguousOptionsOverload": true,
+            "writeConcern": {
+              "w": "majority",
+              "j": true
+            },
+            "explicitMajorityJournal": true,
+            "ok": true
+          }
+        ]
+      }
+    },
+    "requestedWriteConcern": {
+      "w": "majority",
+      "j": true
+    },
+    "staticAnchors": [
+      "registrationService.js:609-619 — db.Challenge.updateOne(filter, update, { writeConcern: AUTHORITY_WRITE_CONCERN })",
+      "authorityService.js:255-258 — performUpdate(model, filter, update) always passes { writeConcern: AUTHORITY_WRITE_CONCERN }"
+    ],
+    "fenceDecision": {
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+      "problems": [],
+      "checkedBeforeClient": true,
+      "clientConstructionsBeforeConnect": 0,
+      "clientConstructionsAfterConnect": 1,
+      "fenceEvaluatedBeforeConstruction": true
+    },
+    "captureRecordsRestored": true
+  },
+  "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+  "dbDropped": {
+    "dropped": true,
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026"
+  },
+  "dbReadBack": {
+    "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+    "collectionCounts": {
+      "deviceauthorities": 1,
+      "pairingsessions": 0,
+      "challenges": 2,
+      "deviceauthorityevents": 1
+    },
+    "mongooseDatabaseName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026",
+    "auditSinkKind": "product-adapter:mongoose-AuditEvent",
+    "auditSinkCollection": "deviceauthorityevents",
+    "auditSinkOutcomes": [
+      {
+        "ok": true
+      }
+    ],
+    "auditSinkEventCount": 1,
+    "captureRecords": 3,
+    "captureLabels": [
+      "challenge-spend-cas",
+      "real-audit-event-create"
+    ],
+    "captureRestored": true,
+    "observations": {
+      "captureRestoredBeforeReadBack": true
+    },
+    "dropped": {
+      "dropped": true,
+      "dbName": "cbhr_rdc_phase1_r2_s4t_s4t04challengespendcontrol_c2b5bea1_2026"
+    }
+  },
+  "sourceHashes": {
+    "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+    "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+    "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+    "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+    "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+    "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+  }
+}

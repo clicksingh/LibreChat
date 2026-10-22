@@ -1,0 +1,32 @@
+{
+  "postRunHashes": {
+    "ok": true,
+    "hashes": {
+      "api/server/services/Device/registrationService.js": "9DB81E9ACDB79DCE45456E6C38EC463A80B9911A24AFB54C690D5CD1C8157EA9",
+      "api/server/services/Device/pairingSessionService.js": "D1644F00C1B67CC9712D540B04D2FF39D3118D40FAA0BB091C0DF0C424046D6F",
+      "api/server/services/Device/authorityService.js": "B51B3CEC5A02935A0CC7486F0A91B0883F33C7C0FE0F3A58C35E659AD9E9C0CF",
+      "api/server/services/Device/auditSink.js": "3F39D0102040A6FC510AC3AC8BADFE10E87B36784CD3DBEABF0C771F2F39CC37",
+      "packages/data-schemas/src/schema/auditEvent.ts": "AD4820FE7D4CDBB1B734D35BD1DEBCDB266058F362BA4400246AF0D54757BF0B",
+      "api/server/services/Device/errors.js": "7C084A33BF392CF0FC0FBCC8B8E1280382073FEC839860EC0DD51F2AEC727039"
+    },
+    "problems": []
+  },
+  "dependencySurface": {
+    "files": 15,
+    "comparison": {
+      "unchanged": true,
+      "changed": [],
+      "missingAfter": [],
+      "added": []
+    }
+  },
+  "priorLaneEvidence": {
+    "files": 59,
+    "comparison": {
+      "unchanged": true,
+      "changed": [],
+      "missingAfter": [],
+      "added": []
+    }
+  }
+}

@@ -5,6 +5,10 @@ import { createAgentCategoryModel } from './agentCategory';
 import { createChatProjectModel } from './chatProject';
 import { createWorkspaceModel } from './workspace';
 import { createQuotaPolicyModel } from './quotaPolicy';
+import { createDeviceAuthorityModel } from './deviceAuthority';
+import { createPairingSessionModel } from './pairingSession';
+import { createChallengeModel } from './challenge';
+import { createAuditEventModel } from './auditEvent';
 import { createAgentApiKeyModel } from './agentApiKey';
 import { createTransactionModel } from './transaction';
 import { createPromptGroupModel } from './promptGroup';
@@ -48,6 +52,10 @@ export function createModels(mongoose: typeof import('mongoose')): {
   ChatProject: ReturnType<typeof createChatProjectModel>;
   Workspace: ReturnType<typeof createWorkspaceModel>;
   QuotaPolicy: ReturnType<typeof createQuotaPolicyModel>;
+  DeviceAuthority: ReturnType<typeof createDeviceAuthorityModel>;
+  PairingSession: ReturnType<typeof createPairingSessionModel>;
+  Challenge: ReturnType<typeof createChallengeModel>;
+  AuditEvent: ReturnType<typeof createAuditEventModel>;
   Message: ReturnType<typeof createMessageModel>;
   Agent: ReturnType<typeof createAgentModel>;
   AgentApiKey: ReturnType<typeof createAgentApiKeyModel>;
@@ -87,6 +95,10 @@ export function createModels(mongoose: typeof import('mongoose')): {
     ChatProject: createChatProjectModel(mongoose),
     Workspace: createWorkspaceModel(mongoose),
     QuotaPolicy: createQuotaPolicyModel(mongoose),
+    DeviceAuthority: createDeviceAuthorityModel(mongoose),
+    PairingSession: createPairingSessionModel(mongoose),
+    Challenge: createChallengeModel(mongoose),
+    AuditEvent: createAuditEventModel(mongoose),
     Message: createMessageModel(mongoose),
     Agent: createAgentModel(mongoose),
     AgentApiKey: createAgentApiKeyModel(mongoose),
