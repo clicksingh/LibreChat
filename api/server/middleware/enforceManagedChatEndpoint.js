@@ -7,7 +7,6 @@ const {
   isEphemeralAgentId,
 } = require('librechat-data-provider');
 
-
 /**
  * Regular CBHR staff have centrally funded access, not individual BYOK keys.
  * Correct stale browser/conversation endpoint payloads before model setup or
@@ -20,20 +19,23 @@ const {
 function resolveFundedDefault(config) {
   const list = config?.modelSpecs?.list;
   const configured = config?.endpoints?.custom;
-  const spec = Array.isArray(list) && Array.isArray(configured)
-    ? list.find(entry =>
-        entry?.default === true &&
-        typeof entry?.name === 'string' && entry.name.length > 0 &&
-        typeof entry?.preset?.endpoint === 'string' &&
-        configured.some(ep => ep?.name === entry.preset.endpoint))
-    : undefined;
+  const spec =
+    Array.isArray(list) && Array.isArray(configured)
+      ? list.find(
+          (entry) =>
+            entry?.default === true &&
+            typeof entry?.name === 'string' &&
+            entry.name.length > 0 &&
+            typeof entry?.preset?.endpoint === 'string' &&
+            configured.some((ep) => ep?.name === entry.preset.endpoint),
+        )
+      : undefined;
   const custom = Array.isArray(configured)
-    ? configured.find(entry => entry?.name === spec?.preset?.endpoint)
+    ? configured.find((entry) => entry?.name === spec?.preset?.endpoint)
     : undefined;
-  const selected = Array.isArray(custom?.models?.default)
-    ? custom.models.default[0] : undefined;
-  const validModel = typeof selected === 'string' &&
-    /^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]{0,255}$/.test(selected);
+  const selected = Array.isArray(custom?.models?.default) ? custom.models.default[0] : undefined;
+  const validModel =
+    typeof selected === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]{0,255}$/.test(selected);
   const apiKey = custom?.apiKey;
   const baseURL = custom?.baseURL;
   if (
@@ -77,9 +79,15 @@ function enforceManagedChatEndpoint(req, res, next) {
   // browser-supplied parameter. The bridge injects that model's configured
   // default after routing; unsupported models receive no extra parameter.
   for (const field of [
-    'reasoning_effort', 'reasoningEffort', 'thinking', 'thinkingBudget',
-    'thinkingLevel', 'reasoning', 'effort',
-  ]) delete body[field];
+    'reasoning_effort',
+    'reasoningEffort',
+    'thinking',
+    'thinkingBudget',
+    'thinkingLevel',
+    'reasoning',
+    'effort',
+  ])
+    delete body[field];
 
   // A second conversation can independently resolve a different saved agent
   // and provider. Non-admins cannot create such a graph until every model in
@@ -209,10 +217,21 @@ function createAuthorizeManagedSavedAgent({ getAgent }) {
       model: funded.model,
     };
     for (const key of [
-      'apiKey', 'baseURL', 'key', 'provider', 'model_parameters',
-      'modelOptions', 'modelLabel', 'chatGptLabel', 'effort',
-      'thinking', 'thinkingBudget', 'thinkingLevel', 'reasoning_effort',
-    ]) delete req.body[key];
+      'apiKey',
+      'baseURL',
+      'key',
+      'provider',
+      'model_parameters',
+      'modelOptions',
+      'modelLabel',
+      'chatGptLabel',
+      'effort',
+      'thinking',
+      'thinkingBudget',
+      'thinkingLevel',
+      'reasoning_effort',
+    ])
+      delete req.body[key];
     req.body.model = funded.model;
     return next();
   };
@@ -225,10 +244,9 @@ function matchesManagedAgentPolicy(agent, funded) {
   if (params != null && (typeof params !== 'object' || Array.isArray(params))) return false;
   if (params?.model != null && params.model !== funded.model) return false;
   // Saved multi-agent graphs can route subsequent turns through other models.
-  if (agent.agent_ids != null &&
-      (!Array.isArray(agent.agent_ids) || agent.agent_ids.length)) return false;
-  if (agent.edges != null &&
-      (!Array.isArray(agent.edges) || agent.edges.length)) return false;
+  if (agent.agent_ids != null && (!Array.isArray(agent.agent_ids) || agent.agent_ids.length))
+    return false;
+  if (agent.edges != null && (!Array.isArray(agent.edges) || agent.edges.length)) return false;
   if (agent.subagents?.enabled === true || agent.subagents?.agent_ids?.length) return false;
   return true;
 }

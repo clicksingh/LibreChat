@@ -122,9 +122,15 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     // The first available model is the current admin selection after role merge.
     config.modelSpecs.list[0].preset.model = 'old-irrelevant-provider/old-model';
     config.endpoints.custom[0].models.default = ['new-provider/new-model', 'second-provider/beta'];
-    const req = makeReq({
-      endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL, text: 'hi',
-    }, SystemRoles.USER, config);
+    const req = makeReq(
+      {
+        endpoint: COMPANY_ENDPOINT,
+        model: COMPANY_MODEL,
+        text: 'hi',
+      },
+      SystemRoles.USER,
+      config,
+    );
     const { next, res } = invoke(req);
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
@@ -178,9 +184,14 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
   });
 
   it('rejects addedConvo multi-agent model bypasses for staff', () => {
-    const req = makeReq({ endpoint: COMPANY_ENDPOINT, addedConvo: {
-      endpoint: 'agents', agent_id: 'agent_other', model: 'unfunded',
-    } });
+    const req = makeReq({
+      endpoint: COMPANY_ENDPOINT,
+      addedConvo: {
+        endpoint: 'agents',
+        agent_id: 'agent_other',
+        model: 'unfunded',
+      },
+    });
     const { next, res } = invoke(req);
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(403);
@@ -299,15 +310,23 @@ describe('legacy assistants outside the ordinary managed chat route', () => {
 
 describe('saved-agent model checks, after existing resource VIEW ACL', () => {
   const allowed = {
-    id: 'agent_approved', provider: COMPANY_ENDPOINT, model: COMPANY_MODEL,
+    id: 'agent_approved',
+    provider: COMPANY_ENDPOINT,
+    model: COMPANY_MODEL,
     model_parameters: { model: COMPANY_MODEL, reasoning_effort: 'xhigh' },
   };
 
   async function checkAgent(saved = allowed, role = SystemRoles.USER) {
-    const req = makeReq({
-      endpoint: 'agents', agent_id: 'agent_approved', model: 'forged',
-      model_parameters: { apiKey: 'forged' }, reasoning_effort: 'xhigh',
-    }, role);
+    const req = makeReq(
+      {
+        endpoint: 'agents',
+        agent_id: 'agent_approved',
+        model: 'forged',
+        model_parameters: { apiKey: 'forged' },
+        reasoning_effort: 'xhigh',
+      },
+      role,
+    );
     const preflight = invoke(req);
     const response = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
     const next = jest.fn();
@@ -323,7 +342,9 @@ describe('saved-agent model checks, after existing resource VIEW ACL', () => {
     expect(response.status).not.toHaveBeenCalled();
     expect(getAgent).toHaveBeenCalledWith({ id: 'agent_approved' });
     expect(req.managedSavedAgentAuth).toEqual({
-      id: 'agent_approved', model: COMPANY_MODEL, endpoint: COMPANY_ENDPOINT,
+      id: 'agent_approved',
+      model: COMPANY_MODEL,
+      endpoint: COMPANY_ENDPOINT,
     });
     expect(req.body.model).toBe(COMPANY_MODEL);
     expect(req.body).not.toHaveProperty('model_parameters');
@@ -373,13 +394,25 @@ describe('saved-agent model checks, after existing resource VIEW ACL', () => {
     config.endpoints.custom[0].name = 'Project Engine';
     config.endpoints.custom[0].models.default = ['manufacturer-q/model-7'];
     const funded = resolveFundedDefault(config);
-    expect(matchesManagedAgentPolicy({
-      id: 'agent_q', provider: 'Project Engine',
-      model: 'manufacturer-q/model-7',
-    }, funded)).toBe(true);
-    expect(matchesManagedAgentPolicy({
-      id: 'agent_q', provider: 'Project Engine',
-      model: 'another-model',
-    }, funded)).toBe(false);
+    expect(
+      matchesManagedAgentPolicy(
+        {
+          id: 'agent_q',
+          provider: 'Project Engine',
+          model: 'manufacturer-q/model-7',
+        },
+        funded,
+      ),
+    ).toBe(true);
+    expect(
+      matchesManagedAgentPolicy(
+        {
+          id: 'agent_q',
+          provider: 'Project Engine',
+          model: 'another-model',
+        },
+        funded,
+      ),
+    ).toBe(false);
   });
 });
