@@ -7,7 +7,6 @@ const {
   isEphemeralAgentId,
 } = require('librechat-data-provider');
 
-const FUNDED_ENDPOINT = 'CBHR AI';
 
 /**
  * Regular CBHR staff have centrally funded access, not individual BYOK keys.
@@ -20,23 +19,23 @@ const FUNDED_ENDPOINT = 'CBHR AI';
  */
 function resolveFundedDefault(config) {
   const list = config?.modelSpecs?.list;
-  const spec = Array.isArray(list)
-    ? list.find(
-        (entry) =>
-          entry?.default === true &&
-          entry?.preset?.endpoint === FUNDED_ENDPOINT &&
-          typeof entry?.preset?.model === 'string' &&
-          entry.preset.model.length > 0,
-      )
-    : undefined;
-
   const configured = config?.endpoints?.custom;
-  const custom = Array.isArray(configured)
-    ? configured.find((entry) => entry?.name === FUNDED_ENDPOINT)
+  const spec = Array.isArray(list) && Array.isArray(configured)
+    ? list.find(entry =>
+        entry?.default === true &&
+        typeof entry?.name === 'string' && entry.name.length > 0 &&
+        typeof entry?.preset?.endpoint === 'string' &&
+        configured.some(ep => ep?.name === entry.preset.endpoint))
     : undefined;
+  const custom = Array.isArray(configured)
+    ? configured.find(entry => entry?.name === spec?.preset?.endpoint)
+    : undefined;
+  const selected = Array.isArray(custom?.models?.default)
+    ? custom.models.default[0] : undefined;
+  const validModel = typeof selected === 'string' &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]{0,255}$/.test(selected);
   const apiKey = custom?.apiKey;
   const baseURL = custom?.baseURL;
-  const configuredModels = custom?.models?.default;
   if (
     !spec ||
     typeof apiKey !== 'string' ||
@@ -45,12 +44,11 @@ function resolveFundedDefault(config) {
     typeof baseURL !== 'string' ||
     !baseURL.trim() ||
     baseURL === 'user_provided' ||
-    !Array.isArray(configuredModels) ||
-    !configuredModels.includes(spec.preset.model)
+    !validModel
   ) {
     return null;
   }
-  return { endpoint: FUNDED_ENDPOINT, model: spec.preset.model, spec: spec.name };
+  return { endpoint: spec.preset.endpoint, model: selected, spec: spec.name };
 }
 
 function isExplicitPersistedAgent(body) {
@@ -63,7 +61,7 @@ function isExplicitPersistedAgent(body) {
 }
 
 function enforceManagedChatEndpoint(req, res, next) {
-  if (req.user?.role !== SystemRoles.USER) {
+  if (req.user?.role === SystemRoles.ADMIN) {
     return next();
   }
 
@@ -74,6 +72,14 @@ function enforceManagedChatEndpoint(req, res, next) {
       message: 'Chat request body must be an object.',
     });
   }
+
+  // Reasoning effort for ordinary users is organization policy, never a
+  // browser-supplied parameter. The bridge injects that model's configured
+  // default after routing; unsupported models receive no extra parameter.
+  for (const field of [
+    'reasoning_effort', 'reasoningEffort', 'thinking', 'thinkingBudget',
+    'thinkingLevel', 'reasoning', 'effort',
+  ]) delete body[field];
 
   // Non-ephemeral agents are explicitly configured resources. Their VIEW ACL
   // is independently verified downstream; do not rewrite saved agent models.
@@ -153,7 +159,7 @@ function enforceManagedChatEndpoint(req, res, next) {
  * instead of attempting a personal provider key. ADMIN remains unaffected.
  */
 function rejectManagedAssistantEndpoint(req, res, next) {
-  if (req.user?.role === SystemRoles.USER) {
+  if (req.user?.role !== SystemRoles.ADMIN) {
     return res.status(403).json({
       error: 'Company model required',
       message: 'Use CBHR AI to start a company-funded chat.',

@@ -114,6 +114,29 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(req.body.agent_id).toBe('agent_protected');
   });
 
+  it('uses the CURRENT principal-scoped default, not a stale YAML modelSpec model', () => {
+    const config = makeConfig();
+    // These strings deliberately differ from current production provider/model.
+    // The first available model is the current admin selection after role merge.
+    config.modelSpecs.list[0].preset.model = 'old-irrelevant-provider/old-model';
+    config.endpoints.custom[0].models.default = ['new-provider/new-model', 'second-provider/beta'];
+    const req = makeReq({
+      endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL, text: 'hi',
+    }, SystemRoles.USER, config);
+    const { next, res } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.body.model).toBe('new-provider/new-model');
+  });
+
+  it('fails closed when there is no effective model to choose', () => {
+    const config = makeConfig();
+    config.endpoints.custom[0].models.default = [];
+    const { next, res } = invoke(makeReq({ text: 'hi' }, SystemRoles.USER, config));
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(503);
+  });
+
   it('resynchronizes stale model/spec even on an already selected company endpoint', () => {
     const req = makeReq({
       endpoint: COMPANY_ENDPOINT,
@@ -177,7 +200,7 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(req.body.endpoint).toBe(COMPANY_ENDPOINT);
   });
 
-  it.each([SystemRoles.ADMIN, 'SPECIAL_ROLE'])('does not modify %s selection', (role) => {
+  it.each([SystemRoles.ADMIN])('does not modify %s selection', (role) => {
     const body = { endpoint: 'openAI', model: 'gpt-4o', spec: 'admin-model' };
     const req = makeReq({ ...body }, role);
     const { next } = invoke(req);
@@ -220,7 +243,7 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
               name: COMPANY_ENDPOINT,
               apiKey: '$' + '{LITELLM_MASTER_KEY}',
               baseURL: 'http://litellm:4000/v1',
-              models: { default: ['another-model'] },
+              models: { default: [] },
             },
           ],
         },
