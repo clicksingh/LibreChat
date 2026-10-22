@@ -347,7 +347,21 @@ router.get('/code/download/:session_id/:fileId', async (req, res) => {
           resolveWorkspaceContextExplicit,
         });
       } catch (error) {
-        return res.status(error?.status === 404 ? 404 : 403).send('Forbidden');
+        if (error?.status === 404) {
+          return res.status(404).send('Forbidden');
+        }
+        if (
+          error?.status === 401 ||
+          error?.status === 403 ||
+          error?.message === 'CODE_PROJECT_FALLBACK_DENIED'
+        ) {
+          return res.status(403).send('Forbidden');
+        }
+        // Unexpected signing/configuration, database or module failures are
+        // server errors, not a claim that the caller lacks file access.
+        // Do not include signed grant tokens or request URLs in logs.
+        logger.error('[code download] Project fallback authorization unavailable', error?.message);
+        return res.status(500).send('Error downloading file');
       }
     }
 
