@@ -1,0 +1,34 @@
+name: CBHR managed model and reasoning contracts
+
+on:
+  push:
+    branches:
+      - fix/cbhr-dynamic-managed-model-20261022
+  pull_request:
+    paths:
+      - 'api/server/middleware/enforceManagedChatEndpoint*'
+      - 'client/src/utils/modelReasoningControls*'
+      - 'client/src/components/SidePanel/Parameters/Panel.tsx'
+      - 'client/src/components/SidePanel/Agents/ModelPanel.tsx'
+      - 'packages/data-provider/src/config.ts'
+      - 'packages/data-provider/src/types.ts'
+      - '.github/workflows/cbhr-managed-model-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Enforced non-admin managed model and effort contracts
+        run: node --test api/server/middleware/enforceManagedChatEndpoint.contract.test.cjs
+      - name: Install minimal isolated TypeScript transpiler for UI contracts
+        run: npm install --prefix /tmp/cbhr-ui-contract --no-audit --no-fund --ignore-scripts typescript@5.9.3
+      - name: Admin-only model-specific effort UI contracts
+        run: NODE_PATH=/tmp/cbhr-ui-contract/node_modules node --test client/src/utils/modelReasoningControls.contract.test.cjs

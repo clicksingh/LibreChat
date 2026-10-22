@@ -1083,6 +1083,11 @@ export const endpointSchema = baseEndpointSchema.merge(
         /** Also reconstructs `reasoning_content` from persisted history across turns (implies `includeReasoningContent`). */
         includeReasoningHistory: z.boolean().optional(),
         paramDefinitions: z.array(paramDefinitionSchema).optional(),
+        reasoningProfiles: z.record(z.string(), z.object({
+          transport: z.string(),
+          options: z.array(z.string()).min(1).max(16),
+          default: z.string(),
+        }).strict()).optional(),
       })
       .strict()
       .optional(),

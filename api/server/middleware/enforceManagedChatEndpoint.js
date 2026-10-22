@@ -11,8 +11,8 @@ const {
 /**
  * Regular CBHR staff have centrally funded access, not individual BYOK keys.
  * Correct stale browser/conversation endpoint payloads before model setup or
- * generation job creation. Authorization for explicit saved agents remains with
- * canAccessAgentFromBody (VIEW ACL); ADMIN and other roles are not rewritten.
+ * generation job creation. Saved agents cannot bypass the required company default;
+ * ADMIN retains independent selection.
  *
  * Fail closed if the deployment no longer provides a valid centrally funded
  * default. Never trust a caller-provided spec or arbitrary custom endpoint.
@@ -81,16 +81,15 @@ function enforceManagedChatEndpoint(req, res, next) {
     'thinkingLevel', 'reasoning', 'effort',
   ]) delete body[field];
 
-  // Non-ephemeral agents are explicitly configured resources. Their VIEW ACL
-  // is independently verified downstream; do not rewrite saved agent models.
+  // Saved agents may carry a persisted, privileged model selected before the
+  // current central policy. Their VIEW ACL is *not* model authorization.
+  // Refuse non-admin saved-agent execution until stored agent models can be
+  // independently checked against the effective model policy.
   if (isExplicitPersistedAgent(body)) {
-    if (req.params?.endpoint && req.params.endpoint !== body.endpoint) {
-      return res.status(400).json({
-        error: 'Invalid agent request',
-        message: 'Agent endpoint route does not match the selected agent endpoint.',
-      });
-    }
-    return next();
+    return res.status(403).json({
+      error: 'Company model required',
+      message: 'This saved agent cannot run under the current company model policy.',
+    });
   }
 
   const funded = resolveFundedDefault(req.config);

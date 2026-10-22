@@ -51,6 +51,11 @@ test('empty or invalid effective default refuses operation',()=>{
   assert.equal(x.called,false);assert.equal(x.status,503);
  }
 });
+test('saved agent cannot bypass staff model enforcement even with a VIEW grant',()=>{
+ const x=check({endpoint:'agents',agent_id:'saved-agent',model:'other-model'},cfg(),'USER');
+ assert.equal(x.called,false);
+ assert.equal(x.status,403);
+});
 test('non-admin custom roles inherit the same staff model and effort policy',()=>{
  const x=check({endpoint:'untrusted',model:'unauthorized',reasoning_effort:'xhigh'},cfg(),'E2E_NOCODE');
  assert.equal(x.called,true);

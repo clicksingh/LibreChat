@@ -11,13 +11,15 @@ import {
   SettingDefinition,
   agentParamSettings,
   applyModelAwareDefaults,
+  SystemRoles,
 } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { AgentForm, AgentModelPanelProps, StringOption } from '~/common';
 import { componentMapping } from '~/components/SidePanel/Parameters/components';
 import { useGetEndpointsQuery } from '~/data-provider';
 import { useLiveAnnouncer } from '~/Providers';
-import { useLocalize } from '~/hooks';
+import { useLocalize, useAuthContext } from '~/hooks';
+import { resolveModelReasoningControls } from '~/utils/modelReasoningControls';
 import { Panel } from '~/common';
 import { cn } from '~/utils';
 
@@ -27,6 +29,7 @@ export default function ModelPanel({
   models: modelsData,
 }: Pick<AgentModelPanelProps, 'models' | 'providers' | 'setActivePanel'>) {
   const localize = useLocalize();
+  const { user } = useAuthContext();
   const { announcePolite } = useLiveAnnouncer();
 
   const { control, setValue } = useFormContext<AgentForm>();
@@ -88,10 +91,30 @@ export default function ModelPanel({
       overriddenEndpointKey,
       model ?? '',
     );
-    return modelAwareParams.map(
+    const normalized = modelAwareParams.map(
       (param) => (overriddenParamsMap[param.key] as SettingDefinition) ?? param,
     );
-  }, [endpointType, endpointsConfig, model, provider]);
+    return resolveModelReasoningControls(
+      normalized,
+      customParams.reasoningProfiles,
+      model ?? '',
+      user?.role === SystemRoles.ADMIN,
+    );
+  }, [endpointType, endpointsConfig, model, provider, user?.role]);
+
+  // Prevent a model switch from retaining an effort unsupported by the new
+  // selection (or any forbidden effort if this account is not ADMIN).
+  useEffect(() => {
+    const current = modelParameters?.reasoning_effort;
+    if (current == null) return;
+    const effortSetting = parameters.find((setting) => setting.key === 'reasoning_effort');
+    if (effortSetting?.options?.includes(String(current))) return;
+    const { reasoning_effort: _discarded, ...rest } = modelParameters ?? {};
+    const replacement = effortSetting?.default != null
+      ? { ...rest, reasoning_effort: effortSetting.default }
+      : rest;
+    setValue('model_parameters', replacement as t.AgentModelParameters);
+  }, [parameters, modelParameters, setValue]);
 
   const setOption = (optionKey: keyof t.AgentModelParameters) => (value: t.AgentParameterValue) => {
     setValue(`model_parameters.${optionKey}`, value);

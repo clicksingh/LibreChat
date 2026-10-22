@@ -167,7 +167,7 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(req.body).toEqual(body);
   });
 
-  it('preserves an explicitly selected persisted agent for existing VIEW ACL checks', () => {
+  it('denies ordinary users invoking persisted agents with unchecked model policy', () => {
     const body = {
       endpoint: 'agents',
       agent_id: 'agent_approved',
@@ -176,8 +176,8 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     };
     const req = makeReq({ ...body });
     const { next } = invoke(req);
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(req.body).toEqual(body);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('does not treat an ephemeral agents endpoint as saved-agent authorization', () => {
