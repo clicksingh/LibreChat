@@ -304,6 +304,14 @@ export const imageDetailValue = {
 
 export const eImageDetailSchema = z.nativeEnum(ImageDetail);
 export const eReasoningEffortSchema = z.nativeEnum(ReasoningEffort);
+/** Named per-model effort levels are validated at the server/model policy layer.
+ * The conversation transport accepts safe protocol values without treating the
+ * built-in frontend enum as an immutable list of all provider capabilities.
+ */
+export const managedReasoningEffortSchema = z.union([
+  eReasoningEffortSchema,
+  z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/),
+]);
 export const eReasoningParameterFormatSchema = z.nativeEnum(ReasoningParameterFormat);
 export const eReasoningResponseKeySchema = z.nativeEnum(ReasoningResponseKey);
 export const eAnthropicEffortSchema = z.nativeEnum(AnthropicEffort);
@@ -997,7 +1005,7 @@ export const tConversationSchema = z.object({
   /* vision */
   imageDetail: eImageDetailSchema.optional(),
   /* OpenAI: Reasoning models only */
-  reasoning_effort: eReasoningEffortSchema.optional().nullable(),
+  reasoning_effort: managedReasoningEffortSchema.optional().nullable(),
   reasoning_summary: eReasoningSummarySchema.optional().nullable(),
   /* OpenAI Responses API: reasoning mode (standard/pro) + context */
   reasoning_mode: eReasoningModeSchema.optional().nullable(),
