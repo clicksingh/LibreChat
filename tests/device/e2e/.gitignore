@@ -1,0 +1,3 @@
+# W9 end-to-end harness — local run state must never be committed.
+.e2e-state/
+run*.out.txt

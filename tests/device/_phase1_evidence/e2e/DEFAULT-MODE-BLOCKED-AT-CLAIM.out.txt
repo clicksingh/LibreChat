@@ -1,0 +1,286 @@
+
+==============================================================================
+W9 E2E — run w9-20261023233033_7f57a6
+==============================================================================
+work dir : C:\Users\Aryan\Desktop\codellm\librechat-rdc-phase1\tests\device\e2e\.e2e-state\w9-20261023233033_7f57a6
+database : cbhr_rdc_phase1_e2e_w9_20261023233033_7f57a6
+
+--- S1  PASS  PREFLIGHT — GM-71 concurrency, the frozen MongoDB endpoint, and every real artifact
+{
+  "mongo": {
+    "host": "127.0.0.1",
+    "port": "27027",
+    "replicaSet": "cbhrRdcP1",
+    "writablePrimary": true,
+    "serverVersion": "7.0.43",
+    "driverVersion": "6.21.0",
+    "pinMatches": true
+  },
+  "gm71": {
+    "probed": true,
+    "scanned": 42,
+    "matches": []
+  },
+  "artifacts": {
+    "endpointAgentCli": true,
+    "relayWorker": true,
+    "relayRoot": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+    "devicesRouter": true,
+    "dispatchLedger": true,
+    "resultSink": true,
+    "relayDispatchClient": true,
+    "deviceToolRegistry": true
+  },
+  "namespaceBefore": {
+    "all": [
+      "admin",
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_preflight_20261010",
+      "config",
+      "local"
+    ],
+    "nonSystem": [
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_preflight_20261010"
+    ]
+  },
+  "productFilesModifiedByThisHarness": []
+}
+NOTE: No competing lane process matched skew|run-e1|servertime|devicePolicy|run-e2e.
+2026-10-23 16:30:36 [32minfo[39m: [32mMongo Connection options[39m
+2026-10-23 16:30:36 [32minfo[39m: [32m{[39m
+[32m  "bufferCommands": false[39m
+[32m}[39m
+
+--- S2  PASS  BACKEND — the REAL devices router on a real HTTP server over real MongoDB
+{
+  "base": "http://127.0.0.1:49192",
+  "mongooseDatabase": "cbhr_rdc_phase1_e2e_w9_20261023233033_7f57a6",
+  "router": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\routes\\devices.js",
+  "routerExports": "express.Router (mounted at /api/devices)",
+  "authMiddleware": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\middleware\\requireJwtAuth.js",
+  "passportStrategy": "api/strategies jwtLogin(), registered as api/server/index.js does",
+  "rateLimiters": "the router's own deviceRateLimiters (per-route, unmocked)",
+  "modelsRegistry": "genuine createModels(mongoose) from @librechat/data-schemas (built dist)",
+  "modelsAdapter": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\models-adapter.cjs",
+  "modelsAdapterRealModels": 46,
+  "productFilesModified": "none",
+  "aliasRewrites": 38,
+  "modelsAdapterSubstitutions": 1,
+  "pepperSeamSubstitutions": 0,
+  "pepperSeam": {
+    "seam": "deviceHttpTrust.resolvePepperSeam replaced on the module exports with a wrapper that supplies the server-owned pepper",
+    "modulePatched": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\services\\Device\\deviceHttpTrust.js",
+    "aliasSubstitutions": 0,
+    "why": "api/server/routes/devices.js constructs the pairing handlers with no pepperLookup, so the ceremony fails closed with WRITE_OUTCOME_UNCERTAIN. The jest route suite injects the same value through its module mock.",
+    "pepperPresent": true,
+    "pepperLength": 25,
+    "pepperValueRecorded": false,
+    "stats": {
+      "calls": 0,
+      "usedCallerSeam": 0,
+      "usedHarnessSeam": 0,
+      "returnedNull": 0
+    }
+  },
+  "sameRegistryAsTheRouter": true
+}
+NOTE: The router, its handlers, the accepted Device services, requireJwtAuth, the passport jwt strategy and the strip-then-use rate limiters are all product bytes. The single substitution is `~/db/models`, named in `modelsAdapter`.
+
+--- S2b  PASS  AUTH CONTROL — a gated device route refuses an unauthenticated caller
+{
+  "status": 401,
+  "body": {
+    "message": "No auth token"
+  }
+}
+NOTE: Proof the real requireJwtAuth chain is mounted rather than bypassed.
+
+--- S3  PASS  RELAY — the real relay artifact booted locally (workerd via Miniflare)
+{
+  "base": "http://127.0.0.1:49219/",
+  "workerScript": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay\\dist\\worker.js",
+  "compatibility": {
+    "date": "2026-10-19",
+    "flags": [
+      "no_nodejs_compat",
+      "no_nodejs_compat_v2"
+    ]
+  },
+  "relayBootCwd": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+  "osTmp": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023233033_7f57a6\\.relay-state\\os-tmp",
+  "relayRoot": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+  "runtime": "miniflare (in-process workerd)"
+}
+NOTE: No deploy, no account, no Cloudflare API call. The relay is keyless and never parses a payload.
+
+--- S4  PASS  ENDPOINT — the real agent provisioned in its own key store OUTSIDE the repo
+{
+  "agentRoot": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6",
+  "agentRootIsOutsideTheRepo": true,
+  "labKeyDir": "C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023233033_7f57a6",
+  "keygenCommand": "C:\\nvm4w\\nodejs\\node.exe tools/lab-backend.cjs keygen --out C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023233033_7f57a6",
+  "initCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js init --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6 --device-id w9-bootstrap-w9-20261023233033_7f57a6",
+  "pinCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js pin-backend --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6 --spki-file C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023233033_7f57a6\\lab-backend-spki.txt",
+  "describeCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js describe --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6",
+  "deviceKeyId": "Wi8mztyaz2xwlGTfC2UcRe1su59pI75_GwFdS2RVdZs",
+  "devicePublicKeySpkiB64u": "MCowBQYDK2VwAyEAMuuCpw-4YtLo7FPgZj14tX5YNjfeBCDJ0OqXpbKB-_A",
+  "deviceKeyFile": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6\\device-key.json",
+  "pinnedBackendKeyIds": [
+    "A6q65mocCb6elGho7BJRovUxVYEOH5J4I5hUSTLNs9Q"
+  ],
+  "backendKeyIdUsedForSigning": "A6q65mocCb6elGho7BJRovUxVYEOH5J4I5hUSTLNs9Q",
+  "backendKeyIdIsPinned": true,
+  "runnerReadsTheDeviceKey": {
+    "value": true,
+    "onlyFor": "the registration / pairing-open / pairing-claim ceremony proofs, which the DEVICE signs",
+    "neverFor": "the command frames (backend custody) or the result frames (the agent process alone)",
+    "file": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6\\device-key.json",
+    "outsideTheRepo": true
+  },
+  "bootstrapDescribeDeviceId": null
+}
+NOTE: The device key is generated by the agent and lives OUTSIDE the repo. The harness opens it only to sign the ceremony proofs (staged for replacement by an agent-side ceremony command); the command frames are signed by BACKEND custody, and the result frames only by the agent process.
+
+--- S5  PASS  REGISTRATION — a real User + real JWT, then the real registration ceremony
+{
+  "userId": "6adbee1f528399cd31979aa2",
+  "userTenant": "tenant-w9-e2e",
+  "jwtMinted": true,
+  "auditEvents": [
+    "register"
+  ],
+  "serverIssuedDeviceId": "9740a62d-fb11-463d-a960-40eeaf4620a2",
+  "serverDerivedDeviceKeyId": "Wi8mztyaz2xwlGTfC2UcRe1su59pI75_GwFdS2RVdZs",
+  "agentDeviceKeyId": "Wi8mztyaz2xwlGTfC2UcRe1su59pI75_GwFdS2RVdZs",
+  "deviceKeyIdAgrees": true,
+  "agentDeviceIdAfterPublish": "9740a62d-fb11-463d-a960-40eeaf4620a2",
+  "deviceIdAgrees": true,
+  "identityKeyPreservedAcrossInit": true,
+  "initCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js init --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023233033_7f57a6 --device-id 9740a62d-fb11-463d-a960-40eeaf4620a2",
+  "hmacLookupTagOnly": "the plaintext pairing code is never persisted (accepted service law)"
+}
+NOTE: The server minted the device id and derived the device key id from the agent's own public key. The agent then adopted the server-issued id without regenerating its key.
+
+--- S5b  PASS  DATABASE TIME — the GM-44 server clock is measurable before the lease decisions
+{
+  "auditSinkKind": "mongoose-AuditEvent",
+  "eventWritten": "register (real AuditEvent row, majority+j write concern, via the accepted sink)",
+  "collectionsPresent": [
+    "deviceauthorities",
+    "pairingsessions",
+    "challenges"
+  ],
+  "timeHostModelsPresent": [
+    "DeviceAuthority",
+    "Challenge",
+    "PairingSession",
+    "AuditEvent"
+  ],
+  "measuredDatabaseNowMs": 1792798240800,
+  "measurementIsServerTime": "read with $collStats + $$NOW, so the value is the DATABASE clock"
+}
+NOTE: Without a time host the accepted services fail closed rather than deciding a lease/TTL from the writer clock, which is the correct behaviour and is why this step exists.
+
+--- S6  FAIL  PAIRING — the real ceremony through the real routes
+{
+  "legs": [
+    {
+      "leg": "POST /api/devices/pairing/challenge",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "challengeHash": "vyIbC2hZW9fHo-5jCyupFv-Y_iJTIE7yv3tbJSz9bVU",
+        "issuedAt": "1792798240817",
+        "expiresAt": "2026-10-23T23:32:40.817Z"
+      }
+    },
+    {
+      "leg": "POST /api/devices/pairing/issue",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "code": "<6-digit code withheld from evidence>",
+        "pairingSessionId": "6adbee21528399cd31979b21",
+        "state": "open",
+        "expiresAt": "2026-10-23T23:35:40.904Z"
+      },
+      "codeShape": true
+    },
+    {
+      "leg": "POST /api/devices/pairing/approve",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "pairingSessionId": "6adbee21528399cd31979b21",
+        "state": "claim_pending",
+        "deviceKeyId": "Wi8mztyaz2xwlGTfC2UcRe1su59pI75_GwFdS2RVdZs",
+        "expiresAt": "2026-10-23T23:35:40.904Z"
+      }
+    },
+    {
+      "leg": "POST /api/devices/pairing/complete (arm)",
+      "status": 200,
+      "body": {
+        "state": "claim_ready",
+        "deviceId": "9740a62d-fb11-463d-a960-40eeaf4620a2",
+        "hasSigningMessage": true
+      }
+    },
+    {
+      "leg": "POST /api/devices/pairing/complete (claim)",
+      "status": 403,
+      "body": {
+        "ok": false,
+        "code": "ENDPOINT_CONSENT_REQUIRED",
+        "message": "Local-endpoint approval is stale or not bound to trusted session truth",
+        "committed": false,
+        "deviceId": "9740a62d-fb11-463d-a960-40eeaf4620a2",
+        "epoch": 0,
+        "expiresAt": null,
+        "leaseState": "never"
+      }
+    }
+  ],
+  "defect": {
+    "id": "D-CLAIM-ORDERING",
+    "confirmed": true,
+    "code": "ENDPOINT_CONSENT_REQUIRED",
+    "message": "Local-endpoint approval is stale or not bound to trusted session truth",
+    "cause": "requireLocalConsent compares `approvedAt <= now`, where `now` is captured at the START of approvePairingClaim and `approvedAt` is produced later by the route consent verifier, so on a real clock the conjunct is unsatisfiable. The accepted route suite passes only because it injects a frozen clock.",
+    "measuredBy": "tests/device/e2e/_repro-claim-law.cjs (six of six binding conjuncts true; `leNow` false)",
+    "report": "tests/device/e2e/W9-FINDING-pairing-claim-ordering-defect.md"
+  }
+}
+NOTE: Four legs passed through the real router; the fifth is refused by the confirmed product defect above. The consequence is structural: without a lease there is no grantId/epoch to sign into a CBHR-RPC-V2 frame, so the whole downstream loop is unreachable through the real pairing path. Re-run with --defect-claim-clock-freeze to prove the REST of the loop under a disclosed workaround.
+
+--- S12  PASS  CLEANUP — the harness database is dropped and no harness-prefixed database remains
+{
+  "before": [
+    "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+    "cbhr_rdc_phase1_preflight_20261010"
+  ],
+  "after": [
+    "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+    "cbhr_rdc_phase1_preflight_20261010"
+  ],
+  "equal": true,
+  "added": [],
+  "missing": [],
+  "ownDatabaseCreated": "cbhr_rdc_phase1_e2e_w9_20261023233033_7f57a6",
+  "ownDatabaseDropped": true,
+  "ownPrefixLeftovers": [],
+  "foreignNewDatabases": [],
+  "namespaceClean": true,
+  "systemDatabasesExcluded": [
+    "admin",
+    "local",
+    "config"
+  ],
+  "note": "no other database appeared during this run"
+}
+
+W9 E2E FAILED: PAIRING_CLAIM_LEG_BLOCKED_BY_PRODUCT_DEFECT: the claim leg cannot succeed on a real clock (ENDPOINT_CONSENT_REQUIRED). Re-run with --defect-claim-clock-freeze to prove the REST of the loop under a disclosed workaround.
+Error: PAIRING_CLAIM_LEG_BLOCKED_BY_PRODUCT_DEFECT: the claim leg cannot succeed on a real clock (ENDPOINT_CONSENT_REQUIRED). Re-run with --defect-claim-clock-freeze to prove the REST of the loop under a disclosed workaround.
+    at main (C:\Users\Aryan\Desktop\codellm\librechat-rdc-phase1\tests\device\e2e\run-e2e.cjs:904:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)

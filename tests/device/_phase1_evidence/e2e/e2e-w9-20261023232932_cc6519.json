@@ -1,0 +1,1140 @@
+{
+  "harness": "W9 local end-to-end (pair -> dispatch -> execute -> result -> correlated outcome)",
+  "runId": "w9-20261023232932_cc6519",
+  "runAt": "2026-10-23T23:29:32.648Z",
+  "node": "v22.19.0",
+  "platform": "win32 x64",
+  "repo": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1",
+  "databaseName": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+  "steps": [
+    {
+      "id": "S1",
+      "title": "PREFLIGHT — GM-71 concurrency, the frozen MongoDB endpoint, and every real artifact",
+      "status": "PASS",
+      "observed": {
+        "mongo": {
+          "host": "127.0.0.1",
+          "port": "27027",
+          "replicaSet": "cbhrRdcP1",
+          "writablePrimary": true,
+          "serverVersion": "7.0.43",
+          "driverVersion": "6.21.0",
+          "pinMatches": true
+        },
+        "gm71": {
+          "probed": true,
+          "scanned": 42,
+          "matches": []
+        },
+        "artifacts": {
+          "endpointAgentCli": true,
+          "relayWorker": true,
+          "relayRoot": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+          "devicesRouter": true,
+          "dispatchLedger": true,
+          "resultSink": true,
+          "relayDispatchClient": true,
+          "deviceToolRegistry": true
+        },
+        "namespaceBefore": {
+          "all": [
+            "admin",
+            "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+            "cbhr_rdc_phase1_preflight_20261010",
+            "config",
+            "local"
+          ],
+          "nonSystem": [
+            "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+            "cbhr_rdc_phase1_preflight_20261010"
+          ]
+        },
+        "productFilesModifiedByThisHarness": []
+      },
+      "notes": "No competing lane process matched skew|run-e1|servertime|devicePolicy|run-e2e."
+    },
+    {
+      "id": "S2",
+      "title": "BACKEND — the REAL devices router on a real HTTP server over real MongoDB",
+      "status": "PASS",
+      "observed": {
+        "base": "http://127.0.0.1:3754",
+        "mongooseDatabase": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+        "router": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\routes\\devices.js",
+        "routerExports": "express.Router (mounted at /api/devices)",
+        "authMiddleware": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\middleware\\requireJwtAuth.js",
+        "passportStrategy": "api/strategies jwtLogin(), registered as api/server/index.js does",
+        "rateLimiters": "the router's own deviceRateLimiters (per-route, unmocked)",
+        "modelsRegistry": "genuine createModels(mongoose) from @librechat/data-schemas (built dist)",
+        "modelsAdapter": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\models-adapter.cjs",
+        "modelsAdapterRealModels": 46,
+        "productFilesModified": "none",
+        "aliasRewrites": 38,
+        "modelsAdapterSubstitutions": 1,
+        "pepperSeamSubstitutions": 0,
+        "pepperSeam": {
+          "seam": "deviceHttpTrust.resolvePepperSeam replaced on the module exports with a wrapper that supplies the server-owned pepper",
+          "modulePatched": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\services\\Device\\deviceHttpTrust.js",
+          "aliasSubstitutions": 0,
+          "why": "api/server/routes/devices.js constructs the pairing handlers with no pepperLookup, so the ceremony fails closed with WRITE_OUTCOME_UNCERTAIN. The jest route suite injects the same value through its module mock.",
+          "pepperPresent": true,
+          "pepperLength": 25,
+          "pepperValueRecorded": false,
+          "stats": {
+            "calls": 3,
+            "usedCallerSeam": 0,
+            "usedHarnessSeam": 3,
+            "returnedNull": 0
+          }
+        },
+        "sameRegistryAsTheRouter": true
+      },
+      "notes": "The router, its handlers, the accepted Device services, requireJwtAuth, the passport jwt strategy and the strip-then-use rate limiters are all product bytes. The single substitution is `~/db/models`, named in `modelsAdapter`."
+    },
+    {
+      "id": "S2b",
+      "title": "AUTH CONTROL — a gated device route refuses an unauthenticated caller",
+      "status": "PASS",
+      "observed": {
+        "status": 401,
+        "body": {
+          "message": "No auth token"
+        }
+      },
+      "notes": "Proof the real requireJwtAuth chain is mounted rather than bypassed."
+    },
+    {
+      "id": "S3",
+      "title": "RELAY — the real relay artifact booted locally (workerd via Miniflare)",
+      "status": "PASS",
+      "observed": {
+        "base": "http://127.0.0.1:3769/",
+        "workerScript": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay\\dist\\worker.js",
+        "compatibility": {
+          "date": "2026-10-19",
+          "flags": [
+            "no_nodejs_compat",
+            "no_nodejs_compat_v2"
+          ]
+        },
+        "relayBootCwd": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+        "osTmp": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\.relay-state\\os-tmp",
+        "relayRoot": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+        "runtime": "miniflare (in-process workerd)"
+      },
+      "notes": "No deploy, no account, no Cloudflare API call. The relay is keyless and never parses a payload."
+    },
+    {
+      "id": "S4",
+      "title": "ENDPOINT — the real agent provisioned in its own key store OUTSIDE the repo",
+      "status": "PASS",
+      "observed": {
+        "agentRoot": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519",
+        "agentRootIsOutsideTheRepo": true,
+        "labKeyDir": "C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023232932_cc6519",
+        "keygenCommand": "C:\\nvm4w\\nodejs\\node.exe tools/lab-backend.cjs keygen --out C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023232932_cc6519",
+        "initCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js init --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --device-id w9-bootstrap-w9-20261023232932_cc6519",
+        "pinCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js pin-backend --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --spki-file C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023232932_cc6519\\lab-backend-spki.txt",
+        "describeCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js describe --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519",
+        "deviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+        "devicePublicKeySpkiB64u": "MCowBQYDK2VwAyEAsUP3HEzzWNi3YM4nseXGVQOajGXuscySc0xtcTz_4uU",
+        "deviceKeyFile": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\device-key.json",
+        "pinnedBackendKeyIds": [
+          "I5G7EsLP-xoW6tHBICWJQvZRQuFpa5bEHyLeWnuti8c"
+        ],
+        "backendKeyIdUsedForSigning": "I5G7EsLP-xoW6tHBICWJQvZRQuFpa5bEHyLeWnuti8c",
+        "backendKeyIdIsPinned": true,
+        "runnerReadsTheDeviceKey": {
+          "value": true,
+          "onlyFor": "the registration / pairing-open / pairing-claim ceremony proofs, which the DEVICE signs",
+          "neverFor": "the command frames (backend custody) or the result frames (the agent process alone)",
+          "file": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\device-key.json",
+          "outsideTheRepo": true
+        },
+        "bootstrapDescribeDeviceId": null
+      },
+      "notes": "The device key is generated by the agent and lives OUTSIDE the repo. The harness opens it only to sign the ceremony proofs (staged for replacement by an agent-side ceremony command); the command frames are signed by BACKEND custody, and the result frames only by the agent process."
+    },
+    {
+      "id": "S5",
+      "title": "REGISTRATION — a real User + real JWT, then the real registration ceremony",
+      "status": "PASS",
+      "observed": {
+        "userId": "6adbede28ad801e40972b179",
+        "userTenant": "tenant-w9-e2e",
+        "jwtMinted": true,
+        "auditEvents": [
+          "register"
+        ],
+        "serverIssuedDeviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+        "serverDerivedDeviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+        "agentDeviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+        "deviceKeyIdAgrees": true,
+        "agentDeviceIdAfterPublish": "bd482333-8f14-4680-ac17-1d9cf289f673",
+        "deviceIdAgrees": true,
+        "identityKeyPreservedAcrossInit": true,
+        "initCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js init --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --device-id bd482333-8f14-4680-ac17-1d9cf289f673",
+        "hmacLookupTagOnly": "the plaintext pairing code is never persisted (accepted service law)"
+      },
+      "notes": "The server minted the device id and derived the device key id from the agent's own public key. The agent then adopted the server-issued id without regenerating its key."
+    },
+    {
+      "id": "S5b",
+      "title": "DATABASE TIME — the GM-44 server clock is measurable before the lease decisions",
+      "status": "PASS",
+      "observed": {
+        "auditSinkKind": "mongoose-AuditEvent",
+        "eventWritten": "register (real AuditEvent row, majority+j write concern, via the accepted sink)",
+        "collectionsPresent": [
+          "challenges",
+          "pairingsessions",
+          "deviceauthorities"
+        ],
+        "timeHostModelsPresent": [
+          "DeviceAuthority",
+          "Challenge",
+          "PairingSession",
+          "AuditEvent"
+        ],
+        "measuredDatabaseNowMs": 1792798179380,
+        "measurementIsServerTime": "read with $collStats + $$NOW, so the value is the DATABASE clock"
+      },
+      "notes": "Without a time host the accepted services fail closed rather than deciding a lease/TTL from the writer clock, which is the correct behaviour and is why this step exists."
+    },
+    {
+      "id": "S6",
+      "title": "PAIRING — the real ceremony through the real routes, ending in a real lease",
+      "status": "PASS",
+      "observed": {
+        "legs": [
+          {
+            "leg": "POST /api/devices/pairing/challenge",
+            "status": 200,
+            "body": {
+              "ok": true,
+              "challengeHash": "c3ODL7THN7FB8k2WcGe0El3wwc60wLxxw9CCIGlAbE0",
+              "issuedAt": "1792798179396",
+              "expiresAt": "2026-10-23T23:31:39.396Z"
+            }
+          },
+          {
+            "leg": "POST /api/devices/pairing/issue",
+            "status": 200,
+            "body": {
+              "ok": true,
+              "code": "<6-digit code withheld from evidence>",
+              "pairingSessionId": "6adbede38ad801e40972b1f8",
+              "state": "open",
+              "expiresAt": "2026-10-23T23:34:39.467Z"
+            },
+            "codeShape": true
+          },
+          {
+            "leg": "POST /api/devices/pairing/approve",
+            "status": 200,
+            "body": {
+              "ok": true,
+              "pairingSessionId": "6adbede38ad801e40972b1f8",
+              "state": "claim_pending",
+              "deviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+              "expiresAt": "2026-10-23T23:34:39.467Z"
+            }
+          },
+          {
+            "leg": "POST /api/devices/pairing/complete (arm)",
+            "status": 200,
+            "body": {
+              "state": "claim_ready",
+              "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+              "hasSigningMessage": true
+            }
+          },
+          {
+            "leg": "POST /api/devices/pairing/complete (claim)",
+            "status": 200,
+            "body": {
+              "ok": true,
+              "state": "active",
+              "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+              "epoch": 1,
+              "expiresAt": "2026-10-25T23:29:39.723Z",
+              "leaseState": "active"
+            }
+          }
+        ],
+        "failedLegs": 0,
+        "lease": {
+          "identityState": "active",
+          "leaseState": "active",
+          "epoch": 1,
+          "ownerId": "6adbede28ad801e40972b179",
+          "expiresAt": "2026-10-25T23:29:39.723Z",
+          "grantedByPairingSessionId": "6adbede38ad801e40972b1f8",
+          "grantIdPresent": true,
+          "grantIdLength": 22
+        },
+        "sessionState": "consumed",
+        "successfulClaimLegs": 1,
+        "claimLegElapsedMs": 328,
+        "claimLegUsedTheClockFreeze": false,
+        "statusMeaning": "every leg accepted"
+      },
+      "notes": "Five real HTTP legs on the real router. The six-digit code is withheld from the evidence file; only its shape is recorded. The claim leg is device-authenticated (outside requireJwtAuth) and was completed with the agent's own key."
+    },
+    {
+      "id": "S7",
+      "title": "DISPATCH — the real dispatch client signs, reserves and sends through the real relay",
+      "status": "PASS",
+      "observed": {
+        "callId": "w9-20261023232932_cc6519-call-read",
+        "outcome": {
+          "ok": true,
+          "delivered": "accepted",
+          "requestId": "40d44198-3dae-4b40-8c33-858fb489dfcb",
+          "grantIdMatchesLease": true,
+          "epoch": 1
+        },
+        "ledgerEntryAfterDispatch": {
+          "state": "dispatched",
+          "toolName": "read_file",
+          "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+          "grantIdMatchesLease": true,
+          "tenantId": "tenant-w9-e2e"
+        },
+        "frameArrivedAtTheRealDeviceSocket": true,
+        "relayMessageShape": {
+          "t": "frame",
+          "seq": 1,
+          "replay": false,
+          "payloadIsAString": true
+        },
+        "frameTag": "CBHR-RPC-V2",
+        "frameToolName": "read_file",
+        "frameAudience": "endpoint",
+        "frameArgsB64u": "eyJwYXRoIjoidzktcGF5bG9hZC50eHQifQ",
+        "frameArgsBytesMatchTheDispatchedPreimage": true,
+        "durableCompletionWrites": 0
+      },
+      "notes": "The reservation is in MongoDB before the frame reaches the wire, so a result can only be correlated to a call the platform genuinely dispatched."
+    },
+    {
+      "id": "S8",
+      "title": "EXECUTE — the real agent verified the frame and read a real file at a real path",
+      "status": "PASS",
+      "observed": {
+        "producer": "apps/cbhr-endpoint-agent/run-agent.js handle (REAL child process)",
+        "command": "C:\\nvm4w\\nodejs\\node.exe run-agent.js handle --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --in C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\execute.in.json --out C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\execute.results.jsonl",
+        "exitCode": 0,
+        "stderr": "",
+        "resultFramesWritten": 1,
+        "resultFramesFile": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\execute.results.jsonl",
+        "frameSha256": "b9ab8ae5539434e9b07f2aa17ad3b421a3bdf773ced33aef18f56d8d14530017",
+        "frameTag": "CBHR-RPC-RESULT-V2",
+        "frameOutcome": "succeeded",
+        "frameCallId": "w9-20261023232932_cc6519-call-read",
+        "frameDeviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+        "frameDeviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+        "frameKeyIdMatchesThePinnedBackendKey": false,
+        "fileRead": {
+          "requestedPath": "w9-payload.txt",
+          "absolutePath": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\workspace\\w9-payload.txt",
+          "expectedContentSha256": "bc7aee1da1009a0ffc2d29703928b2ac1b3ea107faec683d2c6820466edc8433",
+          "expectedContentLength": 79,
+          "reportedByTheAgent": {
+            "path": "w9-payload.txt",
+            "size": 79,
+            "bytesRead": 79,
+            "truncated": false,
+            "encoding": "utf8",
+            "content": "W9 end-to-end payload w9-20261023232932_cc6519\nread by the real endpoint agent\n",
+            "sha256Hex": "bc7aee1da1009a0ffc2d29703928b2ac1b3ea107faec683d2c6820466edc8433"
+          },
+          "contentMatchesExpected": true
+        },
+        "theFileIsReal": true
+      },
+      "notes": "The device key lives in the agent's own store outside the repo. This harness never uses it here: a `succeeded` outcome is unreachable without a signature by that key, and only the agent process holds it while handling frames."
+    },
+    {
+      "id": "S9",
+      "title": "RESULT — correlated outcome: the sink completed the call the platform dispatched",
+      "status": "PASS",
+      "observed": {
+        "relay": {
+          "verdict": {
+            "t": "result-ok",
+            "accepted": true,
+            "resultSeq": 1
+          },
+          "outboxPayloadIsByteIdenticalToWhatTheAgentWrote": true,
+          "outboxSeqs": [
+            {
+              "resultSeq": 1,
+              "callId": "w9-20261023232932_cc6519-call-read"
+            }
+          ],
+          "ack": {}
+        },
+        "sink": {
+          "status": "completed",
+          "success": true,
+          "outcome": "succeeded",
+          "callId": "w9-20261023232932_cc6519-call-read",
+          "code": null,
+          "stored": true
+        },
+        "ledgerFinalStateInMongo": {
+          "state": "completed",
+          "outcome": "succeeded",
+          "resultSeq": 1,
+          "completedAt": 1792798180747,
+          "callId": "w9-20261023232932_cc6519-call-read"
+        },
+        "storedResult": {
+          "callId": "w9-20261023232932_cc6519-call-read",
+          "outcome": "succeeded",
+          "success": true,
+          "toolName": "read_file",
+          "tenantId": "tenant-w9-e2e",
+          "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+          "requestId": "40d44198-3dae-4b40-8c33-858fb489dfcb"
+        },
+        "relayCallLedgerInTheRelay": [
+          {
+            "callId": "w9-20261023232932_cc6519-call-read",
+            "state": "reported"
+          }
+        ],
+        "durableCompletionWrites": 1
+      },
+      "notes": "Correlation is by the SIGNED callId against the platform's own ledger, and the ledger transitions exactly once — the durable completion write is the only one this run made."
+    },
+    {
+      "id": "N1",
+      "title": "NEGATIVE — a frame tampered after signing must not execute and must not be a success",
+      "status": "PASS",
+      "observed": {
+        "callId": "w9-20261023232932_cc6519-call-tamper",
+        "dispatchAccepted": "accepted",
+        "tamperedAfterSigning": "argsB64u replaced with different bytes; the signature was NOT recomputed",
+        "agentProcess": {
+          "command": "C:\\nvm4w\\nodejs\\node.exe run-agent.js handle --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --in C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\tamper.in.json --out C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\tamper.results.jsonl",
+          "exitCode": 0,
+          "stderr": "",
+          "refusedWithCode": "ENDPOINT_ARGS_DIGEST_MISMATCH",
+          "signedOutcome": "refused",
+          "correlation": "unverified-claim"
+        },
+        "executed": false,
+        "executedMeaning": "the agent refused BEFORE dispatch (ENDPOINT_ARGS_DIGEST_MISMATCH), so the tool never ran; its result payload carries only the refusal, no file content",
+        "resultPayloadCarriesNoToolOutput": true,
+        "relay": {
+          "t": "result-ok",
+          "accepted": true
+        },
+        "sink": {
+          "status": "completed",
+          "success": false,
+          "outcome": "refused",
+          "code": null,
+          "stored": true
+        },
+        "ledgerStateAfter": {
+          "state": "completed",
+          "outcome": "refused"
+        },
+        "storedResultForThisCall": {
+          "_id": "w9-20261023232932_cc6519-call-tamper",
+          "scope": "w9-20261023232932_cc6519",
+          "callId": "w9-20261023232932_cc6519-call-tamper",
+          "outcome": "refused",
+          "success": false,
+          "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+          "grantId": "Mg0g5US0_W_wO4HE_VmS_A",
+          "epoch": "1",
+          "requestId": "44b4cef0-c2fb-4694-b537-3ef38ea86f1f",
+          "tenantId": "tenant-w9-e2e",
+          "toolName": "read_file",
+          "keyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+          "windowMs": 120000,
+          "resultSeq": 2,
+          "recordedAt": 1792798181560
+        },
+        "storedSuccessField": false,
+        "neverReportedAsSuccess": true
+      },
+      "notes": "The endpoint refused it (GM-47 byte-equality) before dispatch, so nothing ran and no tool output exists in its payload. The platform recorded `refused` / `success:false` and the ledger closed the call as a non-success — a completed NON-success, which is the accepted outcome law (a `refused` result is provable non-execution, not uncertainty)."
+    },
+    {
+      "id": "N2",
+      "title": "NEGATIVE — a result for an unknown callId is refused and stores nothing",
+      "status": "PASS",
+      "observed": {
+        "callId": "w9-20261023232932_cc6519-call-never-dispatched",
+        "note": "the payload is a GENUINE device-signed frame; only the call identity is wrong for it",
+        "relay": {
+          "t": "result-refused",
+          "code": "UNKNOWN_CALL_ID",
+          "accepted": false,
+          "heldInOutbox": false
+        },
+        "sink": {
+          "status": "refused",
+          "success": false,
+          "code": "RESULT_UNKNOWN_CALL_ID",
+          "stored": false
+        },
+        "ledgerHasThisCall": false,
+        "resultsInTheStore": 2
+      },
+      "notes": "The store still holds exactly the two calls that were really completed (the genuine read and the tamper refusal); the unknown call added neither a ledger row nor a stored result."
+    },
+    {
+      "id": "N3",
+      "title": "NEGATIVE — a tool outside the server ceiling is refused before the wire",
+      "status": "PASS",
+      "observed": {
+        "tool": "write_file",
+        "inTheServerCeiling": false,
+        "deviceEnabledIt": false,
+        "deviceFloorFile": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\tools.json",
+        "deviceFloorEnabled": [
+          "get_file_info",
+          "list_directory",
+          "read_file"
+        ],
+        "authorizeDispatch": {
+          "allowed": false,
+          "decision": "denied",
+          "code": "TOOL_CEILING_OUTSIDE_SERVER_CEILING",
+          "tier": 1,
+          "deniedBy": "server",
+          "httpStatus": 403,
+          "reason": "Enabled from stage B; the server ceiling is stage A. The device may only narrow the ceiling, never widen it (GM-72)."
+        },
+        "assertDispatchAllowedThrew": {
+          "name": "DeviceToolRefusalError",
+          "code": "TOOL_CEILING_OUTSIDE_SERVER_CEILING",
+          "httpStatus": 403
+        },
+        "controlInsideTheCeiling": {
+          "tool": "read_file",
+          "allowed": true,
+          "code": "TOOL_ALLOWED",
+          "requiresApproval": false
+        },
+        "nothingReachedTheWire": {
+          "ledgerRowForTheRefusedCall": false,
+          "framesAtTheDeviceSocketBefore": 2,
+          "framesAtTheDeviceSocketAfter": 2
+        },
+        "gateKind": "in-process call to the production module the panel route depends on"
+      },
+      "notes": "The gate EXISTS and is real (`deviceToolRegistry.authorizeDispatch`, the module the panel route consumes). It is NOT yet invoked by any production signing path: the accepted `relayDispatchClient` documents that wiring as the caller's job and no caller does it yet, so this refusal is genuine but not yet mechanically unavoidable from the dispatch entry point."
+    },
+    {
+      "id": "S10",
+      "title": "AFTER — a SEPARATE process re-reads the durable ledger and cannot complete the call twice",
+      "status": "PASS",
+      "observed": {
+        "exitCode": 0,
+        "report": {
+          "process": 31516,
+          "node": "v22.19.0",
+          "independentProcess": true,
+          "database": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+          "callId": "w9-20261023232932_cc6519-call-read",
+          "driver": "mongodb@6.21.0",
+          "ledgerCollection": "w9_dispatch_ledger",
+          "resultCollection": "w9_results",
+          "ledgerRowRaw": {
+            "_id": "w9-20261023232932_cc6519-call-read",
+            "_seq": 2,
+            "scope": "w9-20261023232932_cc6519",
+            "callId": "w9-20261023232932_cc6519-call-read",
+            "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+            "deviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+            "tenantId": "tenant-w9-e2e",
+            "grantId": "Mg0g5US0_W_wO4HE_VmS_A",
+            "epoch": 1,
+            "requestId": "40d44198-3dae-4b40-8c33-858fb489dfcb",
+            "toolName": "read_file",
+            "opKind": "command",
+            "state": "completed",
+            "reservedAt": 1792798180120,
+            "completedAt": 1792798180747,
+            "outcome": "succeeded",
+            "resultSeq": 1
+          },
+          "ledger": {
+            "callId": "w9-20261023232932_cc6519-call-read",
+            "state": "completed",
+            "outcome": "succeeded",
+            "resultSeq": 1,
+            "toolName": "read_file",
+            "tenantId": "tenant-w9-e2e",
+            "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+            "epoch": 1,
+            "reservedAt": 1792798180120,
+            "completedAt": 1792798180747
+          },
+          "storedResult": {
+            "_id": "w9-20261023232932_cc6519-call-read",
+            "scope": "w9-20261023232932_cc6519",
+            "callId": "w9-20261023232932_cc6519-call-read",
+            "outcome": "succeeded",
+            "success": true,
+            "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+            "grantId": "Mg0g5US0_W_wO4HE_VmS_A",
+            "epoch": "1",
+            "requestId": "40d44198-3dae-4b40-8c33-858fb489dfcb",
+            "tenantId": "tenant-w9-e2e",
+            "toolName": "read_file",
+            "keyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+            "windowMs": 120000,
+            "resultSeq": 1,
+            "recordedAt": 1792798180908
+          },
+          "secondCompletion": {
+            "ok": false,
+            "code": "DISPATCH_CALL_ALREADY_COMPLETED",
+            "refused": true,
+            "stateUnchanged": true,
+            "observedAfter": {
+              "state": "completed",
+              "outcome": "succeeded",
+              "resultSeq": 1
+            },
+            "durableCompletionWrites": 0,
+            "completionConflicts": 0
+          },
+          "unknownCallCompletion": {
+            "refused": true,
+            "code": "DISPATCH_CALL_UNKNOWN"
+          },
+          "ledgerRowCount": 2,
+          "resultRowCount": 2,
+          "checks": {
+            "callIsCompleted": true,
+            "outcomeMatches": true,
+            "secondCompletionRefused": true,
+            "secondCompletionChangedNothing": true,
+            "unknownCallRefused": true
+          },
+          "ok": true
+        }
+      },
+      "notes": "This is the cross-process half of \"complete exactly once\": the accepted ledger's own conditional completion, backed by this harness's compare-and-set store."
+    },
+    {
+      "id": "S11",
+      "title": "FINAL LEDGER — the platform's own durable record of every call in this run",
+      "status": "PASS",
+      "observed": {
+        "ledger": [
+          {
+            "callId": "w9-20261023232932_cc6519-call-read",
+            "state": "completed",
+            "outcome": "succeeded",
+            "resultSeq": 1,
+            "toolName": "read_file",
+            "tenantId": "tenant-w9-e2e",
+            "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+            "epoch": 1
+          },
+          {
+            "callId": "w9-20261023232932_cc6519-call-tamper",
+            "state": "completed",
+            "outcome": "refused",
+            "resultSeq": 2,
+            "toolName": "read_file",
+            "tenantId": "tenant-w9-e2e",
+            "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+            "epoch": 1
+          }
+        ],
+        "results": [
+          {
+            "callId": "w9-20261023232932_cc6519-call-read",
+            "outcome": "succeeded",
+            "success": true,
+            "toolName": "read_file",
+            "tenantId": "tenant-w9-e2e"
+          },
+          {
+            "callId": "w9-20261023232932_cc6519-call-tamper",
+            "outcome": "refused",
+            "success": false,
+            "toolName": "read_file",
+            "tenantId": "tenant-w9-e2e"
+          }
+        ]
+      },
+      "notes": "Two calls: the genuine read (completed/succeeded) and the tampered frame (completed/refused). Nothing else."
+    },
+    {
+      "id": "S12",
+      "title": "CLEANUP — the harness database is dropped and no harness-prefixed database remains",
+      "status": "PASS",
+      "observed": {
+        "before": [
+          "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+          "cbhr_rdc_phase1_preflight_20261010"
+        ],
+        "after": [
+          "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+          "cbhr_rdc_phase1_preflight_20261010"
+        ],
+        "equal": true,
+        "added": [],
+        "missing": [],
+        "ownDatabaseCreated": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+        "ownDatabaseDropped": true,
+        "ownPrefixLeftovers": [],
+        "foreignNewDatabases": [],
+        "namespaceClean": true,
+        "systemDatabasesExcluded": [
+          "admin",
+          "local",
+          "config"
+        ],
+        "note": "no other database appeared during this run"
+      },
+      "notes": null
+    }
+  ],
+  "limits": [
+    {
+      "id": "L1",
+      "statement": "The server tool-policy gate is real but not yet wired into the production dispatch path: `deviceToolRegistry.assertDispatchAllowed` exists and refuses correctly, while `relayDispatchClient.dispatchCommand` does not call it. This harness therefore proves the gate's own behaviour (in-process, against the production module) and NOT that every production dispatch is gated.",
+      "evidence": "step N3"
+    }
+  ],
+  "realComponents": {
+    "backendHttp": {
+      "base": "http://127.0.0.1:3754",
+      "mongooseDatabase": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+      "router": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\routes\\devices.js",
+      "routerExports": "express.Router (mounted at /api/devices)",
+      "authMiddleware": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\middleware\\requireJwtAuth.js",
+      "passportStrategy": "api/strategies jwtLogin(), registered as api/server/index.js does",
+      "rateLimiters": "the router's own deviceRateLimiters (per-route, unmocked)",
+      "modelsRegistry": "genuine createModels(mongoose) from @librechat/data-schemas (built dist)",
+      "modelsAdapter": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\models-adapter.cjs",
+      "modelsAdapterRealModels": 46,
+      "productFilesModified": "none",
+      "aliasRewrites": 38,
+      "modelsAdapterSubstitutions": 1,
+      "pepperSeamSubstitutions": 0,
+      "pepperSeam": {
+        "seam": "deviceHttpTrust.resolvePepperSeam replaced on the module exports with a wrapper that supplies the server-owned pepper",
+        "modulePatched": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\services\\Device\\deviceHttpTrust.js",
+        "aliasSubstitutions": 0,
+        "why": "api/server/routes/devices.js constructs the pairing handlers with no pepperLookup, so the ceremony fails closed with WRITE_OUTCOME_UNCERTAIN. The jest route suite injects the same value through its module mock.",
+        "pepperPresent": true,
+        "pepperLength": 25,
+        "pepperValueRecorded": false,
+        "stats": {
+          "calls": 3,
+          "usedCallerSeam": 0,
+          "usedHarnessSeam": 3,
+          "returnedNull": 0
+        }
+      },
+      "sameRegistryAsTheRouter": true
+    },
+    "relay": {
+      "base": "http://127.0.0.1:3769/",
+      "workerScript": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay\\dist\\worker.js",
+      "compatibility": {
+        "date": "2026-10-19",
+        "flags": [
+          "no_nodejs_compat",
+          "no_nodejs_compat_v2"
+        ]
+      },
+      "relayBootCwd": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+      "osTmp": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\.relay-state\\os-tmp",
+      "relayRoot": "C:\\Users\\Aryan\\Desktop\\codellm\\cbhr-rdc\\apps\\cbhr-relay",
+      "runtime": "miniflare (in-process workerd)"
+    },
+    "endpointAgent": {
+      "agentRoot": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519",
+      "agentRootIsOutsideTheRepo": true,
+      "labKeyDir": "C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023232932_cc6519",
+      "keygenCommand": "C:\\nvm4w\\nodejs\\node.exe tools/lab-backend.cjs keygen --out C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023232932_cc6519",
+      "initCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js init --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --device-id w9-bootstrap-w9-20261023232932_cc6519",
+      "pinCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js pin-backend --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --spki-file C:\\Users\\Aryan\\.cbhr\\e2e-lab-w9-20261023232932_cc6519\\lab-backend-spki.txt",
+      "describeCommand": "C:\\nvm4w\\nodejs\\node.exe run-agent.js describe --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519",
+      "deviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+      "devicePublicKeySpkiB64u": "MCowBQYDK2VwAyEAsUP3HEzzWNi3YM4nseXGVQOajGXuscySc0xtcTz_4uU",
+      "deviceKeyFile": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\device-key.json",
+      "pinnedBackendKeyIds": [
+        "I5G7EsLP-xoW6tHBICWJQvZRQuFpa5bEHyLeWnuti8c"
+      ],
+      "backendKeyIdUsedForSigning": "I5G7EsLP-xoW6tHBICWJQvZRQuFpa5bEHyLeWnuti8c",
+      "backendKeyIdIsPinned": true,
+      "runnerReadsTheDeviceKey": {
+        "value": true,
+        "onlyFor": "the registration / pairing-open / pairing-claim ceremony proofs, which the DEVICE signs",
+        "neverFor": "the command frames (backend custody) or the result frames (the agent process alone)",
+        "file": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\device-key.json",
+        "outsideTheRepo": true
+      },
+      "bootstrapDescribeDeviceId": null
+    },
+    "mongodb": {
+      "uri": "mongodb://127.0.0.1:27027/cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519?directConnection=true&replicaSet=cbhrRdcP1&serverSelectionTimeoutMS=15000&retryWrites=false",
+      "database": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+      "serverVersion": "7.0.43",
+      "replicaSet": "cbhrRdcP1",
+      "driver": "mongodb@6.21.0 (vendored, tests/device/driver.cjs)"
+    },
+    "dispatchClient": {
+      "module": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\services\\Device\\relay\\relayDispatchClient.js",
+      "signer": "createEnvelopeSigner over an injected { sign, keyId } custody seam",
+      "custodyKeyId": "I5G7EsLP-xoW6tHBICWJQvZRQuFpa5bEHyLeWnuti8c",
+      "custodyKeyIdIsThePinnedThumbprint": true,
+      "ledger": {
+        "kind": "mongo-dispatch-store",
+        "collection": "w9_dispatch_ledger"
+      },
+      "transport": "POST into the real relay /d/<scope>/frame"
+    },
+    "sink": {
+      "module": "C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\api\\server\\services\\Device\\relay\\resultSink.js",
+      "verifier": "createResultFrameVerifier pinned to the DEVICE public key the agent reports",
+      "resultStore": {
+        "kind": "mongo-result-store",
+        "collection": "w9_results"
+      }
+    }
+  },
+  "negatives": [
+    {
+      "id": "N1",
+      "status": "PASS",
+      "observed": {
+        "callId": "w9-20261023232932_cc6519-call-tamper",
+        "dispatchAccepted": "accepted",
+        "tamperedAfterSigning": "argsB64u replaced with different bytes; the signature was NOT recomputed",
+        "agentProcess": {
+          "command": "C:\\nvm4w\\nodejs\\node.exe run-agent.js handle --root C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519 --in C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\tamper.in.json --out C:\\Users\\Aryan\\Desktop\\codellm\\librechat-rdc-phase1\\tests\\device\\e2e\\.e2e-state\\w9-20261023232932_cc6519\\tamper.results.jsonl",
+          "exitCode": 0,
+          "stderr": "",
+          "refusedWithCode": "ENDPOINT_ARGS_DIGEST_MISMATCH",
+          "signedOutcome": "refused",
+          "correlation": "unverified-claim"
+        },
+        "executed": false,
+        "executedMeaning": "the agent refused BEFORE dispatch (ENDPOINT_ARGS_DIGEST_MISMATCH), so the tool never ran; its result payload carries only the refusal, no file content",
+        "resultPayloadCarriesNoToolOutput": true,
+        "relay": {
+          "t": "result-ok",
+          "accepted": true
+        },
+        "sink": {
+          "status": "completed",
+          "success": false,
+          "outcome": "refused",
+          "code": null,
+          "stored": true
+        },
+        "ledgerStateAfter": {
+          "state": "completed",
+          "outcome": "refused"
+        },
+        "storedResultForThisCall": {
+          "_id": "w9-20261023232932_cc6519-call-tamper",
+          "scope": "w9-20261023232932_cc6519",
+          "callId": "w9-20261023232932_cc6519-call-tamper",
+          "outcome": "refused",
+          "success": false,
+          "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+          "grantId": "Mg0g5US0_W_wO4HE_VmS_A",
+          "epoch": "1",
+          "requestId": "44b4cef0-c2fb-4694-b537-3ef38ea86f1f",
+          "tenantId": "tenant-w9-e2e",
+          "toolName": "read_file",
+          "keyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+          "windowMs": 120000,
+          "resultSeq": 2,
+          "recordedAt": 1792798181560
+        },
+        "storedSuccessField": false,
+        "neverReportedAsSuccess": true
+      }
+    },
+    {
+      "id": "N2",
+      "status": "PASS",
+      "observed": {
+        "callId": "w9-20261023232932_cc6519-call-never-dispatched",
+        "note": "the payload is a GENUINE device-signed frame; only the call identity is wrong for it",
+        "relay": {
+          "t": "result-refused",
+          "code": "UNKNOWN_CALL_ID",
+          "accepted": false,
+          "heldInOutbox": false
+        },
+        "sink": {
+          "status": "refused",
+          "success": false,
+          "code": "RESULT_UNKNOWN_CALL_ID",
+          "stored": false
+        },
+        "ledgerHasThisCall": false,
+        "resultsInTheStore": 2
+      }
+    },
+    {
+      "id": "N3",
+      "status": "PASS",
+      "observed": {
+        "tool": "write_file",
+        "inTheServerCeiling": false,
+        "deviceEnabledIt": false,
+        "deviceFloorFile": "C:\\Users\\Aryan\\.cbhr\\e2e-w9-20261023232932_cc6519\\tools.json",
+        "deviceFloorEnabled": [
+          "get_file_info",
+          "list_directory",
+          "read_file"
+        ],
+        "authorizeDispatch": {
+          "allowed": false,
+          "decision": "denied",
+          "code": "TOOL_CEILING_OUTSIDE_SERVER_CEILING",
+          "tier": 1,
+          "deniedBy": "server",
+          "httpStatus": 403,
+          "reason": "Enabled from stage B; the server ceiling is stage A. The device may only narrow the ceiling, never widen it (GM-72)."
+        },
+        "assertDispatchAllowedThrew": {
+          "name": "DeviceToolRefusalError",
+          "code": "TOOL_CEILING_OUTSIDE_SERVER_CEILING",
+          "httpStatus": 403
+        },
+        "controlInsideTheCeiling": {
+          "tool": "read_file",
+          "allowed": true,
+          "code": "TOOL_ALLOWED",
+          "requiresApproval": false
+        },
+        "nothingReachedTheWire": {
+          "ledgerRowForTheRefusedCall": false,
+          "framesAtTheDeviceSocketBefore": 2,
+          "framesAtTheDeviceSocketAfter": 2
+        },
+        "gateKind": "in-process call to the production module the panel route depends on"
+      }
+    }
+  ],
+  "finalLedger": {
+    "process": 31516,
+    "node": "v22.19.0",
+    "independentProcess": true,
+    "database": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+    "callId": "w9-20261023232932_cc6519-call-read",
+    "driver": "mongodb@6.21.0",
+    "ledgerCollection": "w9_dispatch_ledger",
+    "resultCollection": "w9_results",
+    "ledgerRowRaw": {
+      "_id": "w9-20261023232932_cc6519-call-read",
+      "_seq": 2,
+      "scope": "w9-20261023232932_cc6519",
+      "callId": "w9-20261023232932_cc6519-call-read",
+      "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+      "deviceKeyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+      "tenantId": "tenant-w9-e2e",
+      "grantId": "Mg0g5US0_W_wO4HE_VmS_A",
+      "epoch": 1,
+      "requestId": "40d44198-3dae-4b40-8c33-858fb489dfcb",
+      "toolName": "read_file",
+      "opKind": "command",
+      "state": "completed",
+      "reservedAt": 1792798180120,
+      "completedAt": 1792798180747,
+      "outcome": "succeeded",
+      "resultSeq": 1
+    },
+    "ledger": {
+      "callId": "w9-20261023232932_cc6519-call-read",
+      "state": "completed",
+      "outcome": "succeeded",
+      "resultSeq": 1,
+      "toolName": "read_file",
+      "tenantId": "tenant-w9-e2e",
+      "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+      "epoch": 1,
+      "reservedAt": 1792798180120,
+      "completedAt": 1792798180747
+    },
+    "storedResult": {
+      "_id": "w9-20261023232932_cc6519-call-read",
+      "scope": "w9-20261023232932_cc6519",
+      "callId": "w9-20261023232932_cc6519-call-read",
+      "outcome": "succeeded",
+      "success": true,
+      "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+      "grantId": "Mg0g5US0_W_wO4HE_VmS_A",
+      "epoch": "1",
+      "requestId": "40d44198-3dae-4b40-8c33-858fb489dfcb",
+      "tenantId": "tenant-w9-e2e",
+      "toolName": "read_file",
+      "keyId": "OF5smeCueoRUpFultOi04x2Y0lFosef7vys83GZinQw",
+      "windowMs": 120000,
+      "resultSeq": 1,
+      "recordedAt": 1792798180908
+    },
+    "secondCompletion": {
+      "ok": false,
+      "code": "DISPATCH_CALL_ALREADY_COMPLETED",
+      "refused": true,
+      "stateUnchanged": true,
+      "observedAfter": {
+        "state": "completed",
+        "outcome": "succeeded",
+        "resultSeq": 1
+      },
+      "durableCompletionWrites": 0,
+      "completionConflicts": 0
+    },
+    "unknownCallCompletion": {
+      "refused": true,
+      "code": "DISPATCH_CALL_UNKNOWN"
+    },
+    "ledgerRowCount": 2,
+    "resultRowCount": 2,
+    "checks": {
+      "callIsCompleted": true,
+      "outcomeMatches": true,
+      "secondCompletionRefused": true,
+      "secondCompletionChangedNothing": true,
+      "unknownCallRefused": true
+    },
+    "ok": true
+  },
+  "namespace": {
+    "before": [
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_preflight_20261010"
+    ],
+    "after": [
+      "cbhr_rdc_phase1_governor_nullgrant_probe_20261010",
+      "cbhr_rdc_phase1_preflight_20261010"
+    ],
+    "equal": true,
+    "added": [],
+    "missing": [],
+    "ownDatabaseCreated": "cbhr_rdc_phase1_e2e_w9_20261023232932_cc6519",
+    "ownDatabaseDropped": true,
+    "ownPrefixLeftovers": [],
+    "foreignNewDatabases": [],
+    "namespaceClean": true,
+    "systemDatabasesExcluded": [
+      "admin",
+      "local",
+      "config"
+    ],
+    "note": "no other database appeared during this run"
+  },
+  "finalLedgerStateInThisProcess": {
+    "ledger": [
+      {
+        "callId": "w9-20261023232932_cc6519-call-read",
+        "state": "completed",
+        "outcome": "succeeded",
+        "resultSeq": 1,
+        "toolName": "read_file",
+        "tenantId": "tenant-w9-e2e",
+        "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+        "epoch": 1
+      },
+      {
+        "callId": "w9-20261023232932_cc6519-call-tamper",
+        "state": "completed",
+        "outcome": "refused",
+        "resultSeq": 2,
+        "toolName": "read_file",
+        "tenantId": "tenant-w9-e2e",
+        "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+        "epoch": 1
+      }
+    ],
+    "results": [
+      {
+        "callId": "w9-20261023232932_cc6519-call-read",
+        "outcome": "succeeded",
+        "success": true,
+        "toolName": "read_file",
+        "tenantId": "tenant-w9-e2e"
+      },
+      {
+        "callId": "w9-20261023232932_cc6519-call-tamper",
+        "outcome": "refused",
+        "success": false,
+        "toolName": "read_file",
+        "tenantId": "tenant-w9-e2e"
+      }
+    ]
+  },
+  "summary": {
+    "runId": "w9-20261023232932_cc6519",
+    "harness": "W9 local end-to-end (pair -> dispatch -> execute -> result -> correlated outcome)",
+    "stepCount": 17,
+    "passed": 17,
+    "passedWithDisclosedWorkaround": [],
+    "failed": [],
+    "defectQuarantine": false,
+    "ledger": {
+      "ledger": [
+        {
+          "callId": "w9-20261023232932_cc6519-call-read",
+          "state": "completed",
+          "outcome": "succeeded",
+          "resultSeq": 1,
+          "toolName": "read_file",
+          "tenantId": "tenant-w9-e2e",
+          "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+          "epoch": 1
+        },
+        {
+          "callId": "w9-20261023232932_cc6519-call-tamper",
+          "state": "completed",
+          "outcome": "refused",
+          "resultSeq": 2,
+          "toolName": "read_file",
+          "tenantId": "tenant-w9-e2e",
+          "deviceId": "bd482333-8f14-4680-ac17-1d9cf289f673",
+          "epoch": 1
+        }
+      ],
+      "results": [
+        {
+          "callId": "w9-20261023232932_cc6519-call-read",
+          "outcome": "succeeded",
+          "success": true,
+          "toolName": "read_file",
+          "tenantId": "tenant-w9-e2e"
+        },
+        {
+          "callId": "w9-20261023232932_cc6519-call-tamper",
+          "outcome": "refused",
+          "success": false,
+          "toolName": "read_file",
+          "tenantId": "tenant-w9-e2e"
+        }
+      ]
+    },
+    "limits": [
+      {
+        "id": "L1",
+        "statement": "The server tool-policy gate is real but not yet wired into the production dispatch path: `deviceToolRegistry.assertDispatchAllowed` exists and refuses correctly, while `relayDispatchClient.dispatchCommand` does not call it. This harness therefore proves the gate's own behaviour (in-process, against the production module) and NOT that every production dispatch is gated.",
+        "evidence": "step N3"
+      }
+    ],
+    "accepted": true,
+    "acceptedMeans": "exit 0 means every step passed; a step proven only under the disclosed claim-leg workaround is reported as PASS_WITH_DISCLOSED_WORKAROUND and named here"
+  },
+  "finishedAt": "2026-10-23T23:29:42.031Z"
+}
