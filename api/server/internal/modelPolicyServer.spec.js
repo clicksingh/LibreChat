@@ -6,12 +6,8 @@ jest.mock(
   }),
   { virtual: true },
 );
-jest.mock('~/models', () => ({}), { virtual: true });
-jest.mock(
-  '~/server/services/Config',
-  () => ({ invalidateConfigCaches: jest.fn() }),
-  { virtual: true },
-);
+jest.mock('../../models', () => ({}));
+jest.mock('../services/Config', () => ({ invalidateConfigCaches: jest.fn() }));
 
 const request = require('supertest');
 const { createModelPolicyInternalApp } = require('./modelPolicyServer');
