@@ -18,6 +18,10 @@ describe('Model failure -> durable, truthful, non-replaying SSE errors', () => {
     ],
     [{ status: 401, message: 'provider api_key=secret' }, 'MODEL_REQUEST_INTERRUPTED'],
     [{ status: 500, message: 'network refused' }, 'MODEL_REQUEST_INTERRUPTED'],
+    [
+      { status: 500, message: 'E2E forced stream error provider-secret-value' },
+      'MODEL_REQUEST_INTERRUPTED',
+    ],
   ])('classifies and sanitizes %j', (failure, code) => {
     const result = normalizeAgentFailure(failure);
     expect(result).toContain(code);
