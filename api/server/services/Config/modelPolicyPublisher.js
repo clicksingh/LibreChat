@@ -1,5 +1,4 @@
-const crypto = require('crypto');
-const { buildModelPolicyProjection } = require('./modelPolicyProjection');
+const { buildModelPolicyCommitPlan } = require('./modelPolicyProjection');
 
 const ROLE = 'role';
 const ROLE_MODEL = 'Role';
@@ -28,16 +27,6 @@ function mergeEndpointList(current, endpointPatch) {
   return list;
 }
 
-function digestProjection(projection) {
-  const canonical = {
-    endpointName: projection.endpointName,
-    companyDefault: projection.companyDefault,
-    adminModels: projection.adminModels,
-    roles: projection.roles,
-  };
-  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
-}
-
 async function applyProjectionInSession(projection, deps, session) {
   const { findConfigByPrincipal, patchConfigFields } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
@@ -55,12 +44,14 @@ async function applyProjectionInSession(projection, deps, session) {
     const current = existing[id];
     const fields = {};
     const rolePatch = projection.roles[id];
+
     if (
       rolePatch.interface &&
       current?.overrides?.interface?.modelSelect !== rolePatch.interface.modelSelect
     ) {
       fields['interface.modelSelect'] = rolePatch.interface.modelSelect;
     }
+
     const endpointPatch = rolePatch.endpoints?.custom?.[0];
     if (endpointPatch) {
       const next = mergeEndpointList(current?.overrides?.endpoints?.custom, endpointPatch);
@@ -68,6 +59,7 @@ async function applyProjectionInSession(projection, deps, session) {
         fields['endpoints.custom'] = next;
       }
     }
+
     if (Object.keys(fields).length === 0) continue;
     await patchConfigFields(
       ROLE,
@@ -79,55 +71,58 @@ async function applyProjectionInSession(projection, deps, session) {
     );
     writes.push({ principalId: id, fields: Object.keys(fields) });
   }
+
   return writes;
 }
 
-async function publishModelPolicyProjection(input, deps) {
+async function commitManagedModelPolicy(input, deps) {
   const {
     findConfigByPrincipal,
     patchConfigFields,
-    claimModelPolicyPublication,
+    commitModelPolicyRevision,
     invalidateConfigCaches,
     startSession,
   } = deps || {};
+
   if (
     typeof findConfigByPrincipal !== 'function' ||
     typeof patchConfigFields !== 'function' ||
-    typeof claimModelPolicyPublication !== 'function' ||
+    typeof commitModelPolicyRevision !== 'function' ||
     typeof invalidateConfigCaches !== 'function' ||
     typeof startSession !== 'function'
   ) {
-    throw new TypeError('model-policy publisher dependencies are required');
+    throw new TypeError('model-policy commit dependencies are required');
   }
 
-  const projection = buildModelPolicyProjection(input);
-  const digest = digestProjection(projection);
+  const plan = buildModelPolicyCommitPlan(input);
   const session = await startSession();
   let result;
 
   try {
     await session.withTransaction(async () => {
-      const claimed = await claimModelPolicyPublication(
-        { policyVersion: projection.policyVersion, digest },
+      const canonical = await commitModelPolicyRevision(
+        plan.candidate,
+        {
+          expectedVersion: plan.expectedVersion,
+          actor: plan.actor,
+          source: plan.source,
+        },
         session,
       );
-      if (claimed.transition === 'noop') {
-        result = {
-          policyVersion: projection.policyVersion,
-          digest,
-          transition: 'noop',
-          writes: [],
-          noop: true,
-        };
-        return;
-      }
-      const writes = await applyProjectionInSession(projection, deps, session);
+
+      const writes = await applyProjectionInSession(plan.projection, deps, session);
+      const transition = canonical.noop
+        ? 'noop'
+        : plan.expectedVersion === 0
+          ? 'create'
+          : 'advance';
+
       result = {
-        policyVersion: projection.policyVersion,
-        digest,
-        transition: claimed.transition,
+        policyVersion: canonical.version,
+        transition,
+        policyNoop: canonical.noop,
         writes,
-        noop: false,
+        noop: canonical.noop && writes.length === 0,
       };
     });
   } finally {
@@ -140,8 +135,7 @@ async function publishModelPolicyProjection(input, deps) {
 }
 
 module.exports = {
-  digestProjection,
   mergeEndpointList,
   applyProjectionInSession,
-  publishModelPolicyProjection,
+  commitManagedModelPolicy,
 };
