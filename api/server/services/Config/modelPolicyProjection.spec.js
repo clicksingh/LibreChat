@@ -1,4 +1,8 @@
-const { buildModelPolicyProjection } = require('./modelPolicyProjection');
+const {
+  AUDIENCES,
+  buildModelPolicyProjection,
+  buildModelPolicyCommitPlan,
+} = require('./modelPolicyProjection');
 
 describe('managed-model config projection', () => {
   test('projects vendor-neutral USER and ADMIN policy without modelSpec authority', () => {
@@ -20,17 +24,77 @@ describe('managed-model config projection', () => {
     expect(out.roles.__base__).not.toHaveProperty('modelSpecs');
   });
 
-  test('deduplicates ADMIN models while retaining order', () => {
-    const out = buildModelPolicyProjection({
-      policyVersion: 1,
-      endpointName: 'Managed AI',
-      companyDefault: 'model-b',
-      adminModels: ['model-b', 'model-a', 'model-b'],
+  test('commit plan binds deployment IDs and model IDs into one canonical/projection input', () => {
+    const out = buildModelPolicyCommitPlan({
+      expectedVersion: 7,
+      endpointName: 'CBHR AI',
+      actor: 'admin@example.invalid',
+      source: 'cbhr-admin',
+      policy: {
+        companyDefaultDeploymentId: 'deployment-b',
+        deployments: [
+          { deploymentId: 'deployment-b', model: 'provider-x/model:fast' },
+          { deploymentId: 'deployment-a', model: 'unrelated-vendor/deep_model' },
+        ],
+        audiences: AUDIENCES,
+      },
     });
-    expect(out.adminModels).toEqual(['model-b', 'model-a']);
+
+    expect(out.expectedVersion).toBe(7);
+    expect(out.candidate).toEqual({
+      schemaVersion: 1,
+      companyDefaultDeploymentId: 'deployment-b',
+      activeDeploymentIds: ['deployment-b', 'deployment-a'],
+      audiences: AUDIENCES,
+    });
+    expect(out.projection.companyDefault).toBe('provider-x/model:fast');
+    expect(out.projection.adminModels).toEqual([
+      'provider-x/model:fast',
+      'unrelated-vendor/deep_model',
+    ]);
   });
 
-  test('fails closed for invalid revision, default, catalogue, and endpoint identifiers', () => {
+  test('rejects duplicate deployment IDs or model IDs instead of silently collapsing them', () => {
+    const base = {
+      expectedVersion: 0,
+      endpointName: 'CBHR AI',
+      actor: 'admin@example.invalid',
+      policy: {
+        companyDefaultDeploymentId: 'd1',
+        deployments: [
+          { deploymentId: 'd1', model: 'model-a' },
+          { deploymentId: 'd2', model: 'model-b' },
+        ],
+        audiences: AUDIENCES,
+      },
+    };
+    expect(() =>
+      buildModelPolicyCommitPlan({
+        ...base,
+        policy: {
+          ...base.policy,
+          deployments: [
+            { deploymentId: 'd1', model: 'model-a' },
+            { deploymentId: 'd1', model: 'model-b' },
+          ],
+        },
+      }),
+    ).toThrow(/Deployment ids must be unique/);
+    expect(() =>
+      buildModelPolicyCommitPlan({
+        ...base,
+        policy: {
+          ...base.policy,
+          deployments: [
+            { deploymentId: 'd1', model: 'model-a' },
+            { deploymentId: 'd2', model: 'model-a' },
+          ],
+        },
+      }),
+    ).toThrow(/Managed model ids must be unique/);
+  });
+
+  test('fails closed for invalid revision/default/catalogue/audience and endpoint identifiers', () => {
     expect(() =>
       buildModelPolicyProjection({
         policyVersion: 0,
@@ -48,12 +112,28 @@ describe('managed-model config projection', () => {
       }),
     ).toThrow(/Company default/);
     expect(() =>
-      buildModelPolicyProjection({
-        policyVersion: 1,
+      buildModelPolicyCommitPlan({
+        expectedVersion: 0,
         endpointName: 'bad/name',
-        companyDefault: 'model-a',
-        adminModels: ['model-a'],
+        actor: 'admin@example.invalid',
+        policy: {
+          companyDefaultDeploymentId: 'd1',
+          deployments: [{ deploymentId: 'd1', model: 'model-a' }],
+          audiences: AUDIENCES,
+        },
       }),
     ).toThrow(/endpoint/);
+    expect(() =>
+      buildModelPolicyCommitPlan({
+        expectedVersion: 0,
+        endpointName: 'CBHR AI',
+        actor: 'admin@example.invalid',
+        policy: {
+          companyDefaultDeploymentId: 'missing',
+          deployments: [{ deploymentId: 'd1', model: 'model-a' }],
+          audiences: AUDIENCES,
+        },
+      }),
+    ).toThrow(/default deployment must be active/);
   });
 });
