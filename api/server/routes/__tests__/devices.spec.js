@@ -69,6 +69,30 @@ describe('Device owner routes', () => {
     expect(mockRetireHandler).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects unauthenticated requests before the retire handler runs', async () => {
+    // A denying auth middleware stands in for an expired/invalid token.
+    mockRequireJwtAuth.mockImplementationOnce((_req, res) =>
+      res.status(401).json({ ok: false, code: 'UNAUTHORIZED' }),
+    );
+    const res = await request(createApp()).post('/api/devices/current/retire').send({});
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ ok: false, code: 'UNAUTHORIZED' });
+    expect(mockRetireHandler).not.toHaveBeenCalled();
+  });
+
+  it('exposes only POST /current/retire and no other verb or device endpoint', async () => {
+    const app = createApp();
+    for (const method of ['get', 'put', 'patch', 'delete']) {
+      const res = await request(app)[method]('/api/devices/current/retire');
+      expect(res.status).toBe(404);
+    }
+    expect(mockRetireHandler).not.toHaveBeenCalled();
+
+    const unknown = await request(app).post('/api/devices/currentregister').send({});
+    expect(unknown.status).toBe(404);
+    expect(mockRetireHandler).not.toHaveBeenCalled();
+  });
+
   it('does not expose GET /current/retire', async () => {
     const res = await request(createApp()).get('/api/devices/current/retire');
     expect(res.status).toBe(404);

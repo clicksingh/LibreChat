@@ -35,6 +35,7 @@ const tags = require('./tags');
 const auth = require('./auth');
 const keys = require('./keys');
 const user = require('./user');
+const devices = require('./devices');
 const mcp = require('./mcp');
 const rum = require('./rum');
 
@@ -78,4 +79,5 @@ module.exports = {
   categories,
   staticRoute,
   accessPermissions,
+  devices,
 };
