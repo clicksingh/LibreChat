@@ -10,4 +10,5 @@ export interface IModelPolicyPublication {
 }
 
 export interface IModelPolicyPublicationDocument
-  extends Omit<IModelPolicyPublication, '_id'>, Document {}
+  extends Omit<IModelPolicyPublication, '_id'>,
+    Document {}

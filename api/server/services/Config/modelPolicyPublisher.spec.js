@@ -1,7 +1,4 @@
-const {
-  digestProjection,
-  publishModelPolicyProjection,
-} = require('./modelPolicyPublisher');
+const { digestProjection, publishModelPolicyProjection } = require('./modelPolicyPublisher');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));

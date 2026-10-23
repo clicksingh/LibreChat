@@ -64,7 +64,9 @@ export function createModelPolicyPublicationMethods(
     key = 'managed-models',
     session?: ClientSession,
   ): Promise<IModelPolicyPublication | null> {
-    return Publication.findOne({ key }).session(session ?? null).lean<IModelPolicyPublication>();
+    return Publication.findOne({ key })
+      .session(session ?? null)
+      .lean<IModelPolicyPublication>();
   }
 
   async function claimModelPolicyPublication(
