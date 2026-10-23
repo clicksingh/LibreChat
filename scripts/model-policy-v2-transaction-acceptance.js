@@ -56,7 +56,9 @@ async function main() {
 
   await mongoose.connect(acceptanceUri(process.env.MONGO_URI, dbName));
   if (mongoose.connection.name !== dbName) {
-    throw new Error('Connected database does not match the explicitly authorized acceptance database');
+    throw new Error(
+      'Connected database does not match the explicitly authorized acceptance database',
+    );
   }
 
   createModels(mongoose);
@@ -139,7 +141,10 @@ async function main() {
     if (managedEndpoint(base1).models.default[0] !== 'stage-alpha') {
       throw new Error('base default mismatch');
     }
-    if (user1.overrides.interface.modelSelect !== false || user1.overrides.interface.fileSearch !== true) {
+    if (
+      user1.overrides.interface.modelSelect !== false ||
+      user1.overrides.interface.fileSearch !== true
+    ) {
       throw new Error('USER projection/preservation mismatch');
     }
     if (managedEndpoint(admin1).customParams.reasoningProfiles.keep == null) {
@@ -297,19 +302,19 @@ main()
     await mongoose.disconnect();
   })
   .catch(async (error) => {
-    console.error(
-      'MODEL_POLICY_V2_TRANSACTION_ACCEPTANCE_FAILED',
-      error.code || '',
-      error.message,
-    );
+    console.error('MODEL_POLICY_V2_TRANSACTION_ACCEPTANCE_FAILED', error.code || '', error.message);
     try {
       const dbName = process.env.MODEL_POLICY_ACCEPTANCE_DB;
       if (ACCEPTANCE_DB_PATTERN.test(dbName || '') && mongoose.connection.name === dbName) {
         await mongoose.connection.dropDatabase();
       }
-    } catch {}
+    } catch (cleanupError) {
+      console.warn('MODEL_POLICY_ACCEPTANCE_CLEANUP_WARNING', cleanupError.message);
+    }
     try {
       await mongoose.disconnect();
-    } catch {}
+    } catch (disconnectError) {
+      console.warn('MODEL_POLICY_ACCEPTANCE_DISCONNECT_WARNING', disconnectError.message);
+    }
     process.exitCode = 1;
   });
