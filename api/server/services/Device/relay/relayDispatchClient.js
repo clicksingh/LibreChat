@@ -37,6 +37,65 @@
  *   unknown outcome, never as a success and never as a blind retry of the same envelope.
  * - `delivered: 'no'` when nothing was signed or sent (shape, authority, replay, self-check).
  *
+ * THE TOOL-POLICY GATE (W12 / GM-72, GM-75, GM-78) — EVALUATED BEFORE ANYTHING IS SIGNED
+ * A dispatched tool name is checked against server policy HERE, at the top of `dispatchCommand`:
+ * after the request has been parsed and BEFORE the clock is read, a nonce is minted, the replay
+ * window is consulted, the core is built, anything is signed, the ledger is touched or a frame
+ * reaches the transport. A refused tool therefore never consumes a nonce, never enters the replay
+ * ring, is never signed, is never reserved and never reaches the wire — the refusal is a policy
+ * decision, not a transport outcome (`delivered: 'no'`).
+ *
+ * THE CEILING IS SERVER DATA, AT A SERVER STAGE
+ * The ceiling is `deviceCapabilityPolicy.ceilingForStage(stage)` — tier 1, never device-settable —
+ * and the stage is operator configuration, never request data and never device data. The stage
+ * arrives through the injected policy port (below), sourced from the environment variable named by
+ * `CAPABILITY_STAGE_ENV`, and an ABSENT stage means the NARROWEST stage (`DEFAULT_SERVER_STAGE`,
+ * 'A'). A value the ceiling refuses is a configuration fault, not licence to widen: the narrowest
+ * stage stands, and a warning is emitted (once per client per value).
+ *
+ * WHY THE POLICY LAW IS INJECTED (and not imported here)
+ * `__tests__/noKeyMaterial.spec.js` scans every module in this directory and asserts that none of
+ * them performs environment access or reaches anything outside a frozen import allow-list. So the
+ * law arrives the same way the admin surface hands it to `@librechat/api`: through a port built by
+ * the server wiring — `{ ceilingForStage, authorizeDispatch, dispatchCodes }` taken from
+ * `deviceCapabilityPolicy` and `deviceToolRegistry`, plus the optional `stage`, `resolve` and
+ * `hasOwnerApproval` seams. No tool name, no stage ladder and no refusal code is restated here: the
+ * codes this path emits are the registry's own, read from the port.
+ *
+ *   ceilingForStage    the server ceiling document for a stage
+ *   authorizeDispatch  the registry's dispatch gate (the intersection law's single implementation)
+ *   dispatchCodes      the registry's `DISPATCH_CODES`, the ONLY refusal vocabulary this path emits
+ *   stage              OPTIONAL: the configured server stage — a string, or a function read live on
+ *                      each dispatch (GM-78: the server enforces at dispatch time). Absent = 'A'
+ *   resolve            OPTIONAL injected policy resolver (the W10 seam): a tool-name list, or
+ *                      `{ tools }`. PRESENT -> the ceiling is intersected with it. ABSENT -> the
+ *                      stage ceiling ALONE is authoritative (GM-75 retired the device floor, so
+ *                      nothing narrows by default). It can never widen: the registry checks the
+ *                      ceiling before it looks at the narrowing at all.
+ *   hasOwnerApproval   OPTIONAL tier-3 seam: an approval-gated tool dispatches ONLY when this returns
+ *                      `true`; otherwise it is refused with the registry's `OWNER_APPROVAL_REQUIRED`.
+ *
+ * FAIL CLOSED, NEVER "ALLOW ON ERROR"
+ * A resolver that throws, or that answers with something which is not a list of tool names, yields
+ * an EMPTY narrowing: the registry then refuses with its own tier code. An approval seam that throws
+ * or does not return `true` is not an approval. A stage source or ceiling that cannot be resolved,
+ * and a registry that refuses to answer, are refusals too — never a dispatch.
+ *
+ * The port's absence is NOT silent: the gate reports `evaluated: false` with the fixed reason
+ * `policy-port-absent` on every outcome, so an unarmed dispatch path is visible in the result rather
+ * than assumed gated.
+ *
+ * ONLY COMMAND FRAMES ARE TOOL EXECUTIONS
+ * Cancel and resync frames carry a `toolName` because the envelope requires one, but they execute no
+ * tool. They are deliberately not gated (the block says so: `reason: 'not-a-tool-execution'`),
+ * because gating them would let a policy refusal make a running call un-cancellable.
+ *
+ * WHAT IS *NOT* A REFUSAL: `approval-required` is ADMISSIBLE — it dispatches once the approval seam
+ * says yes, and until then it is refused with `OWNER_APPROVAL_REQUIRED`. The two paths are
+ * distinguishable in `outcome.policy` (`decision`, `requiresApproval`, `approved`), and every
+ * outcome produced after the request has parsed carries that block, so a caller can see which tier
+ * decided what, and why.
+ *
  * THE HOP ITSELF
  * The HTTP transport is INJECTED (`transport({ deviceId, frame })`). This module deliberately does
  * not freeze a relay URL path: the relay (workstream W1) has not defined its route yet, and inventing
@@ -101,6 +160,94 @@ const DISPATCH_REQUEST_KEYS = Object.freeze([
   'idempotencyKey',
   'callId',
 ]);
+
+/**
+ * The ONLY keys the injected tool-policy port may carry. An exact-key whitelist for the same reason
+ * the dispatch request has one: a request-shaped value (a body, a session, a user record) smuggled in
+ * as the policy port is refused BY NAME rather than half-read as authority over a tool.
+ */
+const POLICY_PORT_KEYS = Object.freeze([
+  'stage',
+  'ceilingForStage',
+  'authorizeDispatch',
+  'dispatchCodes',
+  'resolve',
+  'hasOwnerApproval',
+]);
+
+/** The port members the gate needs in order to ARM. Without them there is no ceiling and no law. */
+const POLICY_PORT_REQUIRED_KEYS = Object.freeze([
+  'ceilingForStage',
+  'authorizeDispatch',
+  'dispatchCodes',
+]);
+
+/**
+ * The environment variable that carries the server's capability stage. Exported so the wiring, the
+ * panel and CI read one name rather than three copies of it: the port's `stage` is sourced from it.
+ */
+const CAPABILITY_STAGE_ENV = 'CBHR_DEVICE_CAPABILITY_STAGE';
+
+/**
+ * The NARROWEST capability stage, and the default when no stage is configured. A wrong default must
+ * never be the wide one, so this is 'A' — the read-only rung — and never 'full'.
+ */
+const DEFAULT_SERVER_STAGE = 'A';
+
+/** Where the stage that governed a decision came from. */
+const STAGE_SOURCES = Object.freeze({
+  /** The configured stage was accepted by the server ceiling. */
+  CONFIGURED: 'configured',
+  /** Nothing was configured, so the narrowest stage was used. */
+  DEFAULT: 'default',
+  /** Something was configured and the ceiling refused it: warned, and narrowed. */
+  UNRECOGNISED: 'unrecognised',
+});
+
+/** Whether the tool-policy gate was armed for a dispatch. Only `armed` evaluates policy. */
+const POLICY_PORT_STATES = Object.freeze({ ARMED: 'armed', ABSENT: 'absent' });
+
+/**
+ * How the narrowing channel resolved. `absent` and `narrowed` are the only outcomes that can leave a
+ * tool enabled; `threw` and `unusable` are the fail-closed ones.
+ */
+const POLICY_RESOLVER_OUTCOMES = Object.freeze({
+  /** No resolver was injected: the stage ceiling alone is authoritative. */
+  ABSENT: 'absent',
+  /** The resolver answered with a list of tool names. */
+  NARROWED: 'narrowed',
+  /** The resolver threw (or rejected): an empty narrowing, never "allow". */
+  THREW: 'threw',
+  /** The resolver answered with something that is not a list of tool names: fail closed. */
+  UNUSABLE: 'unusable',
+});
+
+/** The decisions the gate can reach: the registry's three, plus "the gate did not decide". */
+const POLICY_DECISIONS = Object.freeze({
+  ALLOWED: 'allowed',
+  APPROVAL_REQUIRED: 'approval-required',
+  DENIED: 'denied',
+  NOT_EVALUATED: 'not-evaluated',
+});
+
+/** Fixed machine reasons a policy block can carry. No payload, no device-supplied text. */
+const POLICY_REASONS = Object.freeze({
+  /** The port was absent, so no policy was consulted (declared, never silent). */
+  POLICY_PORT_ABSENT: 'policy-port-absent',
+  /** A cancel/resync frame: not a tool execution, so no tool policy applies. */
+  NOT_A_TOOL_EXECUTION: 'not-a-tool-execution',
+  /** The configured stage, and therefore the ceiling, could not be resolved: fail closed. */
+  STAGE_UNUSABLE: 'stage-unusable',
+  /** The registry refused to answer for this dispatch: fail closed. */
+  POLICY_UNAVAILABLE: 'policy-unavailable',
+  /** The resolver threw or answered unusably: empty narrowing, so the registry refuses. */
+  RESOLVER_UNUSABLE: 'resolver-unusable',
+  /** The registry refused the narrowing document itself (its own fail-closed floor codes). */
+  NARROWING_REFUSED: 'narrowing-refused',
+});
+
+/** The schema id of the `policy` block every outcome carries. */
+const DISPATCH_TOOL_POLICY_SCHEMA = 'cbhr.rdc.dispatch-tool-policy/1';
 
 function defaultNonceFactory() {
   return nodeCrypto.randomBytes(16).toString('base64url');
@@ -417,6 +564,283 @@ function interpretRelayResponse(response) {
   };
 }
 
+/**
+ * Builds the `policy` block every parsed dispatch outcome carries. Every key is always present, so a
+ * consumer (an audit trail, the panel, a spec) reads one shape and never has to guess whether a
+ * missing key means "not applicable" or "the field was forgotten".
+ *
+ * `decision` is one of `POLICY_DECISIONS`; `code` is ALWAYS a registry code when the block can block
+ * a dispatch; `approved` is `null` when the approval gate was never reached, `true`/`false` when it
+ * was consulted.
+ * @param {object} [fields]
+ * @returns {Readonly<object>}
+ */
+function buildPolicyBlock(fields = {}) {
+  return Object.freeze({
+    schema: DISPATCH_TOOL_POLICY_SCHEMA,
+    portState: POLICY_PORT_STATES.ARMED,
+    evaluated: false,
+    reason: null,
+    stage: null,
+    stageSource: null,
+    ceilingCount: null,
+    resolver: POLICY_RESOLVER_OUTCOMES.ABSENT,
+    effectiveCount: 0,
+    failClosed: false,
+    decision: POLICY_DECISIONS.NOT_EVALUATED,
+    code: null,
+    httpStatus: null,
+    requiresApproval: false,
+    approved: null,
+    deniedBy: null,
+    tier: null,
+    reasonCode: null,
+    detail: null,
+    ...fields,
+  });
+}
+
+/**
+ * Validates and freezes the injected tool-policy port, or returns `null` when none was supplied.
+ *
+ * The exact-key whitelist is the anti-synthesis guard, exactly as it is for the dispatch request and
+ * the authority projection: a request-shaped value passed as the port is refused by name. A port that
+ * is present but incomplete is refused at CONSTRUCTION rather than silently unarming the gate at
+ * dispatch time — a half-wired gate is a defect, not a configuration.
+ *
+ * @param {unknown} policy
+ * @returns {Readonly<object>|null}
+ * @throws {RelayError} POLICY_SEAM_INVALID
+ */
+function readPolicyPort(policy) {
+  if (policy === undefined || policy === null) {
+    return null;
+  }
+  if (!isPlainRecord(policy)) {
+    throw relayFailure(
+      'POLICY_SEAM_INVALID',
+      'the tool-policy port must be a plain object built by the server wiring, not a request-shaped value',
+      { field: 'policy' },
+    );
+  }
+  for (const key of Object.keys(policy)) {
+    if (!POLICY_PORT_KEYS.includes(key)) {
+      throw relayFailure(
+        'POLICY_SEAM_INVALID',
+        `the tool-policy port refuses the key "${key}"; policy is server data and never request data`,
+        { field: key },
+      );
+    }
+  }
+  for (const key of POLICY_PORT_REQUIRED_KEYS) {
+    if (policy[key] === undefined || policy[key] === null) {
+      throw relayFailure(
+        'POLICY_SEAM_INVALID',
+        `the tool-policy port is incomplete: "${key}" is required for the dispatch gate to arm`,
+        { field: key },
+      );
+    }
+  }
+  for (const key of ['ceilingForStage', 'authorizeDispatch']) {
+    if (typeof policy[key] !== 'function') {
+      throw relayFailure('POLICY_SEAM_INVALID', `the tool-policy port "${key}" must be a function`, {
+        field: key,
+      });
+    }
+  }
+  if (!isPlainRecord(policy.dispatchCodes)) {
+    throw relayFailure(
+      'POLICY_SEAM_INVALID',
+      'the tool-policy port "dispatchCodes" must be the registry\'s own DISPATCH_CODES record',
+      { field: 'dispatchCodes' },
+    );
+  }
+  if (typeof policy.dispatchCodes.NOT_PERMITTED !== 'string') {
+    throw relayFailure(
+      'POLICY_SEAM_INVALID',
+      'the tool-policy port "dispatchCodes" must carry the registry\'s NOT_PERMITTED code; this path never invents a refusal code of its own',
+      { field: 'dispatchCodes' },
+    );
+  }
+  for (const key of ['resolve', 'hasOwnerApproval']) {
+    if (policy[key] !== undefined && policy[key] !== null && typeof policy[key] !== 'function') {
+      throw relayFailure(
+        'POLICY_SEAM_INVALID',
+        `the tool-policy port "${key}" must be a function when supplied`,
+        { field: key },
+      );
+    }
+  }
+  if (
+    policy.stage !== undefined &&
+    policy.stage !== null &&
+    typeof policy.stage !== 'string' &&
+    typeof policy.stage !== 'function'
+  ) {
+    throw relayFailure(
+      'POLICY_SEAM_INVALID',
+      'the tool-policy port "stage" must be a stage name or a function returning one',
+      { field: 'stage' },
+    );
+  }
+  return Object.freeze({ ...policy });
+}
+
+/**
+ * Resolves the SERVER stage and the ceiling it selects — the whole of the stage law, and the only
+ * place a stage becomes a ceiling.
+ *
+ * The policy module is the authority on which stages exist: `ceilingForStage` refuses an unknown
+ * stage, and that refusal NARROWS (the narrowest stage stands, with `unrecognised` reported and a
+ * warning emitted by the caller) instead of widening. A stage source that cannot be read at all, or
+ * a ceiling the narrow default cannot build, is `usable: false`: the caller then fails closed rather
+ * than dispatching under a policy nobody could resolve.
+ *
+ * @param {Readonly<object>} port a validated tool-policy port
+ * @returns {Readonly<{usable: boolean, stage: string, source: string, configured: (string|null),
+ *   ceiling: (object|null), problem: (string|null)}>}
+ */
+function resolveDispatchStage(port) {
+  let configured;
+  if (port.stage !== undefined && port.stage !== null) {
+    try {
+      configured = typeof port.stage === 'function' ? port.stage() : port.stage;
+    } catch {
+      return Object.freeze({
+        usable: false,
+        stage: DEFAULT_SERVER_STAGE,
+        source: STAGE_SOURCES.DEFAULT,
+        configured: null,
+        ceiling: null,
+        problem: POLICY_REASONS.STAGE_UNUSABLE,
+      });
+    }
+  }
+
+  const unset = configured === undefined || configured === null || configured === '';
+  if (!unset) {
+    try {
+      return Object.freeze({
+        usable: true,
+        stage: configured,
+        source: STAGE_SOURCES.CONFIGURED,
+        configured,
+        ceiling: port.ceilingForStage(configured),
+        problem: null,
+      });
+    } catch {
+      /* Not a stage the server ceiling recognises: fall through to the narrow default. */
+    }
+  }
+
+  try {
+    return Object.freeze({
+      usable: true,
+      stage: DEFAULT_SERVER_STAGE,
+      source: unset ? STAGE_SOURCES.DEFAULT : STAGE_SOURCES.UNRECOGNISED,
+      configured: unset ? null : configured,
+      ceiling: port.ceilingForStage(DEFAULT_SERVER_STAGE),
+      problem: null,
+    });
+  } catch {
+    return Object.freeze({
+      usable: false,
+      stage: DEFAULT_SERVER_STAGE,
+      source: unset ? STAGE_SOURCES.DEFAULT : STAGE_SOURCES.UNRECOGNISED,
+      configured: unset ? null : configured,
+      ceiling: null,
+      problem: POLICY_REASONS.STAGE_UNUSABLE,
+    });
+  }
+}
+
+/**
+ * Reads the injected policy resolver's narrowing answer. Never throws, never repairs.
+ *
+ * The answer is a tool-name list, or a record carrying one (`{ tools: [...] }`) — the shape the W10
+ * resolver already produces. Anything else is `unusable`, and a throw is `threw`; both yield an
+ * EMPTY narrowing, so the registry refuses. That is the load-bearing security property of this seam:
+ * a broken policy resolver can only ever narrow to nothing, never fall back to "allow".
+ *
+ * A list that IS a list of strings is passed on UNCHANGED (barring names the ceiling does not admit):
+ * whether a list is a valid narrowing document — duplicates, wildcard sentinels, size — is the
+ * registry's law to apply, and it is not restated here.
+ *
+ * @param {unknown} resolver
+ * @param {Readonly<object>} context the frozen dispatch context (trusted identity + stage + ceiling)
+ * @returns {Promise<Readonly<{outcome: string, tools: (string[]|null), problem: (string|null)}>>}
+ */
+async function readPolicyNarrowing(resolver, context) {
+  if (typeof resolver !== 'function') {
+    return Object.freeze({
+      outcome: POLICY_RESOLVER_OUTCOMES.ABSENT,
+      tools: null,
+      problem: null,
+    });
+  }
+
+  let answer;
+  try {
+    answer = await resolver(context);
+  } catch {
+    return Object.freeze({
+      outcome: POLICY_RESOLVER_OUTCOMES.THREW,
+      tools: Object.freeze([]),
+      problem: 'the injected policy resolver threw, so nothing is narrowed in and nothing is enabled',
+    });
+  }
+
+  const list = Array.isArray(answer)
+    ? answer
+    : isPlainRecord(answer) && Array.isArray(answer.tools)
+      ? answer.tools
+      : null;
+  if (list === null || list.some((entry) => typeof entry !== 'string')) {
+    return Object.freeze({
+      outcome: POLICY_RESOLVER_OUTCOMES.UNUSABLE,
+      tools: Object.freeze([]),
+      problem:
+        'the injected policy resolver did not answer with a list of tool names, so nothing is enabled',
+    });
+  }
+  return Object.freeze({
+    outcome: POLICY_RESOLVER_OUTCOMES.NARROWED,
+    tools: Object.freeze([...list]),
+    problem: null,
+  });
+}
+
+/**
+ * Consults the tier-3 approval seam. Only a literal `true` is an approval: a missing seam, a `false`,
+ * a throw or any other value is a refusal, because an approval that cannot be established is not one.
+ * @param {unknown} hasOwnerApproval
+ * @param {Readonly<object>} context
+ * @returns {Promise<boolean>}
+ */
+async function consultOwnerApproval(hasOwnerApproval, context) {
+  if (typeof hasOwnerApproval !== 'function') {
+    return false;
+  }
+  try {
+    return (await hasOwnerApproval(context)) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The registry's own code for a failure it named, else its own "not permitted" code. */
+function registryFailureCode(err, dispatchCodes) {
+  if (
+    err !== null &&
+    typeof err === 'object' &&
+    typeof err.code === 'string' &&
+    err.code.length > 0
+  ) {
+    return err.code;
+  }
+  return dispatchCodes.NOT_PERMITTED;
+}
+
 /** Fixed, payload-free failure notice; a throwing logger must never mask a dispatch outcome. */
 function warnFixed(logger, message) {
   if (logger === null || logger === undefined || typeof logger.warn !== 'function') {
@@ -458,6 +882,13 @@ function failureResult(error, { delivered, requestId, deviceId }) {
  *   optional I-0 re-check inside the dispatch window
  * @param {object} [options.ledger] optional `createDispatchLedger()` surface `{ reserve(call), release(callId) }`:
  *   the correlation memory for the W6 uplink. Off by default; see the module header.
+ * @param {object} [options.policy] THE TOOL-POLICY PORT (W12): `{ ceilingForStage, authorizeDispatch,
+ *   dispatchCodes, stage?, resolve?, hasOwnerApproval? }`, built by the server wiring from
+ *   `deviceCapabilityPolicy` and `deviceToolRegistry` (see the module header). Supplied => the gate
+ *   is ARMED and every `opKind: 'command'` dispatch is checked against the server ceiling before
+ *   anything is signed. Absent => no policy is consulted, and every outcome says so
+ *   (`policy.evaluated: false, reason: 'policy-port-absent'`). Present but incomplete is refused
+ *   here, at construction.
  * @param {object} [options.logger] fixed-message-only warn sink
  * @param {() => string} [options.nonceFactory] 128-bit CSPRNG nonce minter (injectable for tests)
  * @param {() => string} [options.requestIdFactory] UUIDv4 minter (injectable for tests)
@@ -546,6 +977,269 @@ function createRelayDispatchClient(options = {}) {
       'the nonce and request-id minters must be functions when supplied',
     );
   }
+  // W12: the tool-policy port. Read (and refused) at CONSTRUCTION, so a half-wired gate can never
+  // look armed at dispatch time. Absent on purpose for non-enforcing callers; the outcome then
+  // declares `policy.evaluated: false` rather than pretending a policy was consulted.
+  const policyPort = readPolicyPort(options.policy);
+
+  /** Configured stage values already warned about, so one misconfiguration warns once per client. */
+  const warnedStages = new Set();
+
+  /**
+   * Emits the ONE console-capable notice in this module: an unrecognised stage value is a
+   * configuration fault that must not be silent, and the fix (a narrow default) is already applied.
+   * It carries operator configuration only — never a payload, an identity or key material — and an
+   * injected logger is always preferred over the console. A throwing sink never changes the stage.
+   * @param {unknown} configured
+   */
+  function warnUnrecognisedStage(configured) {
+    const shown = configured === null || configured === undefined ? 'null' : String(configured);
+    if (warnedStages.has(shown)) {
+      return;
+    }
+    warnedStages.add(shown);
+    const message =
+      `[relayDispatchClient] ignoring unrecognised ${CAPABILITY_STAGE_ENV}="${shown}"; ` +
+      `using the narrowest stage "${DEFAULT_SERVER_STAGE}"`;
+    if (logger !== null && typeof logger.warn === 'function') {
+      warnFixed(logger, message);
+      return;
+    }
+    try {
+      console.warn(message);
+    } catch {
+      /* the narrow default stands whether or not the warning could be emitted */
+    }
+  }
+
+  /**
+   * THE TOOL-POLICY GATE. Evaluates the tier-1 ceiling, the optional narrowing resolver, the
+   * registry's decision for this tool name and the tier-3 approval — in that order, before anything
+   * is signed or sent. NEVER THROWS and never returns a block that would let an unresolved policy
+   * through: every failure to resolve is expressed as a DENIED block carrying a registry code.
+   *
+   * @param {object} parsed the validated dispatch request
+   * @returns {Promise<Readonly<object>>} the frozen policy block
+   */
+  async function evaluateDispatchPolicy(parsed) {
+    if (policyPort === null) {
+      return buildPolicyBlock({
+        portState: POLICY_PORT_STATES.ABSENT,
+        reason: POLICY_REASONS.POLICY_PORT_ABSENT,
+      });
+    }
+    if (parsed.opKind !== RPC_OP_KINDS.COMMAND) {
+      return buildPolicyBlock({
+        portState: POLICY_PORT_STATES.ARMED,
+        reason: POLICY_REASONS.NOT_A_TOOL_EXECUTION,
+      });
+    }
+
+    const stageDecision = resolveDispatchStage(policyPort);
+    if (stageDecision.source === STAGE_SOURCES.UNRECOGNISED) {
+      warnUnrecognisedStage(stageDecision.configured);
+    }
+    if (stageDecision.usable !== true) {
+      return buildPolicyBlock({
+        portState: POLICY_PORT_STATES.ARMED,
+        evaluated: true,
+        reason: POLICY_REASONS.STAGE_UNUSABLE,
+        failClosed: true,
+        decision: POLICY_DECISIONS.DENIED,
+        code: policyPort.dispatchCodes.NOT_PERMITTED,
+        httpStatus: 403,
+        detail:
+          'The server capability stage could not be resolved, so no tool policy is available and nothing is permitted (fail closed).',
+      });
+    }
+
+    // The resolver and the approval seam see trusted identity only: the authority projection is the
+    // server-observed one the caller supplied, never a request field, and the ceiling is server data.
+    const context = Object.freeze({
+      schema: DISPATCH_TOOL_POLICY_SCHEMA,
+      authority: parsed.authority,
+      toolName: parsed.toolName,
+      opKind: parsed.opKind,
+      callId: parsed.callId,
+      stage: stageDecision.stage,
+      stageSource: stageDecision.source,
+      ceiling: stageDecision.ceiling,
+    });
+
+    const narrowing = await readPolicyNarrowing(policyPort.resolve, context);
+    const ceilingTools = Array.isArray(stageDecision.ceiling.tools)
+      ? stageDecision.ceiling.tools
+      : null;
+    const admitted = ceilingTools === null ? null : new Set(ceilingTools);
+
+    let floorTools;
+    if (narrowing.outcome === POLICY_RESOLVER_OUTCOMES.NARROWED) {
+      // The claim is passed on UNCHANGED, barring nothing: whether a narrowing document is valid —
+      // duplicates, wildcard sentinels, size — is the registry's law to apply, and applying it here
+      // as well would let the panel's report and a dispatch refusal disagree about ONE document. A
+      // name the ceiling does not admit still cannot widen anything: the registry checks the ceiling
+      // before it ever looks at the narrowing.
+      floorTools = [...narrowing.tools];
+    } else if (narrowing.outcome === POLICY_RESOLVER_OUTCOMES.ABSENT) {
+      // No resolver: the stage ceiling ALONE is authoritative (GM-75 retired the device floor, so
+      // nothing narrows by default). The narrowing document therefore claims exactly the ceiling.
+      if (ceilingTools === null) {
+        return buildPolicyBlock({
+          portState: POLICY_PORT_STATES.ARMED,
+          evaluated: true,
+          reason: POLICY_REASONS.POLICY_UNAVAILABLE,
+          stage: stageDecision.stage,
+          stageSource: stageDecision.source,
+          resolver: narrowing.outcome,
+          failClosed: true,
+          decision: POLICY_DECISIONS.DENIED,
+          code: policyPort.dispatchCodes.NOT_PERMITTED,
+          httpStatus: 403,
+          detail:
+            'The server ceiling did not carry a tool list, so the effective set could not be established and nothing is permitted (fail closed).',
+        });
+      }
+      floorTools = [...ceilingTools];
+    } else {
+      // The resolver threw or answered unusably: an EMPTY narrowing, so the registry refuses with
+      // its own tier code. Fail closed — never "allow because the policy engine was unavailable".
+      floorTools = [];
+    }
+
+    const resolverFailed =
+      narrowing.outcome === POLICY_RESOLVER_OUTCOMES.THREW ||
+      narrowing.outcome === POLICY_RESOLVER_OUTCOMES.UNUSABLE;
+    // Diagnostic only, never a decision: how many of the claimed names the ceiling actually admits.
+    // With no resolver the claim is the ceiling itself; with a broken one it is nothing.
+    const effectiveCount =
+      ceilingTools === null
+        ? null
+        : narrowing.tools === null
+          ? ceilingTools.length
+          : narrowing.tools.filter((name) => typeof name === 'string' && admitted.has(name.trim()))
+              .length;
+    const common = {
+      portState: POLICY_PORT_STATES.ARMED,
+      evaluated: true,
+      reason: resolverFailed ? POLICY_REASONS.RESOLVER_UNUSABLE : null,
+      stage: stageDecision.stage,
+      stageSource: stageDecision.source,
+      ceilingCount: ceilingTools === null ? null : ceilingTools.length,
+      resolver: narrowing.outcome,
+      effectiveCount,
+      failClosed: resolverFailed,
+    };
+
+    /** A policy the registry would not answer for is a refusal, with the registry's own code. */
+    const policyUnavailable = (fields = {}) =>
+      buildPolicyBlock({
+        ...common,
+        failClosed: true,
+        decision: POLICY_DECISIONS.DENIED,
+        code: policyPort.dispatchCodes.NOT_PERMITTED,
+        httpStatus: 403,
+        detail:
+          'The server tool policy could not be resolved for this dispatch, so nothing is permitted (fail closed).',
+        ...fields,
+      });
+
+    let decision;
+    try {
+      decision = policyPort.authorizeDispatch(parsed.toolName, {
+        ceiling: stageDecision.ceiling,
+        deviceFloor: { enabled: floorTools },
+      });
+    } catch (err) {
+      return policyUnavailable({ code: registryFailureCode(err, policyPort.dispatchCodes) });
+    }
+    if (decision === null || typeof decision !== 'object') {
+      return policyUnavailable();
+    }
+
+    if (decision.allowed !== true) {
+      if (typeof decision.code !== 'string' || decision.code.length === 0) {
+        // A refusal with no registry code would be an unlabelled refusal: a wiring fault, not policy.
+        return policyUnavailable();
+      }
+      // The registry refused the narrowing DOCUMENT itself (`TOOL_DEVICE_FLOOR_MALFORMED` /
+      // `_ABSENT`, its own fail-closed pair): a wildcard sentinel, a duplicate or an over-long list
+      // is a narrowing that enabled nothing, not a narrowing that was honoured.
+      const narrowingRefused =
+        decision.code === policyPort.dispatchCodes.DEVICE_FLOOR_MALFORMED ||
+        decision.code === policyPort.dispatchCodes.DEVICE_FLOOR_ABSENT;
+      return buildPolicyBlock({
+        ...common,
+        reason: resolverFailed
+          ? POLICY_REASONS.RESOLVER_UNUSABLE
+          : narrowingRefused
+            ? POLICY_REASONS.NARROWING_REFUSED
+            : null,
+        failClosed: resolverFailed || narrowingRefused,
+        decision: POLICY_DECISIONS.DENIED,
+        code: decision.code,
+        httpStatus: Number.isInteger(decision.httpStatus) ? decision.httpStatus : 403,
+        deniedBy: decision.deniedBy ?? null,
+        tier: decision.tier ?? null,
+        reasonCode: decision.reasonCode ?? null,
+        detail: decision.reason ?? null,
+      });
+    }
+
+    const approvalRequired = decision.requiresApproval === true;
+    const admittedBlock = {
+      ...common,
+      decision: approvalRequired ? POLICY_DECISIONS.APPROVAL_REQUIRED : POLICY_DECISIONS.ALLOWED,
+      code: typeof decision.code === 'string' ? decision.code : null,
+      // A tier-3 admission is carried as `requiresApproval`, so the caller (and this client) can
+      // never read an approval-gated decision as a plain allow.
+      requiresApproval: approvalRequired,
+      tier: decision.tier ?? null,
+      reasonCode: decision.reasonCode ?? null,
+      detail: decision.reason ?? null,
+    };
+    if (!approvalRequired) {
+      return buildPolicyBlock(admittedBlock);
+    }
+    // Tier 3 is never a plain allow: the tool dispatches only when the approval seam says yes. The
+    // refusal keeps this same block, with `approved: false`, so the two paths stay distinguishable.
+    const approved = await consultOwnerApproval(policyPort.hasOwnerApproval, context);
+    return buildPolicyBlock({
+      ...admittedBlock,
+      approved,
+      httpStatus: approved ? null : 403,
+    });
+  }
+
+  /**
+   * The refusal outcome for a dispatch the policy gate did not admit. The code is ALWAYS the
+   * registry's (`policy.code`), the status is the policy status when the registry named one, and
+   * `delivered: 'no'` means nothing was signed and nothing was sent.
+   * @param {Readonly<object>} policy a DENIED, or approval-withheld, policy block
+   * @returns {Readonly<object>}
+   */
+  function policyRefusal(policy) {
+    if (typeof policy.code !== 'string' || policy.code.length === 0) {
+      return Object.freeze({
+        ...failureResult(
+          relayFailure(
+            'POLICY_SEAM_INVALID',
+            'the tool-policy gate blocked a dispatch without a registry code',
+            { field: 'policy' },
+          ),
+          { delivered: 'no' },
+        ),
+        policy,
+      });
+    }
+    const error = relayFailure(
+      policy.code,
+      policy.requiresApproval === true && policy.approved !== true
+        ? `the dispatch was refused: owner approval was not established (${policy.code})`
+        : policy.detail ?? `dispatch refused by tool policy: ${policy.code}`,
+      { httpStatus: Number.isInteger(policy.httpStatus) ? policy.httpStatus : 403 },
+    );
+    return Object.freeze({ ...failureResult(error, { delivered: 'no' }), policy });
+  }
 
   /**
    * Signs and dispatches one command frame to the relay.
@@ -562,6 +1256,31 @@ function createRelayDispatchClient(options = {}) {
       }
       return failureResult(err, { delivered: 'no' });
     }
+
+    // ── W12: THE TOOL-POLICY GATE ───────────────────────────────────────────────────────────────
+    // The gate runs HERE, before the clock, the nonce, the replay window, the envelope, the
+    // signature, the ledger and the wire. A tool the policy does not admit (or an approval-gated
+    // tool whose approval was not established) never becomes a frame — see the module header.
+    const policy = await evaluateDispatchPolicy(parsed);
+    if (
+      policy.decision === POLICY_DECISIONS.DENIED ||
+      (policy.requiresApproval === true && policy.approved !== true)
+    ) {
+      return policyRefusal(policy);
+    }
+
+    const outcome = await signAndSend(parsed);
+    // Every dispatched outcome carries the block, so a caller can see which tier decided what.
+    return Object.freeze({ ...outcome, policy });
+  }
+
+  /**
+   * Signs and hands one ALREADY-PARSED, ALREADY-POLICY-ADMITTED dispatch to the relay hop. This is
+   * the W2 path unchanged: policy never touches identity, the envelope, the ledger or the wire.
+   * @param {object} parsed the validated dispatch request
+   * @returns {Promise<object>} typed outcome (no `policy` block; `dispatchCommand` attaches it)
+   */
+  async function signAndSend(parsed) {
     const { authority, toolName, opKind, audience, argsDigestHex, argsB64u, seq, idempotencyKey, callId } =
       parsed;
 
@@ -760,10 +1479,27 @@ function createRelayDispatchClient(options = {}) {
 module.exports = {
   TRUSTED_AUTHORITY_FIELDS,
   DISPATCH_REQUEST_KEYS,
+  // W12 — the tool-policy gate: the port's keys, the stage law and the vocabulary a caller (or CI)
+  // asserts against without reading prose.
+  POLICY_PORT_KEYS,
+  POLICY_PORT_REQUIRED_KEYS,
+  CAPABILITY_STAGE_ENV,
+  DEFAULT_SERVER_STAGE,
+  STAGE_SOURCES,
+  POLICY_PORT_STATES,
+  POLICY_RESOLVER_OUTCOMES,
+  POLICY_DECISIONS,
+  POLICY_REASONS,
+  DISPATCH_TOOL_POLICY_SCHEMA,
   assertTrustedDispatchAuthority,
   trustedAuthorityFromDeviceRow,
   resolveDispatchArgs,
   parseDispatchRequest,
   interpretRelayResponse,
+  readPolicyPort,
+  resolveDispatchStage,
+  readPolicyNarrowing,
+  consultOwnerApproval,
+  buildPolicyBlock,
   createRelayDispatchClient,
 };

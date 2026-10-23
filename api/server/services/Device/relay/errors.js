@@ -74,6 +74,10 @@ const RELAY_ERROR_HTTP_STATUS = Object.freeze({
   RESULT_UNKNOWN_CALL_ID: 404,
   DISPATCH_LEDGER_SATURATED: 503,
   SINK_SEAM_INVALID: 500,
+  // W12: the injected TOOL-POLICY port (the dispatch-time gate's wiring) is unusable. A wiring fault
+  // like every other `*_SEAM_INVALID`, deliberately NOT a policy refusal code: a policy refusal is
+  // always one of the registry's own codes, never this one.
+  POLICY_SEAM_INVALID: 500,
 });
 
 /**
