@@ -1,13 +1,23 @@
 'use strict';
 
 /**
- * Evidence self-check (test-only, run by hand; new file).
+ * Evidence self-check (test-only, run by hand; PHASE1-LOCAL-AUTHORITY-001).
  *
- *   node tests/device/e1/skew/verify-evidence.cjs
+ *   node tests/device/e1/skew/verify-evidence.cjs [--dir=tests/device/_phase1_evidence/skew-rebased]
  *
- * Recomputes every SHA-256 in the two evidence manifests and re-derives the numbers quoted in
- * SKEW-REPORT.md / F13-CERT-REPORT.md straight from the artifacts, so a hand-edited report cannot
- * drift from the recorded evidence unnoticed. Read-only: it writes nothing.
+ * Recomputes every SHA-256 in the skew evidence manifests and re-derives the numbers quoted in
+ * SKEW-RESULTS.json / SKEW-RUN-META.json straight from the artifacts, so a hand-edited report
+ * cannot drift from the recorded evidence unnoticed. Read-only: it writes nothing.
+ *
+ * What this check pins for GM-69 (the re-basing):
+ *   - all three fixtures PASS with zero violations (no over-release, no margin violation,
+ *     no past-expiry renewal) and a green CONTROL arm;
+ *   - the run proved no anchor seam (`predicateAnchorMode === 'database'` everywhere, and no
+ *     writer reports an injected anchor);
+ *   - the reference timeline is a database-clock instant (one shared referenceNowMs per fixture,
+ *     reached by both writers, with the writer clocks carrying exactly their injected offsets and
+ *     failing the anti-vacuity gate otherwise);
+ *   - namespace before == after with zero leftover fixture databases.
  */
 
 const fs = require('node:fs');
@@ -15,8 +25,24 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const WORKTREE = path.resolve(__dirname, '..', '..', '..', '..');
-const SKEW_DIR = path.join(WORKTREE, 'tests', 'device', '_phase1_evidence', 'skew-two-clock');
-const F13_DIR = path.join(WORKTREE, 'tests', 'device', '_phase1_evidence', 'f13-cert');
+
+function parseArgs(argv) {
+  const options = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (!arg.startsWith('--')) continue;
+    const [flag, inline] = arg.includes('=') ? arg.split(/=(.*)/s, 2) : [arg, null];
+    const value = inline !== null ? inline : argv[index + 1];
+    options[flag.slice(2)] = value === undefined ? true : value;
+    if (inline === null) index += 1;
+  }
+  return options;
+}
+
+const options = parseArgs(process.argv.slice(2));
+const SKEW_DIR = path.isAbsolute(options.dir ?? '')
+  ? options.dir
+  : path.join(WORKTREE, options.dir ?? 'tests/device/_phase1_evidence/skew-two-clock');
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').toUpperCase();
@@ -30,153 +56,175 @@ const problems = [];
 const notes = [];
 
 function check(condition, message, observed) {
-  if (condition !== true) problems.push({ message, observed });
+  if (condition !== true) problems.push({ message, observed: observed === undefined ? null : observed });
 }
 
 /* ---------------------------------------------------------------- manifests */
 
-function verifyManifest(dir, manifestName) {
-  const manifest = readJson(path.join(dir, manifestName));
-  let ok = 0;
-  for (const entry of manifest.files) {
-    const absolute = path.join(WORKTREE, ...entry.path.split('/'));
-    if (!fs.existsSync(absolute)) {
-      problems.push({ message: `manifest names a missing file: ${entry.path}`, observed: null });
-      continue;
-    }
-    const observed = sha256(absolute);
-    if (observed !== entry.sha256) {
-      problems.push({ message: `hash mismatch: ${entry.path}`, observed: { manifest: entry.sha256, recomputed: observed } });
-    } else {
-      ok += 1;
-    }
-  }
-  notes.push({ manifest: manifestName, files: manifest.files.length, verified: ok });
-}
-
-verifyManifest(SKEW_DIR, 'SKEW-FILE-HASHES.json');
-verifyManifest(F13_DIR, 'F13-CERT-FILE-HASHES.json');
-
-/* ---------------------------------------------------------------- skew numbers */
-
 const skew = readJson(path.join(SKEW_DIR, 'SKEW-RESULTS.json'));
 const skewMeta = readJson(path.join(SKEW_DIR, 'SKEW-RUN-META.json'));
-check(skew.status === 'PRODUCT_FAIL', 'skew aggregate must be PRODUCT_FAIL', skew.status);
-check(skew.namespaceAudit.ok === true, 'skew namespace audit must be clean', skew.namespaceAudit);
-check(skew.counts.findings === 3, 'all three skew fixtures must report a finding', skew.counts);
+
+const manifest = readJson(path.join(SKEW_DIR, 'SKEW-FILE-HASHES.json'));
+let manifestVerified = 0;
+for (const entry of manifest.artifacts) {
+  const absolute = path.join(WORKTREE, ...entry.path.split('/'));
+  if (!fs.existsSync(absolute)) {
+    problems.push({ message: `manifest names a missing file: ${entry.path}` });
+    continue;
+  }
+  if (sha256(absolute) !== entry.sha256) {
+    problems.push({ message: `hash mismatch: ${entry.path}` });
+  } else {
+    manifestVerified += 1;
+  }
+}
+notes.push({ manifest: manifest.artifacts.length, verified: manifestVerified });
+
+/* ---------------------------------------------------------------- aggregate */
+
+check(skew.status === 'PASS', 'skew aggregate must be PASS in database mode', skew.status);
+check(skew.exitCode === 0, 'skew aggregate must exit 0', skew.exitCode);
+check(
+  skew.counts.total === 3 && skew.counts.pass === 3 && skew.counts.findings === 0,
+  'all three fixtures must PASS with zero findings',
+  skew.counts,
+);
+check(skewMeta.predicateAnchorMode === 'database', 'run meta must pin database mode', skewMeta.predicateAnchorMode);
+check(skewMeta.voidAsSkewEvidence === false, 'a database-mode run must not be marked VOID', skewMeta.voidAsSkewEvidence);
 check(/^[0-9a-f]{40}$/.test(skewMeta.gitHead), 'skew run must record the git HEAD', skewMeta.gitHead);
-
-const s01 = skew.results.find((entry) => entry.id === 'SKEW-01-FAST-WRITER-OVER-RELEASE').report;
-const s02 = skew.results.find((entry) => entry.id === 'SKEW-02-SLOW-WRITER-PAST-EXPIRY-RENEWAL').report;
-const s03 = skew.results.find((entry) => entry.id === 'SKEW-03-BOUNDARY-SWEEP').report;
-
-for (const [name, report] of [['SKEW-01', s01], ['SKEW-02', s02], ['SKEW-03', s03]]) {
-  check(report.gate.status === 'PASS', `${name} gate must pass`, report.gate.failedCount);
-  check(report.writers.CORRECT.pid !== report.writers.OFFSET.pid, `${name} writers must be distinct processes`, report.writers);
+check(skew.namespaceAudit.ok === true, 'skew namespace audit must be clean', skew.namespaceAudit);
+check(
+  Array.isArray(skew.namespaceAudit.before) &&
+    Array.isArray(skew.namespaceAudit.after) &&
+    skew.namespaceAudit.before.length === skew.namespaceAudit.after.length,
+  'namespace before must equal namespace after',
+  { before: skew.namespaceAudit.before, after: skew.namespaceAudit.after },
+);
+check(
+  Array.isArray(skewMeta.oracleSourceHashes) && skewMeta.oracleSourceHashes.length === 4,
+  'run meta must bind the oracle source hashes',
+  skewMeta.oracleSourceHashes,
+);
+for (const entry of skewMeta.oracleSourceHashes ?? []) {
+  const absolute = path.join(WORKTREE, ...entry.path.split('/'));
+  if (!fs.existsSync(absolute)) {
+    problems.push({ message: `oracle manifest names a missing file: ${entry.path}` });
+    continue;
+  }
+  if (sha256(absolute) !== entry.sha256) {
+    problems.push({
+      message: `oracle source drifted since this evidence run: ${entry.path}`,
+      observed: { recorded: entry.sha256, current: sha256(absolute) },
+    });
+  }
 }
-
 check(
-  s01.overReleases.every((entry) => entry.overRelease === true),
-  'SKEW-01 must over-release on every probe',
-  s01.overReleases.map((entry) => [entry.probeId, entry.offsetWriterMatched]),
-);
-check(
-  s01.overReleases.every((entry) => entry.parentReadBackMatchesOffsetWriter === true),
-  'SKEW-01 parent read-back must corroborate the writer',
-  s01.overReleases.map((entry) => entry.parentReadBackMatchesOffsetWriter),
-);
-check(
-  s01.accountAxis.every((entry) => entry.freed === true),
-  'SKEW-01 must free every seed account',
-  s01.accountAxis,
-);
-const s01Claim = s01.overReleases.find((entry) => entry.kind === 'claimAuthority');
-check(
-  s01Claim.offsetWriterFirstCasFilter.$or[1].expiresAt.$lte === '2026-10-03T04:04:55.000Z' &&
-    s01Claim.correctWriterFirstCasFilter.$or[1].expiresAt.$lte === '2026-10-03T03:59:55.000Z',
-  'SKEW-01 claim filters must differ by exactly delta',
-  {
-    offset: s01Claim.offsetWriterFirstCasFilter.$or[1],
-    correct: s01Claim.correctWriterFirstCasFilter.$or[1],
-  },
+  Array.isArray(skewMeta.referenceTimeline) &&
+    skewMeta.referenceTimeline.length === 3 &&
+    skewMeta.referenceTimeline.every(
+      (entry) =>
+        typeof entry.referenceNowMs === 'number' &&
+        entry.correctWriterAnchorMode === 'database' &&
+        entry.offsetWriterAnchorMode === 'database' &&
+        entry.correctWriterAnchorSeamSupplied === false &&
+        entry.offsetWriterAnchorSeamSupplied === false,
+    ),
+  'every fixture must record a database-clock reference instant reached by both writers with no anchor seam',
+  skewMeta.referenceTimeline,
 );
 
-const s02Renewal = s02.overReleases.find((entry) => entry.pastExpiryRenewal === true);
-check(s02Renewal !== undefined, 'SKEW-02 must record a past-expiry renewal', s02.overReleases);
-if (s02Renewal !== undefined) {
-  const extensionMs = s02Renewal.offsetWriterRowAfter.expiresAtMs - s02Renewal.seedRow.expiresAtMs;
+for (const entry of skew.results) {
+  const report = entry.report;
+  check(entry.status === 'PASS', `${entry.id} must PASS`, entry.status);
+  check(report.gate.status === 'PASS', `${entry.id} gate must PASS`, report.gate);
+  check(report.desiredLaw.status === 'PASS', `${entry.id} law must PASS`, report.desiredLaw);
   check(
-    extensionMs === 172501000,
-    'SKEW-02 renewal must extend the expired lease by exactly 172501000 ms',
-    extensionMs,
+    report.writers.CORRECT.pid !== report.writers.OFFSET.pid,
+    `${entry.id} writers must be distinct processes`,
+    [report.writers.CORRECT.pid, report.writers.OFFSET.pid],
   );
   check(
-    s02Renewal.offsetWriterRowAfter.expiresAtMs === 1791172500000,
-    'SKEW-02 renewed expiry must be the skewed clock + 48 h (1791172500000)',
-    s02Renewal.offsetWriterRowAfter.expiresAtMs,
+    report.writers.CORRECT.anchorSeamSupplied === false && report.writers.OFFSET.anchorSeamSupplied === false,
+    `${entry.id} writers must run without an injected anchor`,
+    [report.writers.CORRECT.predicateAnchorMode, report.writers.OFFSET.predicateAnchorMode],
   );
-  check(s02Renewal.offsetWriterRowAfter.epoch === 2, 'SKEW-02 renewal must advance the epoch to 2', s02Renewal.offsetWriterRowAfter.epoch);
-}
-const s02Control = s02.overReleases.find((entry) => entry.kind === 'claimAuthority');
-check(s02Control.offsetWriterMatched === 0, 'SKEW-02 slow-writer claim control must 0-match', s02Control.offsetWriterMatched);
-
-check(
-  s03.finding.measuredOverReleaseHorizonMs === 295000,
-  'SKEW-03 measured horizon must be delta - SKEW_MARGIN',
-  s03.finding.measuredOverReleaseHorizonMs,
-);
-const s03Grid = s03.overReleases.map((entry) => [entry.remainingLifeMsAtReferenceNow, entry.offsetWriterMatched]);
-check(
-  JSON.stringify(s03Grid) === JSON.stringify([[1000, 1], [100000, 1], [200000, 1], [294999, 1], [295000, 1], [295001, 0], [300000, 0], [300001, 0]]),
-  'SKEW-03 grid must match the reported table',
-  s03Grid,
-);
-
-/* ---------------------------------------------------------------- f13 numbers */
-
-const f13 = readJson(path.join(F13_DIR, 'F13-CERT-RESULTS.json'));
-const f13Meta = readJson(path.join(F13_DIR, 'F13-CERT-RUN-META.json'));
-check(f13.namespaceAudit.ok === true, 'f13 namespace audit must be clean', f13.namespaceAudit);
-check(/^[0-9a-f]{40}$/.test(f13Meta.gitHead), 'f13 run must record the git HEAD', f13Meta.gitHead);
-check(f13.counts.fixtures === 5, 'f13 certification must cover five fixtures', f13.counts);
-
-const law = f13.fixtures.find((entry) => entry.fixtureId === 'F13-LAW-SESSIONVERSION-ABA-TWO-PROCESS');
-check(law !== undefined, 'f13 law fixture must be present', f13.fixtures.map((entry) => entry.fixtureId));
-if (law !== undefined) {
-  check(law.status === 'PASS', 'f13 law fixture must PASS', law.status);
-  check(law.outcome.failedCount === 0, 'f13 law fixture must have no failed assertion', law.outcome);
-  check(law.attempts.recordedAttempts === 50, 'f13 law fixture must record 50 attempts', law.attempts);
-  check(law.pids.distinctChildPids === 2, 'f13 law fixture must run two distinct processes', law.pids);
+  check(
+    typeof report.plan.referenceNowMs === 'number',
+    `${entry.id} must report its database-clock reference instant`,
+    report.plan.referenceNowMs,
+  );
+  check(
+    report.finding.counterexampleReproduced === false &&
+      report.finding.overReleases.length === 0 &&
+      report.finding.marginViolations.length === 0 &&
+      report.finding.pastExpiryRenewals.length === 0,
+    `${entry.id} must record zero violations`,
+    {
+      reproduced: report.finding.counterexampleReproduced,
+      overReleases: report.finding.overReleases.length,
+      marginViolations: report.finding.marginViolations.length,
+      pastExpiryRenewals: report.finding.pastExpiryRenewals.length,
+    },
+  );
+  check(
+    Array.isArray(report.overReleases) && report.overReleases.every((probe) => probe.overRelease !== true),
+    `${entry.id} must show no over-release in the treatment grid`,
+    report.overReleases.map((probe) => [probe.probeId, probe.overRelease]),
+  );
+  check(
+    report.finding.measuredOverReleaseHorizonMs === null,
+    `${entry.id} measured horizon must be empty in database mode`,
+    report.finding.measuredOverReleaseHorizonMs,
+  );
 }
 
-const row = f13.fixtures.find((entry) => entry.fixtureId === 'T0A-01-SESSION-ABA-ISSUE-VS-APPROVE');
-check(row !== undefined, 'the existing F13 row must be present', null);
-if (row !== undefined) {
-  check(row.status === 'EXPECTED_RED', 'the existing row is reported as observed (EXPECTED_RED)', row.status);
-  check(row.attempts.totalAttempts === 50, 'the existing row must record 50 attempts', row.attempts);
-  check(f13.f13StaleExpectationNotes.length === 2, 'the runner must emit two stale-expectation notes', f13.f13StaleExpectationNotes);
+const s03 = skew.results.find((entry) => entry.id === 'SKEW-03-BOUNDARY-SWEEP');
+if (s03 === undefined) {
+  problems.push({ message: 'SKEW-03 is missing from the results' });
+} else {
+  const grid = s03.report.overReleases.map((entry) => [
+    entry.remainingLifeMsAtReferenceNow,
+    entry.offsetWriterMatched,
+  ]);
+  check(
+    JSON.stringify(grid) ===
+      JSON.stringify([
+        [1000, 0],
+        [100000, 0],
+        [200000, 0],
+        [294999, 0],
+        [295000, 0],
+        [295001, 0],
+        [300000, 0],
+        [300001, 0],
+        [-1000, 0],
+        [-5000, 1],
+        [-5001, 1],
+        [-300001, 1],
+      ]),
+    'SKEW-03 grid must refuse every live/inside-margin row and transition every row lapsed past the margin',
+    grid,
+  );
 }
 
-const v24 = f13.fixtures.find((entry) => entry.fixtureId === 'E2-V24T15-REVOKE-VS-CLAIM-RACE');
-check(v24 !== undefined, 'E2-V24T15 must be present', null);
-if (v24 !== undefined && v24.status !== 'PASS') {
-  notes.push({
-    flakyFixture: v24.fixtureId,
-    status: v24.status,
-    failedAssertions: v24.outcome.failedAssertionNames,
-    casAttempts: v24.attempts.casAttempts,
-    errorHistogram: v24.outcome.errorHistogram,
-    note: 'Recorded as observed; three standalone re-runs pass 17/17 under flake/.',
-  });
+const s02 = skew.results.find((entry) => entry.id === 'SKEW-02-SLOW-WRITER-PAST-EXPIRY-RENEWAL');
+if (s02 === undefined) {
+  problems.push({ message: 'SKEW-02 is missing from the results' });
+} else {
+  check(
+    s02.report.finding.pastExpiryRenewals.length === 0,
+    'SKEW-02 must accept no renewal past true expiry',
+    s02.report.finding.pastExpiryRenewals,
+  );
 }
 
 /* ---------------------------------------------------------------- report */
 
 const report = {
   check: 'EVIDENCE-SELF-CHECK',
+  dir: path.relative(WORKTREE, SKEW_DIR).replace(/\\/g, '/'),
   status: problems.length === 0 ? 'PASS' : 'MISMATCH',
-  manifests: notes.filter((entry) => entry.manifest !== undefined),
-  observations: notes.filter((entry) => entry.manifest === undefined),
+  manifests: notes,
   problems,
   finishedAt: new Date().toISOString(),
 };

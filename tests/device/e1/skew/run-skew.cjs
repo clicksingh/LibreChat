@@ -6,9 +6,10 @@
  *   node tests/device/e1/skew/run-skew.cjs --fixture=all --evidence-dir=tests/device/_phase1_evidence/<dir>
  *   node tests/device/e1/skew/run-skew.cjs --fixture=SKEW-01-FAST-WRITER-OVER-RELEASE
  *
- * Each fixture runs in its own self-owned `cbhr_rdc_phase1_w3_*` database, dropped in `finally`
- * (fixture-skew.cjs). The runner audits the server namespace before and after and refuses to
- * report success when the namespace changed.
+ * Each fixture owns THREE of its own `cbhr_rdc_phase1_w3_*` databases — a parent orchestration
+ * database plus one per writer arm (control + treatment) — all dropped in fixture-skew.cjs's
+ * `finally` (see `cleanup` in each artifact). The runner audits the server namespace before and
+ * after and refuses to report success when the namespace changed.
  *
  * Honest reporting: the treatment arm asserts the DESIRED LAW (a lease live on the reference
  * timeline must not be transitioned by a skewed writer), so a reproduced counterexample surfaces
@@ -38,6 +39,18 @@ const PRODUCT_SOURCE_FILES = [
   'api/server/services/Device/errors.js',
   'packages/data-schemas/src/schema/deviceAuthority.ts',
   'packages/data-schemas/src/schema/pairingSession.ts',
+];
+
+/**
+ * The ORACLE's own bytes. Recorded with every run so a reviewer can prove which oracle produced a
+ * verdict without trusting the report: the GM-69 re-basing pins the reference timeline to the
+ * database clock, and this manifest is what makes that claim checkable after the fact.
+ */
+const ORACLE_SOURCE_FILES = [
+  'tests/device/e1/skew/fixture-skew.cjs',
+  'tests/device/e1/skew/writer-child.cjs',
+  'tests/device/e1/skew/skew-constants.cjs',
+  'tests/device/e1/skew/run-skew.cjs',
 ];
 
 function gitHead() {
@@ -86,6 +99,20 @@ function gitHead() {
 
 function hashProductFiles() {
   return PRODUCT_SOURCE_FILES.map((relative) => {
+    const absolute = path.join(WORKTREE, ...relative.split('/'));
+    let sha256 = null;
+    try {
+      sha256 = support.sha256File(absolute);
+    } catch {
+      sha256 = null;
+    }
+    return { path: relative, sha256 };
+  });
+}
+
+/** SHA-256 of the oracle's own source files (see ORACLE_SOURCE_FILES). */
+function hashOracleFiles() {
+  return ORACLE_SOURCE_FILES.map((relative) => {
     const absolute = path.join(WORKTREE, ...relative.split('/'));
     let sha256 = null;
     try {
@@ -158,6 +185,15 @@ function writeJson(file, value) {
 
 async function runSkew(options = {}) {
   const requested = options.fixture ?? 'all';
+  /*
+   * GM-64 rule 5 / GM-69: the skew oracle is DATABASE mode by default and its evidence is void in
+   * any other mode. `--anchor=clock` exists ONLY as the fixture's falsifiability (negative) control:
+   * it re-supplies the GM-64 comparison anchor, so the writers compare against their own injected
+   * clocks again. The expected outcome of that run is a REPORTED COUNTEREXAMPLE (PRODUCT_FAIL /
+   * exit 5) in the treatment arm, with the control arm still green — the proof that this fixture can
+   * still fail. Every run in that mode is marked VOID as skew evidence in SKEW-RUN-META.json.
+   */
+  const anchorMode = options.anchor === 'clock' ? 'clock' : 'database';
   const selected =
     requested === 'all' ? fixtures.FIXTURES : fixtures.FIXTURES.filter((entry) => entry.id === requested);
   if (selected.length === 0) {
@@ -174,7 +210,7 @@ async function runSkew(options = {}) {
     let report;
     try {
       // eslint-disable-next-line no-await-in-loop
-      report = await fixtures.run(fixture);
+      report = await fixtures.run(fixture, { anchorMode });
     } catch (err) {
       report = {
         id: fixture.id,
@@ -223,7 +259,11 @@ async function runSkew(options = {}) {
     runDir: support.runDir(),
     command:
       'node tests/device/e1/skew/run-skew.cjs ' +
-      (requested === 'all' ? '--fixture=all' : `--fixture=${requested}`),
+      (requested === 'all' ? '--fixture=all' : `--fixture=${requested}`) +
+      (anchorMode === 'clock' ? ' --anchor=clock' : ''),
+    anchorMode,
+    negativeControl: anchorMode === 'clock',
+    voidAsSkewEvidence: anchorMode === 'clock',
     status,
     exitCode,
     productClaim: false,
@@ -261,16 +301,30 @@ async function runSkew(options = {}) {
       node: process.version,
       mongo: await topology().catch((err) => ({ error: `${err.name}: ${err.message}` })),
       productSourceHashes: hashProductFiles(),
+      oracleSourceHashes: hashOracleFiles(),
       /*
-       * GM-64 rule 5: this oracle runs in DATABASE mode. There is NO injected predicate anchor, so
-       * every lease/TTL predicate under test is the production `$$NOW` form. The "reference
-       * timeline" below is a real instant on the DATABASE clock (read from `hello.localTime`), not a
-       * fixture constant — that is what makes "live on the reference timeline" mean "live in the
-       * database". The writer clocks are still injected (reference ± offset) so the two-clock
-       * counterexample is reproducible without depending on the host's wall clock.
+       * GM-64 rule 5 / GM-69: this oracle runs in DATABASE mode. There is NO injected predicate
+       * anchor, so every lease/TTL predicate under test is the production `$$NOW` form decided by
+       * MongoDB itself. Each fixture runs TWO arms (control + treatment) on independent databases,
+       * each seeded by its own writer immediately before one shared database-clock reference
+       * instant; the child's `--anchor=clock` mode exists only for the negative control and voids
+       * the run as skew evidence. `voidAsSkewEvidence` below pins that rule on the record.
        */
-      predicateAnchorMode: 'database',
-      predicateAnchorSupplied: false,
+      predicateAnchorMode: anchorMode,
+      predicateAnchorSupplied: anchorMode === 'clock',
+      voidAsSkewEvidence:
+        anchorMode === 'clock' ||
+        results.some(
+          (entry) =>
+            entry.report?.writers?.CORRECT?.anchorSeamSupplied === true ||
+            entry.report?.writers?.OFFSET?.anchorSeamSupplied === true,
+        ),
+      voidAsSkewEvidenceNote:
+        'A run in which any writer arm carried an injected predicate anchor does not prove clock independence; such a run is a (useful) negative control, never skew evidence.',
+      negativeControlExpectation:
+        anchorMode === 'clock'
+          ? 'EXPECTED: the treatment arms reproduce the H01 counterexample (PRODUCT_FAIL / exit 5) while the control arms stay green. This is the proof that the fixture can still fail.'
+          : null,
       referenceTimeline: aggregate.results.map((entry) => ({
         fixtureId: entry.id,
         referenceNowMs: entry.report?.plan?.referenceNowMs ?? null,
@@ -278,8 +332,11 @@ async function runSkew(options = {}) {
         offsetWriterReachedAtMs: entry.report?.realReturns?.writers?.OFFSET?.referenceReachedAtMs ?? null,
         correctWriterAnchorMode: entry.report?.realReturns?.writers?.CORRECT?.predicateAnchorMode ?? null,
         offsetWriterAnchorMode: entry.report?.realReturns?.writers?.OFFSET?.predicateAnchorMode ?? null,
+        correctWriterAnchorSeamSupplied: entry.report?.realReturns?.writers?.CORRECT?.anchorSeamSupplied ?? null,
+        offsetWriterAnchorSeamSupplied: entry.report?.realReturns?.writers?.OFFSET?.anchorSeamSupplied ?? null,
       })),
-      referenceTimelineLeadMs: require('./skew-constants.cjs').LEAD_MS,
+      referenceTimelineArmLeadMs: require('./skew-constants.cjs').ARM_LEAD_MS,
+      decisionSlopMs: require('./skew-constants.cjs').DECISION_SLOP_MS,
       legacyFixedEpochUnused: env.constants.EPOCH_BASE_MS,
       constants: {
         deltaMs: require('./skew-constants.cjs').DELTA_MS,
