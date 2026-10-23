@@ -16,25 +16,47 @@ function normalizeModel(value) {
 }
 
 function buildModelPolicyProjection(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid('Projection payload is required');
-  if (!Number.isInteger(input.policyVersion) || input.policyVersion < 1) throw invalid('policyVersion must be a positive integer');
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw invalid('Projection payload is required');
+  if (!Number.isInteger(input.policyVersion) || input.policyVersion < 1)
+    throw invalid('policyVersion must be a positive integer');
   const endpointName = typeof input.endpointName === 'string' ? input.endpointName.trim() : '';
   if (!SAFE_ENDPOINT.test(endpointName)) throw invalid('Invalid managed endpoint name');
   const companyDefault = normalizeModel(input.companyDefault);
-  if (!Array.isArray(input.adminModels) || input.adminModels.length < 1 || input.adminModels.length > MAX_MODELS) {
+  if (
+    !Array.isArray(input.adminModels) ||
+    input.adminModels.length < 1 ||
+    input.adminModels.length > MAX_MODELS
+  ) {
     throw invalid('adminModels must contain between 1 and 128 deployments');
   }
   const adminModels = [...new Set(input.adminModels.map(normalizeModel))];
-  if (!adminModels.includes(companyDefault)) throw invalid('Company default must be in the ADMIN managed catalogue');
+  if (!adminModels.includes(companyDefault))
+    throw invalid('Company default must be in the ADMIN managed catalogue');
 
   return {
-    policyVersion: input.policyVersion, endpointName, companyDefault, adminModels,
+    policyVersion: input.policyVersion,
+    endpointName,
+    companyDefault,
+    adminModels,
     roles: {
-      __base__: { endpoints: { custom: [{ name: endpointName, default: true, models: { default: [companyDefault], fetch: false } }] } },
+      __base__: {
+        endpoints: {
+          custom: [
+            {
+              name: endpointName,
+              default: true,
+              models: { default: [companyDefault], fetch: false },
+            },
+          ],
+        },
+      },
       USER: { interface: { modelSelect: false } },
       ADMIN: {
         interface: { modelSelect: true },
-        endpoints: { custom: [{ name: endpointName, models: { default: adminModels, fetch: false } }] },
+        endpoints: {
+          custom: [{ name: endpointName, models: { default: adminModels, fetch: false } }],
+        },
       },
     },
   };

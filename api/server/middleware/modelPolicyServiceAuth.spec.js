@@ -1,12 +1,23 @@
-const { parseBearer, tokenMatches, createModelPolicyServiceAuth } = require('./modelPolicyServiceAuth');
+const {
+  parseBearer,
+  tokenMatches,
+  createModelPolicyServiceAuth,
+} = require('./modelPolicyServiceAuth');
 
 const SECRET = '0123456789abcdef0123456789abcdef';
 
 function response() {
   return {
-    statusCode: null, body: null,
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
+    statusCode: null,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
   };
 }
 
@@ -36,10 +47,18 @@ describe('model policy service authentication', () => {
   test('missing token is 401 and unavailable secret fails closed with 503', async () => {
     const next = jest.fn();
     let res = response();
-    await createModelPolicyServiceAuth({ loadExpectedToken: async () => SECRET })({ get: () => undefined }, res, next);
+    await createModelPolicyServiceAuth({ loadExpectedToken: async () => SECRET })(
+      { get: () => undefined },
+      res,
+      next,
+    );
     expect(res.statusCode).toBe(401);
     res = response();
-    await createModelPolicyServiceAuth({ loadExpectedToken: async () => 'too-short' })({ get: () => 'Bearer ' + SECRET }, res, next);
+    await createModelPolicyServiceAuth({ loadExpectedToken: async () => 'too-short' })(
+      { get: () => 'Bearer ' + SECRET },
+      res,
+      next,
+    );
     expect(res.statusCode).toBe(503);
     expect(next).not.toHaveBeenCalled();
   });
