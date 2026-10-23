@@ -15,8 +15,8 @@ import {
   useToolToggle,
   useAuthContext,
 } from '~/hooks';
-import { getTimestampedValue } from '~/utils/timestamps';
 import { hasManagedUltraSearch } from './managedUltraSearch';
+import { getTimestampedValue } from '~/utils/timestamps';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 
