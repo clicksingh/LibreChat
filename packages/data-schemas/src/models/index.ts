@@ -30,6 +30,7 @@ import { createPromptModel } from './prompt';
 import { createMemoryModel } from './memory';
 import { createConfigModel } from './config';
 import { createModelPolicyPublicationModel } from './modelPolicyPublication';
+import { createModelPolicyHeadModel, createModelPolicyRevisionModel } from './modelPolicy';
 import { createTokenModel } from './token';
 import { createAgentModel } from './agent';
 import { createSkillModel } from './skill';
@@ -84,6 +85,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
   Group: ReturnType<typeof createGroupModel>;
   Config: ReturnType<typeof createConfigModel>;
   ModelPolicyPublication: ReturnType<typeof createModelPolicyPublicationModel>;
+  ModelPolicyHead: ReturnType<typeof createModelPolicyHeadModel>;
+  ModelPolicyRevision: ReturnType<typeof createModelPolicyRevisionModel>;
 } {
   const models = {
     User: createUserModel(mongoose),
@@ -126,6 +129,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
     Group: createGroupModel(mongoose),
     Config: createConfigModel(mongoose),
     ModelPolicyPublication: createModelPolicyPublicationModel(mongoose),
+    ModelPolicyHead: createModelPolicyHeadModel(mongoose),
+    ModelPolicyRevision: createModelPolicyRevisionModel(mongoose),
   };
   /**
    * Background index builds fail silently unless an 'index' listener is
