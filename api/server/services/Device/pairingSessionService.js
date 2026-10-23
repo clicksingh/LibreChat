@@ -1702,8 +1702,25 @@ function createPairingSessionService(deps = {}) {
   /**
    * Injected local-endpoint consent seam (freeze §9). Missing verifier or a non-`true` verdict
    * fails closed with `ENDPOINT_CONSENT_REQUIRED`.
+   *
+   * THE DECISION INSTANT IS READ *AFTER* VERIFICATION, AND THAT IS LOAD-BEARING.
+   *
+   * This function previously compared `approvedAt <= now`, where `now` was captured by the caller
+   * BEFORE the session read, the authority read, the challenge read and the device-PoP verification —
+   * while `approvedAt` is produced by the consent verifier, i.e. AFTER all of that. On a real clock
+   * the two are ordered the wrong way round, so the conjunct was unsatisfiable whenever the
+   * intervening work crossed a millisecond: the claim was refused with `ENDPOINT_CONSENT_REQUIRED`
+   * and no lease could ever be granted through the real pairing path. Measured deltas were +7 ms for
+   * a direct service call and +40–220 ms over real HTTP; a run that happened to land inside the same
+   * millisecond succeeded, which is luck rather than soundness. The accepted route suite never caught
+   * it because it injects a frozen clock, making `approvedAt === now` by construction.
+   *
+   * The conjunct is KEPT, because "the approval is not dated in the future" is a real check: a
+   * verifier seam returning a far-future `approvedAt` still fails it. What changes is the reference
+   * instant — it is now the moment the decision is actually made, which is the only instant at which
+   * "in the future" is meaningful.
    */
-  async function requireLocalConsent({ tenantId, ownerId, session, localConsent, proof, now }) {
+  async function requireLocalConsent({ tenantId, ownerId, session, localConsent, proof }) {
     const reject = (message, cause) => ({
       error: new DeviceError(
         'ENDPOINT_CONSENT_REQUIRED',
@@ -1741,6 +1758,9 @@ function createPairingSessionService(deps = {}) {
     const approvedAt = toMillis(verdict.approvedAt);
     const openedAt = toMillis(claim.openedAt);
     const expiresAt = toMillis(session.expiresAt);
+    // The decision instant, read HERE rather than received from the caller: `approvedAt` was minted
+    // by the verifier we just awaited, so any instant captured before that call predates it.
+    const decidedAt = currentTime();
     const bound =
       isNonEmptyString(verdict.localApprovalNonceHash) &&
       verdict.boundTenantId === tenantId &&
@@ -1752,7 +1772,7 @@ function createPairingSessionService(deps = {}) {
       openedAt !== null &&
       expiresAt !== null &&
       approvedAt >= openedAt &&
-      approvedAt <= now &&
+      approvedAt <= decidedAt &&
       approvedAt < expiresAt;
     if (!bound) {
       return reject('Local-endpoint approval is stale or not bound to trusted session truth');
@@ -1914,7 +1934,6 @@ function createPairingSessionService(deps = {}) {
       session,
       localConsent: args.localConsent,
       proof,
-      now,
     });
     if (consent.error) {
       const auditError = await emitClaimRefused({
