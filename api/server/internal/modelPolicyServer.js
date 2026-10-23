@@ -11,10 +11,10 @@ const { publishModelPolicyProjection } = require('../services/Config/modelPolicy
 
 function defaultPublisher(input) {
   return runAsSystem(() =>
-    publishModelPolicyProjection(input, {
+    commitManagedModelPolicy(input, {
       findConfigByPrincipal: db.findConfigByPrincipal,
       patchConfigFields: db.patchConfigFields,
-      claimModelPolicyPublication: db.claimModelPolicyPublication,
+      commitModelPolicyRevision: db.commitModelPolicyRevision,
       invalidateConfigCaches,
       startSession: () => mongoose.startSession(),
     }),
@@ -40,7 +40,7 @@ function createModelPolicyInternalApp({ loadExpectedToken, publish = defaultPubl
       return res.status(200).json({
         ok: true,
         policyVersion: result.policyVersion,
-        digest: result.digest,
+        policyNoop: result.policyNoop,
         transition: result.transition,
         noop: result.noop,
         writes: result.writes,
