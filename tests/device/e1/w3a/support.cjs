@@ -105,8 +105,11 @@ function provenance(context, extra = {}) {
     },
     dbFacade: {
       kind: context.facadeKind,
+      dbMode: context.dbMode,
       disclosure:
-        'Test-only behaviour-free plain-object facade over the genuine createModels(mongoose) models; required because I6/I5 assertDependencies require typeof db.<Model> === "object" while genuine Mongoose models are functions (see finding I11-F1).',
+        context.dbMode === 'raw-registry'
+          ? 'No db adapter: the services receive the genuine createModels(mongoose) registry (instrumented with a pass-through recording Proxy that delegates every call to the real Mongoose model and adds no behaviour).'
+          : 'Test-only behaviour-free plain-object adapter over the genuine createModels(mongoose) models; it forwards every method to the real Mongoose model and adds no logic or fallback.',
     },
     trustedTenant: env.TENANT,
     foreignTenant: env.OTHER_TENANT,
@@ -261,10 +264,48 @@ function makeThrowingAuditSink() {
 }
 
 /**
+ * Builds the trusted-tenant context seam from the FIXED harness-lab trust only.
+ *
+ * Identity source disclosure: the tenant/user/device triple is taken from the
+ * fixture's own written parameters, never from a request container. This is the
+ * harness analogue of the server resolving ALS + the authenticated session: the
+ * fixed lab principal and lab tenant play both roles, deterministically.
+ */
+function makeTenantContext({ tenantId = env.TENANT, principalId, deviceId } = {}) {
+  const state = {
+    kind: 'fixed-trusted-lab-tenant-context',
+    tenantId,
+    principalId: principalId ?? env.OWNER_A,
+    deviceId: deviceId ?? null,
+  };
+  return {
+    kind: state.kind,
+    state,
+    getActiveTenantId() {
+      if (!isActiveTenant(state.tenantId)) {
+        throw new Error('LAB_TENANT_CONTEXT_INACTIVE');
+      }
+      return state.tenantId;
+    },
+    alsAbsencePermitted: true,
+  };
+}
+
+/** True when the lab tenant context still points at the fixture's trusted tenant. */
+function isActiveTenant(tenantId) {
+  return typeof tenantId === 'string' && tenantId.length > 0 && tenantId !== '__SYSTEM__';
+}
+
+/**
  * Builds one fixture context: its own w3 database, the real model registry, a recording model
  * facade, an injected clock and (optionally) a tenant-policy/consent pair.
+ *
+ * Options:
+ *   mode: 'recorded-facade' (default, disclosed test adapter described above) or
+ *         'raw-registry' (the genuine createModels(mongoose) object with no adapter; proves
+ *         that the product factories run the frozen contract with zero test object seams).
  */
-async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbName: providedDbName = null, syncIndexes = true, dropOnTeardown = true } = {}) {
+async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbName: providedDbName = null, syncIndexes = true, dropOnTeardown = true, tenantId = env.TENANT, principalId = env.OWNER_A, deviceId = null, mode = 'recorded-facade' } = {}) {
   const dbName = providedDbName ?? fence.createDbName(tag);
   const { client } = await fence.connectGuarded({ dbName, appName: `cbhr-phase1-w3a-${tag}`.slice(0, 60) });
   const modelInfo = env.loadModels();
@@ -278,10 +319,22 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
   const syncReport = syncIndexes ? await env.syncDeclaredIndexes(four) : null;
   const recorder = env.makeRecorder();
   const facade = env.makeDbFacade(four, recorder.entries);
+  const instrumentedRegistry = env.instrumentModels(modelInfo.registry, recorder.entries);
   const clock = env.makeClock();
   const cryptoSurface = env.makeCrypto();
   const tenantPolicy = env.makeTenantPolicy();
-  const consent = env.makeLocalConsent();
+  const consent = env.makeLocalConsent({ clock });
+  const tenantContext = makeTenantContext({ tenantId, principalId, deviceId });
+
+  // The retire CAS resolves its trusted principal through the REAL product trust
+  // adapter, not through caller fields: resolveRetirePrincipal/verifyRetireAuthorization
+  // are the frozen seams and they see the same lab tenant context every service sees.
+  const retireTrust = env.product.createOwnerRetireTrust({
+    authenticatedUser: { id: principalId, tenantId },
+    authStrategy: 'authenticated',
+    tenantContext,
+    serverResolvedDeviceId: deviceId,
+  });
 
   let audit;
   if (auditSink === 'real-model') {
@@ -302,9 +355,12 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
     modelInfo,
     syncIndexes: syncReport,
     recorder,
-    db: facade.db,
+    db: mode === 'raw-registry' ? instrumentedRegistry : facade.db,
+    rawDb: instrumentedRegistry,
+    facadeDb: facade.db,
     facadeProvenance: facade.provenance,
-    facadeKind: facade.kind,
+    facadeKind: mode === 'raw-registry' ? 'genuine-createModels-registry-no-adapter' : facade.kind,
+    dbMode: mode,
     clock,
     crypto: cryptoSurface,
     tenantPolicy,
@@ -314,42 +370,71 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
     leaseTtlMs: env.constants.LEASE_TTL_MS,
     skewMarginMs: env.constants.SKEW_MARGIN_MS,
     codeTtlMs: env.constants.CODE_TTL_MS,
+    tenantContext,
+    retireTrust,
+    retireDeviceId: deviceId,
+    tenantId,
+    principalId,
     created: [],
   };
 
+  /** Re-binds the trusted context + retire trust to a fixture-chosen device/owner. */
+  context.bindTrust = ({ tenantId: nextTenant, principalId: nextPrincipal, deviceId: nextDevice } = {}) => {
+    const tenant = nextTenant ?? tenantId;
+    const principal = nextPrincipal ?? principalId;
+    const device = nextDevice ?? context.retireDeviceId ?? deviceId ?? null;
+    context.retireDeviceId = device;
+    context.tenantContext = makeTenantContext({ tenantId: tenant, principalId: principal, deviceId: device });
+    context.retireTrust = env.product.createOwnerRetireTrust({
+      authenticatedUser: { id: principal, tenantId: tenant },
+      authStrategy: 'authenticated',
+      tenantContext: context.tenantContext,
+      serverResolvedDeviceId: device,
+    });
+    return context.tenantContext;
+  };
+
+  /* The service db is either the genuine instrumented registry or the disclosed recording facade. */
+  const serviceDb = () => (mode === 'raw-registry' ? instrumentedRegistry : facade.db);
+
   context.authorityService = (overrides = {}) =>
     env.product.createAuthorityService({
-      db: facade.db,
+      db: serviceDb(),
       clock,
       crypto: cryptoSurface,
       logger: null,
       audit: audit.audit,
+      tenantContext: context.tenantContext,
+      resolveRetirePrincipal: context.retireTrust.resolveRetirePrincipal,
+      verifyRetireAuthorization: context.retireTrust.verifyRetireAuthorization,
       verifyRenewalProof: async () => ({ ok: false }),
       ...overrides,
     });
 
   context.registrationService = (overrides = {}) =>
     env.product.createRegistrationService({
-      db: facade.db,
+      db: serviceDb(),
       clock,
       crypto: cryptoSurface,
       logger: null,
       audit: audit.audit,
       tenantPolicy,
+      tenantContext: context.tenantContext,
       ...overrides,
     });
 
   context.pairingService = (overrides = {}) =>
     env.product.createPairingSessionService({
-      db: facade.db,
+      db: serviceDb(),
       clock,
       crypto: cryptoSurface,
       logger: null,
       audit: audit.audit,
-      authorityService: context.authorityService(),
+      authorityService: overrides.authorityService ?? context.authorityService(),
       tenantPolicy,
       verifyLocalConsent: consent.verify.bind(consent),
       pepperLookup: env.LAB_PEPPER,
+      tenantContext: context.tenantContext,
       ...overrides,
     });
 
@@ -467,52 +552,95 @@ async function seedDevice(context, tag, overrides = {}) {
   return { tag: String(tag), deviceId, deviceKeyId, key, row: seeded.row, write: seeded.write };
 }
 
-/** Signs the frozen pairing-open message for one device. */
-function pairingOpenProof(context, { deviceId, deviceKeyId, key }) {
-  const nonce = crypto.randomBytes(16).toString('base64url');
-  const issuedAt = String(context.clock.now());
-  const message = context.crypto.canonicalEncode({
-    domainTag: env.constants.PAIRING_OPEN_DOMAIN,
-    fields: [env.TENANT, deviceId, deviceKeyId, nonce, issuedAt],
-  });
-  return {
-    nonce,
-    issuedAt,
-    signatureB64u: env.sign(key, message),
-    domainTag: env.constants.PAIRING_OPEN_DOMAIN,
-  };
+/** Canonical-message epoch milliseconds: accepts a Date, a number or a numeric string. */
+function canonicalIssuedAt(value, fallbackMs) {
+  if (value instanceof Date) return String(value.getTime());
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return value;
+  const parsed = Date.parse(String(value));
+  if (!Number.isNaN(parsed)) return String(parsed);
+  return String(fallbackMs);
 }
 
-/** Signs the frozen pairing-claim message for one pending session. */
-function pairingClaimProof(context, { session, ownerId, challenge, key }) {
-  const nonce = crypto.randomBytes(16).toString('base64url');
-  const issuedAt = String(context.clock.now());
+/**
+ * Signs the CURRENT frozen pairing-open message for one device, using the server-minted
+ * challenge hash returned by `mintPairingOpenChallenge`.
+ *
+ * Canonical fields (pairingSessionService.buildIssuanceMessage):
+ *   [purpose='pairing-open', tenantId, deviceId, deviceKeyId, challengeHash, issuedAt]
+ * This is the device-side half of the real protocol (the server verifies the same bytes).
+ */
+function pairingOpenProof(context, options = {}) {
+  // Legacy call shape: pairingOpenProof(ctx, deviceDescriptor) with no server-minted challenge.
+  const legacy = options.deviceId !== undefined && options.challengeHash === undefined;
+  const deviceId = legacy ? options.deviceId : options.deviceId;
+  const deviceKeyId = legacy ? options.deviceKeyId : options.deviceKeyId;
+  const key = legacy ? options.key : options.key;
+  const challengeHash = legacy ? context.crypto.challengeHash(crypto.randomBytes(32).toString('base64url')) : options.challengeHash;
+  const issuedAtValue = canonicalIssuedAt(options.issuedAt, context.clock.now());
   const message = context.crypto.canonicalEncode({
-    domainTag: env.constants.PAIRING_CLAIM_DOMAIN,
-    fields: [
-      env.TENANT,
-      ownerId,
-      String(session._id),
-      session.deviceId,
-      session.deviceKeyId,
-      String(challenge),
-      String(new Date(session.issuedAt).getTime()),
-      nonce,
-    ],
+    domainTag: env.constants.PAIRING_OPEN_DOMAIN,
+    fields: ['pairing-open', env.TENANT, deviceId, deviceKeyId, challengeHash, issuedAtValue],
   });
   return {
-    nonce,
-    issuedAt,
-    challenge,
-    ownerId,
+    challengeHash,
+    issuedAt: issuedAtValue,
     signatureB64u: env.sign(key, message),
-    domainTag: env.constants.PAIRING_CLAIM_DOMAIN,
+    domainTag: env.constants.PAIRING_OPEN_DOMAIN,
   };
 }
 
 /**
- * Seeds a `pairing-claim` challenge row (the frozen §9 surface has no claim-challenge mint
- * operation; W2-D acceptance item (2) explicitly allows the harness to seed it in its own DB).
+ * Signs the CURRENT frozen pairing-claim message for one pending session.
+ *
+ * Canonical fields (pairingSessionService.buildClaimChallengeMessage):
+ *   [purpose='pairing-claim', tenantId, ownerId, deviceId, deviceKeyId, challengeHash,
+ *    pairingSessionId, issuedAt]
+ */
+function pairingClaimProof(context, options = {}) {
+  const legacy = Object.prototype.hasOwnProperty.call(options, 'challenge');
+  const challengeHash = legacy
+    ? context.crypto.challengeHash(options.challenge)
+    : options.challengeHash;
+  const issuedAtValue = canonicalIssuedAt(options.issuedAt, context.clock.now());
+  const message = context.crypto.canonicalEncode({
+    domainTag: env.constants.PAIRING_CLAIM_DOMAIN,
+    fields: legacy
+      ? [
+          env.TENANT,
+          options.ownerId,
+          String(options.session._id),
+          options.session.deviceId,
+          options.session.deviceKeyId,
+          String(options.challenge),
+          String(new Date(options.session.issuedAt).getTime()),
+          String(options.nonce ?? ''),
+        ]
+      : [
+          'pairing-claim',
+          env.TENANT,
+          options.ownerId,
+          options.session.deviceId,
+          options.session.deviceKeyId,
+          challengeHash,
+          String(options.session._id),
+          issuedAtValue,
+        ],
+  });
+  return {
+    challengeHash,
+    issuedAt: issuedAtValue,
+    ownerId: options.ownerId,
+    signatureB64u: env.sign(options.key, message),
+    domainTag: env.constants.PAIRING_CLAIM_DOMAIN,
+    ...(legacy ? { nonce: options.nonce ?? null, challenge: options.challenge } : {}),
+  };
+}
+
+/**
+ * Legacy harness seeding of a `pairing-claim` challenge row. Retained ONLY so the separate W3-A
+ * runner keeps its previous behaviour; the T1 product fixtures never use it (both challenges are
+ * minted by the product).
  */
 async function seedClaimChallenge(context, { session, ownerId, challenge }) {
   const challengeHash = context.crypto.challengeHash(challenge);
@@ -533,30 +661,60 @@ async function seedClaimChallenge(context, { session, ownerId, challenge }) {
 }
 
 /**
- * One full, real pairing ceremony: issue → redeem → claim-approve, all through product bytes.
- * Returns the durable facts the fixtures assert on.
+ * One full, real pairing ceremony through product bytes only:
+ *   mintPairingOpenChallenge -> issuePairingSession -> redeemPairingCode
+ *   -> mintPairingClaimChallenge -> approvePairingClaim (device PoP + local consent).
+ *
+ * No challenge row is seeded by the harness: both challenges are minted by the product.
  */
 async function runPairingCeremony(context, { deviceId, deviceKeyId, ownerId, localConsent, key = context.labKey }) {
   const pairing = context.pairingService();
+  const openChallenge = await pairing.mintPairingOpenChallenge({
+    tenantId: env.TENANT,
+    deviceId,
+    deviceKeyId,
+  });
+  if (!openChallenge.ok) {
+    return { ok: false, stage: 'mint-open-challenge', error: openChallenge.error, openChallenge };
+  }
   const issue = await pairing.issuePairingSession({
     tenantId: env.TENANT,
     deviceId,
     deviceKeyId,
     domainTag: env.constants.PAIRING_OPEN_DOMAIN,
     requestSource: 'w3a-harness',
-    proof: pairingOpenProof(context, { deviceId, deviceKeyId, key }),
+    challengeHash: openChallenge.challengeHash,
+    proof: pairingOpenProof(context, {
+      deviceId,
+      deviceKeyId,
+      key,
+      challengeHash: openChallenge.challengeHash,
+      issuedAt: openChallenge.issuedAt,
+    }),
   });
   if (!issue.ok) {
-    return { ok: false, stage: 'issue', issue };
+    return { ok: false, stage: 'issue', issue, openChallenge };
   }
   const redeem = await pairing.redeemPairingCode({ code: issue.code, tenantId: env.TENANT, ownerId });
   if (!redeem.ok) {
-    return { ok: false, stage: 'redeem', issue, redeem };
+    return { ok: false, stage: 'redeem', issue, redeem, openChallenge };
   }
   const session = await context.models.PairingSession.findOne({ _id: redeem.pairingSession._id, tenantId: env.TENANT }).lean();
-  const challenge = crypto.randomBytes(32).toString('base64url');
-  await seedClaimChallenge(context, { session, ownerId, challenge });
-  const proof = pairingClaimProof(context, { session, ownerId, challenge, key });
+  const claimChallenge = await pairing.mintPairingClaimChallenge({
+    pairingSessionId: String(session._id),
+    tenantId: env.TENANT,
+    ownerId,
+  });
+  if (!claimChallenge.ok) {
+    return { ok: false, stage: 'mint-claim-challenge', issue, redeem, claimChallenge };
+  }
+  const proof = pairingClaimProof(context, {
+    session,
+    ownerId,
+    challengeHash: claimChallenge.challengeHash,
+    key,
+    issuedAt: claimChallenge.issuedAt,
+  });
   const approve = await pairing.approvePairingClaim({
     pairingSessionId: String(session._id),
     tenantId: env.TENANT,
@@ -565,7 +723,24 @@ async function runPairingCeremony(context, { deviceId, deviceKeyId, ownerId, loc
     localConsent: localConsent ?? { nonce: 'lab-consent-nonce-0001' },
     proof,
   });
-  return { ok: approve.ok, stage: approve.ok ? 'done' : 'approve', issue, redeem, approve, sessionId: String(session._id) };
+  return {
+    ok: approve.ok,
+    stage: approve.ok ? 'done' : 'approve',
+    issue,
+    redeem,
+    approve,
+    openChallenge,
+    claimChallenge,
+    sessionId: String(session._id),
+  };
+}
+
+/**
+ * The full pairing ceremony with a raw-device-visible challenge: used by fixtures that need
+ * the exact challenge hashes. Identical product path as `runPairingCeremony`.
+ */
+async function runPairingCeremonyDetailed(context, options) {
+  return runPairingCeremony(context, options);
 }
 
 /** Serializes every document in the four Phase-1 collections for secret-leak scanning. */
@@ -611,6 +786,7 @@ module.exports = {
   makeModelAuditSink,
   makeThrowingAuditSink,
   makeContext,
+  makeTenantContext,
   rawInsert,
   seedAuthority,
   seedDevice,
@@ -618,7 +794,9 @@ module.exports = {
   pairingOpenProof,
   pairingClaimProof,
   seedClaimChallenge,
+  canonicalIssuedAt,
   runPairingCeremony,
+  runPairingCeremonyDetailed,
   dumpAllFourCollections,
   findBySerializedValue,
   fence,

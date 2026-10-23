@@ -136,6 +136,14 @@ const MAX_CAUSE_DEPTH = 4;
  * @property {boolean} retryable
  */
 
+/**
+ * Device domain error.
+ *
+ * `detail` is deliberately NOT part of `DeviceErrorJson`. It is server-side-only diagnostic
+ * detail (for example the normalized duplicate `keyPattern`), defined non-enumerable on the
+ * instance so it can never reach a client through `toJSON()`, `JSON.stringify(err)` or
+ * `util.inspect(err)`. Read it explicitly as `err.detail` from server-side code only.
+ */
 class DeviceError extends Error {
   /**
    * `new DeviceError(code, message, options)` or `new DeviceError(code, options)`.
@@ -147,6 +155,7 @@ class DeviceError extends Error {
    * @param {Error} [options.cause]
    * @param {string} [options.disposition] one of DUPLICATE_DISPOSITIONS
    * @param {boolean} [options.retryable]
+   * @param {string} [options.detail] server-side-only diagnostic detail; never serialized
    */
   constructor(code, message, options) {
     let resolvedMessage = message;
@@ -162,6 +171,13 @@ class DeviceError extends Error {
     this.httpStatus = settings.httpStatus ?? DEVICE_ERROR_CODES[code] ?? 500;
     this.disposition = settings.disposition ?? DUPLICATE_DISPOSITIONS.TERMINAL;
     this.retryable = settings.retryable ?? false;
+    if (settings.detail !== undefined && settings.detail !== null) {
+      Object.defineProperty(this, 'detail', {
+        value: typeof settings.detail === 'string' ? settings.detail : String(settings.detail),
+        enumerable: false,
+        writable: false,
+      });
+    }
   }
 
   /**
@@ -214,8 +230,10 @@ function describeKeyPattern(keyPattern) {
  * Classifies a duplicate-key failure using only the observed `keyPattern` (field order and
  * direction values are normalized; the index name is never consulted). Unrecognized or absent
  * patterns, and non-duplicate input, return `UNCLASSIFIED_DUPLICATE` 500 rather than a guess.
- * A `retryable` result permits exactly one bounded recovery by the caller; it never means blind
- * retry of a non-idempotent CAS.
+ * The observed normalized pattern is retained ONLY as the non-serialized `detail` field of the
+ * returned error (server-side diagnostics); it is never part of the client-facing message or of
+ * `toJSON()`. A `retryable` result permits exactly one bounded recovery by the caller; it never
+ * means blind retry of a non-idempotent CAS.
  * @param {object} err surfaced MongoDB/Mongoose error
  * @returns {DeviceError}
  */
@@ -229,8 +247,8 @@ function classifyDuplicateKey(err) {
     const detail = observed === null ? 'absent or unusable' : observed;
     return new DeviceError(
       'UNCLASSIFIED_DUPLICATE',
-      `Duplicate key with unrecognized index (observed keyPattern: ${detail})`,
-      { cause, disposition: DUPLICATE_DISPOSITIONS.TERMINAL, retryable: false },
+      'Duplicate key could not be classified; failing closed without guessing',
+      { cause, disposition: DUPLICATE_DISPOSITIONS.TERMINAL, retryable: false, detail },
     );
   }
   return new DeviceError(classification.code, classification.message, {

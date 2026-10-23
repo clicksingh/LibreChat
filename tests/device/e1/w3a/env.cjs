@@ -56,11 +56,13 @@ const i5registration = requireProduct('registrationService.js');
 const i5pairing = requireProduct('pairingSessionService.js');
 const i7crypto = requireProduct('crypto.js');
 const i7errors = requireProduct('errors.js');
+const i7retireTrust = requireProduct('retireTrustAdapter.js');
 
 const PRODUCT_FILES = {
   authorityService: i6.absolute,
   registrationService: i5registration.absolute,
   pairingSessionService: i5pairing.absolute,
+  retireTrustAdapter: i7retireTrust.absolute,
   crypto: i7crypto.absolute,
   errors: i7errors.absolute,
 };
@@ -477,18 +479,40 @@ function makeTenantPolicy(allowed = [TENANT]) {
   };
 }
 
-/** FIXED trusted local-endpoint consent seam (endpoint-host consent only). */
-function makeLocalConsent({ granted = true, nonce = 'lab-consent-nonce-0001' } = {}) {
+/**
+ * FIXED trusted local-endpoint consent seam (endpoint-host consent only).
+ *
+ * The frozen §9 contract requires a STRUCTURED verdict bound to the server-armed session truth
+ * (approved/approvedAt/localApprovalNonceHash + the tenant/owner/device/session/challengeRef
+ * bindings). The verifier echoes exactly the inputs the product handed it, so it can only ever
+ * approve the session it was called for; it invents no identity.
+ */
+function makeLocalConsent({ granted = true, nonce = 'lab-consent-nonce-0001', approvedAt = null, clock = null } = {}) {
   return {
     kind: 'fixed-trusted-local-consent',
     granted,
     calls: [],
     verify(input) {
-      this.calls.push({ tenantId: input.tenantId, ownerId: input.ownerId, pairingSessionId: input.pairingSessionId });
+      this.calls.push({
+        tenantId: input.tenantId,
+        ownerId: input.ownerId,
+        pairingSessionId: input.pairingSessionId,
+        challengeRef: input.challengeRef ?? null,
+      });
       if (!granted) {
-        return false;
+        return { approved: false };
       }
-      return { ok: true, nonceHash: i7crypto.exports.sha256B64u(nonce) };
+      const stamp = approvedAt ?? (clock !== null && typeof clock.now === 'function' ? clock.now() : Date.now());
+      return {
+        approved: true,
+        approvedAt: stamp,
+        localApprovalNonceHash: i7crypto.exports.sha256B64u(nonce),
+        boundTenantId: input.tenantId,
+        boundOwnerId: input.ownerId,
+        boundDeviceId: input.deviceId,
+        boundPairingSessionId: input.pairingSessionId,
+        boundChallengeRef: input.challengeRef ?? null,
+      };
     },
   };
 }
@@ -593,6 +617,8 @@ module.exports = {
     createAuthorityService: i6.exports.createAuthorityService,
     createRegistrationService: i5registration.exports.createRegistrationService,
     createPairingSessionService: i5pairing.exports.createPairingSessionService,
+    createOwnerRetireTrust: i7retireTrust.exports.createOwnerRetireTrust,
+    createAdminRetireTrust: i7retireTrust.exports.createAdminRetireTrust,
     crypto: i7crypto.exports,
     errors: i7errors.exports,
   },

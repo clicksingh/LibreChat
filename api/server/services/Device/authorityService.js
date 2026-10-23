@@ -61,6 +61,13 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.length > 0;
 }
 
+/** The trusted tenant-context dependency shape (I5/F4): exposes `getActiveTenantId()`. */
+function isTenantContextDependency(value) {
+  return (
+    value !== null && typeof value === 'object' && typeof value.getActiveTenantId === 'function'
+  );
+}
+
 function toMillis(value) {
   if (value instanceof Date) {
     return value.getTime();
@@ -80,6 +87,36 @@ function requireTenant(tenantId) {
     return new DeviceError(
       'TENANT_MISMATCH',
       'tenantId must be supplied by the authenticated context',
+    );
+  }
+  return null;
+}
+
+/**
+ * Per-operation seam check for the retirement principal resolver. Absent/misconfigured is a
+ * configuration fault reported as a frozen `NOT_OWNER` 403 — never a bare TypeError thrown from
+ * inside a call. Called at the top of `retireIdentityImpl`, before any read or write.
+ */
+function requireRetirePrincipalResolver(resolveRetirePrincipal) {
+  if (typeof resolveRetirePrincipal !== 'function') {
+    return new DeviceError(
+      'NOT_OWNER',
+      'No authenticated retirement principal resolver is configured for this service',
+    );
+  }
+  return null;
+}
+
+/**
+ * Per-operation seam check for the admin retirement authorization verifier. Owner self-retirement
+ * never needs it; the admin branch of `retireIdentityImpl` fails closed here with a frozen
+ * `NOT_OWNER` 403 instead of dereferencing a missing dependency.
+ */
+function requireRetireAuthorizationVerifier(verifyRetireAuthorization) {
+  if (typeof verifyRetireAuthorization !== 'function') {
+    return new DeviceError(
+      'NOT_OWNER',
+      'Admin retirement is unavailable: no retirement authorization verifier is configured',
     );
   }
   return null;
@@ -175,7 +212,37 @@ function buildRetirePipeline({ actor, now }) {
   ];
 }
 
-function assertDependencies({ db, clock, crypto, verifyRenewalProof }) {
+/**
+ * Construction-time dependency contract.
+ *
+ * Required on EVERY construction path (the frozen factory signature):
+ *   `db` (models `DeviceAuthority` + `Challenge`), `clock.now()`, `crypto.newGrantId()` and an
+ *   injected `verifyRenewalProof`. A missing or malformed one of these throws a TypeError here.
+ *
+ * REQUIRED-PER-OPERATION seams — validated when supplied, plus re-checked by the operation that
+ * dereferences them (never a bare TypeError from inside a call):
+ *   - `tenantContext` {getActiveTenantId(): string}: needed by every guarded operation; the guard
+ *     fails closed with `TENANT_MISMATCH` 403 (`tenantAgreementError`) when it is absent or
+ *     unusable. It is absent in the frozen factory signature and in E1 harness compositions that
+ *     only read/claim/renew, so it is NOT required at construction.
+ *   - `resolveRetirePrincipal` {(args) => Promise<principal|null>}: needed only by
+ *     `retireIdentity`; absent ⇒ frozen `NOT_OWNER` 403 before any read or write.
+ *   - `verifyRetireAuthorization` {(args) => Promise<attestation>}: needed only by the ADMIN
+ *     branch of `retireIdentity` (owner self-retirement legitimately supplies `undefined`, as
+ *     `createOwnerRetireTrust` does); absent ⇒ frozen `NOT_OWNER` 403 in that branch.
+ *
+ * When one of the three seams IS supplied it must be usable: a malformed value is a construction
+ * defect and fails loudly here instead of surfacing later as a TypeError deep in a call.
+ */
+function assertDependencies({
+  db,
+  clock,
+  crypto,
+  verifyRenewalProof,
+  tenantContext,
+  resolveRetirePrincipal,
+  verifyRetireAuthorization,
+}) {
   if (db === null || typeof db !== 'object') {
     throw new TypeError('createAuthorityService requires a db object exposing Mongoose models');
   }
@@ -204,6 +271,31 @@ function assertDependencies({ db, clock, crypto, verifyRenewalProof }) {
   if (typeof verifyRenewalProof !== 'function') {
     throw new TypeError('createAuthorityService requires an injected verifyRenewalProof');
   }
+  if (
+    tenantContext !== undefined &&
+    tenantContext !== null &&
+    !isTenantContextDependency(tenantContext)
+  ) {
+    throw new TypeError('createAuthorityService requires tenantContext.getActiveTenantId()');
+  }
+  if (
+    resolveRetirePrincipal !== undefined &&
+    resolveRetirePrincipal !== null &&
+    typeof resolveRetirePrincipal !== 'function'
+  ) {
+    throw new TypeError(
+      'createAuthorityService requires resolveRetirePrincipal to be a function when supplied',
+    );
+  }
+  if (
+    verifyRetireAuthorization !== undefined &&
+    verifyRetireAuthorization !== null &&
+    typeof verifyRetireAuthorization !== 'function'
+  ) {
+    throw new TypeError(
+      'createAuthorityService requires verifyRetireAuthorization to be a function when supplied',
+    );
+  }
 }
 
 /**
@@ -218,6 +310,16 @@ function assertDependencies({ db, clock, crypto, verifyRenewalProof }) {
  * @param {(event: object) => (void|Promise<void>)} [deps.audit] authority-event sink.
  * @param {(input: object) => Promise<{ok: boolean, binding?: object}>} deps.verifyRenewalProof
  *   injected renewal-proof verifier; must return `{ ok: false }` for a failed proof.
+ * @param {{getActiveTenantId: () => string}} [deps.tenantContext] trusted tenant-context seam;
+ *   REQUIRED per operation (absent/malformed ⇒ `TENANT_MISMATCH` 403), optional at construction.
+ *   Validated at construction when supplied.
+ * @param {(args: object) => Promise<object|null>} [deps.resolveRetirePrincipal] retirement
+ *   principal seam; REQUIRED by `retireIdentity` (absent ⇒ `NOT_OWNER` 403), optional at
+ *   construction. Validated at construction when supplied.
+ * @param {(args: object) => Promise<object>} [deps.verifyRetireAuthorization] admin retirement
+ *   authorization seam; REQUIRED by the admin branch of `retireIdentity` (absent ⇒ `NOT_OWNER`
+ *   403), optional at construction, and legitimately absent for owner self-retirement. Validated
+ *   at construction when supplied.
  * @returns {{
  *   readAuthority: Function, releaseLapsedLease: Function, claimAuthority: Function,
  *   renewAuthority: Function, revokeLease: Function, retireIdentity: Function,
@@ -225,15 +327,31 @@ function assertDependencies({ db, clock, crypto, verifyRenewalProof }) {
  * }}
  */
 function createAuthorityService(deps = {}) {
-  const { db, clock, crypto, logger, audit, verifyRenewalProof, tenantContext, resolveRetirePrincipal, verifyRetireAuthorization } = deps;
+  const {
+    db,
+    clock,
+    crypto,
+    logger,
+    audit,
+    verifyRenewalProof,
+    tenantContext,
+    resolveRetirePrincipal,
+    verifyRetireAuthorization,
+  } = deps;
 
-  assertDependencies({ db, clock, crypto, verifyRenewalProof });
+  assertDependencies({
+    db,
+    clock,
+    crypto,
+    verifyRenewalProof,
+    tenantContext,
+    resolveRetirePrincipal,
+    verifyRetireAuthorization,
+  });
 
   function tenantAgreementError(args) {
     const tenantId = args !== null && typeof args === 'object' ? args.tenantId : undefined;
-    if (!isNonEmptyString(tenantId) ||
-        tenantContext === null || typeof tenantContext !== 'object' ||
-        typeof tenantContext.getActiveTenantId !== 'function') {
+    if (!isNonEmptyString(tenantId) || !isTenantContextDependency(tenantContext)) {
       return new DeviceError('TENANT_MISMATCH', 'Trusted tenant context is required');
     }
     let active;
@@ -921,9 +1039,8 @@ function createAuthorityService(deps = {}) {
     if (!isNonEmptyString(deviceId)) {
       return failure(new DeviceError('UNKNOWN_DEVICE', 'A server-resolved deviceId is required'));
     }
-    if (typeof resolveRetirePrincipal !== 'function') {
-      return failure(new DeviceError('NOT_OWNER', 'No authenticated retirement resolver is configured'));
-    }
+    const resolverError = requireRetirePrincipalResolver(resolveRetirePrincipal);
+    if (resolverError) return failure(resolverError);
     let principal;
     try {
       principal = await resolveRetirePrincipal({ tenantId, deviceId });
@@ -943,10 +1060,11 @@ function createAuthorityService(deps = {}) {
       }
     } else if (kind === 'admin') {
       if (!isNonEmptyString(principal.adminGrantRef) ||
-          !Number.isInteger(principal.authorizationEpoch) || principal.authorizationEpoch < 0 ||
-          typeof verifyRetireAuthorization !== 'function') {
+          !Number.isInteger(principal.authorizationEpoch) || principal.authorizationEpoch < 0) {
         return failure(new DeviceError('NOT_OWNER', 'No active server-verified admin grant'));
       }
+      const verifierError = requireRetireAuthorizationVerifier(verifyRetireAuthorization);
+      if (verifierError) return failure(verifierError);
       let attestation;
       try {
         attestation = await verifyRetireAuthorization({
