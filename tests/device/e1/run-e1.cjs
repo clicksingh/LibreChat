@@ -24,7 +24,17 @@ const { runCrash } = require('../crash-runner.cjs');
 const { runSweep } = require('../sweep-rerun.cjs');
 
 const CONTROL_OK_STATUSES = new Set(['PASS', 'EXPECTED_FAIL']);
-const PRODUCT_BLOCKED_STATUSES = new Set(['BLOCKED_PENDING_I6_I5', 'BLOCKED_NOT_WIRED', 'BLOCKED_SERVICE_SHAPE']);
+const PRODUCT_BLOCKED_STATUSES = new Set([
+  'BLOCKED_PENDING_I6_I5',
+  'BLOCKED_NOT_WIRED',
+  'BLOCKED_SERVICE_SHAPE',
+  /**
+   * The fixture executed for real but cannot satisfy its frozen assertion plan because the frozen
+   * protocol makes the planned condition unreachable. Reported instead of a PASS that the fixture
+   * does not earn; requires a Governor ruling (plan amendment or protocol change).
+   */
+  'BLOCKED_CONTRACT_DEVIATION',
+]);
 const PRODUCT_FAILED_STATUSES = new Set(['PRODUCT_FAIL', 'HARNESS_FAIL']);
 
 /**
@@ -190,7 +200,9 @@ async function runE1(options = {}) {
     status = 'PRODUCT_FAIL';
     exitCode = 5;
   } else if (productBlocked.length > 0) {
-    status = 'BLOCKED_PENDING_I6_I5';
+    // Distinguish "service absent" from "executed but the frozen plan is unreachable".
+    const deviations = productBlocked.filter((entry) => entry.status === 'BLOCKED_CONTRACT_DEVIATION');
+    status = deviations.length > 0 ? 'BLOCKED_CONTRACT_DEVIATION' : 'BLOCKED_PENDING_I6_I5';
     exitCode = 2;
   } else {
     status = 'PASS';

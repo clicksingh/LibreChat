@@ -227,13 +227,31 @@ function describeKeyPattern(keyPattern) {
 }
 
 /**
+ * Builds a leak-free stand-in for a raw driver duplicate error.
+ *
+ * The raw error carries `keyPattern`/`keyValue`, and Node's `util.inspect` prints an
+ * `Error#cause` chain, so keeping the raw object as `cause` would still expose the index shape in
+ * server-side logs. Only the pieces classification needs are preserved: the numeric duplicate
+ * code and a generic message. Nothing about the index shape survives.
+ */
+function sanitizedDuplicateCause(err) {
+  if (err === null || typeof err !== 'object') {
+    return undefined;
+  }
+  const sanitized = new Error('duplicate key');
+  sanitized.name = 'MongoDuplicateKeyError';
+  sanitized.code = err.code;
+  return sanitized;
+}
+
+/**
  * Classifies a duplicate-key failure using only the observed `keyPattern` (field order and
  * direction values are normalized; the index name is never consulted). Unrecognized or absent
  * patterns, and non-duplicate input, return `UNCLASSIFIED_DUPLICATE` 500 rather than a guess.
  * The observed normalized pattern is retained ONLY as the non-serialized `detail` field of the
- * returned error (server-side diagnostics); it is never part of the client-facing message or of
- * `toJSON()`. A `retryable` result permits exactly one bounded recovery by the caller; it never
- * means blind retry of a non-idempotent CAS.
+ * returned error (server-side diagnostics); it is never part of the client-facing message, of
+ * `toJSON()`, or of the serialized `cause` chain. A `retryable` result permits exactly one
+ * bounded recovery by the caller; it never means blind retry of a non-idempotent CAS.
  * @param {object} err surfaced MongoDB/Mongoose error
  * @returns {DeviceError}
  */
@@ -242,7 +260,7 @@ function classifyDuplicateKey(err) {
     err === null || typeof err !== 'object' ? null : err.keyPattern,
   );
   const classification = observed === null ? undefined : DUPLICATE_CLASSIFICATIONS[observed];
-  const cause = err !== null && typeof err === 'object' ? err : undefined;
+  const cause = sanitizedDuplicateCause(err);
   if (classification === undefined) {
     const detail = observed === null ? 'absent or unusable' : observed;
     return new DeviceError(

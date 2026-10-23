@@ -427,10 +427,83 @@ async function run(fixture, { n }) {
 
     cleanup = await support.fence.dropOwnDatabase(ctx.client, ctx.dbName);
 
+    /**
+     * HONEST STATUS OVERRIDE (V24-T15 ONLY).
+     *
+     * The frozen assertion plan expects genuine contention: "exactly one CAS matches; loser
+     * matched 0, never a blind write; epoch delta exactly 1". That contention is STRUCTURALLY
+     * UNREACHABLE under the frozen protocol: `issuePairingSession` refuses a device that holds a
+     * live lease (`DEVICE_ALREADY_PAIRED_USE_RENEW`, pairingSessionService.js ~L1200), so the
+     * challenger's claim ceremony can only be armed AFTER the revoke has committed. The burst
+     * therefore measures a sequential revoke -> fresh-claim sequence (two matches, epoch delta 2),
+     * which cannot detect a double-write regression inside a contended window.
+     *
+     * Reporting PASS here would claim a gate the fixture does not satisfy, so the fixture reports
+     * BLOCKED_CONTRACT_DEVIATION and carries its full evidence. Resolving it needs a Governor
+     * ruling: amend the frozen plan to the realizable sequential expectation, or authorise a
+     * protocol change that lets a claim be armed while a live lease exists.
+     *
+     * T7 and T8 are NOT affected: their contention is realizable and their PASS is genuine.
+     */
+    const measured = support.statusFromChecks(checks.checks);
+    if (fixture.id === 'E2-V24T15-REVOKE-VS-CLAIM-RACE') {
+      const contractDeviation = {
+        status: 'BLOCKED_CONTRACT_DEVIATION',
+        productClaim: false,
+        reason:
+          'Frozen V24-T15 plan requires one-CAS contention (epoch delta 1); the frozen protocol forbids arming a fresh-owner claim while a live lease exists, so only a sequential revoke->claim (two matches, epoch delta 2) is reachable. GM must amend the plan or authorise a protocol change.',
+        planExpected: {
+          source: 'tests/device/e1/fixtures.cjs E2-V24T15-REVOKE-VS-CLAIM-RACE assertionPlan',
+          expected: [
+            'exactly one CAS matches; loser matched 0, never a blind write',
+            'epoch delta exactly 1',
+          ],
+        },
+        measured: {
+          rounds,
+          totalMatches: verdict.totalMatches,
+          revokeMatches: verdict.revokeMatches,
+          claimMatches: verdict.claimMatches,
+          claimArmsThatFailedClosed: verdict.claimArmsThatFailedClosed,
+          roundsWithTwoMatches: verdict.roundsWithTwoMatches,
+          epochDeltaPerRow: 2,
+        },
+        structuralCause: {
+          file: 'api/server/services/Device/pairingSessionService.js',
+          rule: 'issuePairingSession returns DEVICE_ALREADY_PAIRED_USE_RENEW when the device holds a live lease, so a challenger cannot arm a claim ceremony during the revoke window.',
+        },
+        residualRisk:
+          'A regression that allowed two conflicting writes inside a contended window would NOT be detected by this fixture.',
+        assertionsStillHold: measured.failedCount === 0,
+        assertionsPassed: measured.passedCount,
+      };
+
+      return {
+        ...base(fixture),
+        dbName: ctx.dbName,
+        ...measured,
+        status: contractDeviation.status,
+        productClaim: false,
+        reason: contractDeviation.reason,
+        contractDeviation,
+        checks: checks.checks,
+        attempts: { requestedN: n, rounds, attemptsPerRound: 2, recordedAttempts: flat.length, casAttempts: casAttempts.length, shards: 2 },
+        runnerPids: pids,
+        childPids,
+        realReturns: { errorHistogram, winnerCount: winners.length },
+        dbReadBack: verdict,
+        cleanup,
+        provenance: support.provenance(ctx, {
+          twoProcessDisclosure:
+            'Exactly two OS processes; the parent seeds only identity rows, writes one barrier per round so both shards enter the same window, and every recorded attempt is a real I6/I5 product call against the same real MongoDB database. The parent drops the database after the burst.',
+        }),
+      };
+    }
+
     return {
       ...base(fixture),
       dbName: ctx.dbName,
-      ...support.statusFromChecks(checks.checks),
+      ...measured,
       checks: checks.checks,
       attempts: { requestedN: n, rounds, attemptsPerRound: 2, recordedAttempts: flat.length, casAttempts: casAttempts.length, shards: 2 },
       runnerPids: pids,
