@@ -142,18 +142,46 @@ const FIXTURES = [
     kind: 'product',
     requires: ['I6'],
     runner: 'two-process',
-    title: 'concurrent lease revoke versus fresh-owner claim across two OS processes (N>=50)',
+    title: 'lease revoke versus fresh-owner claim across two OS processes (N>=50)',
     assertionPlan: {
       contract: 'PM-INTERFACE-FREEZE §10a C/D; TEST-MATRIX V24-T15',
+      /**
+       * PLAN AMENDED 2026-10-22 under explicit owner ruling.
+       *
+       * The original text demanded genuine one-CAS contention ("exactly one CAS matches; loser
+       * matched 0; epoch delta exactly 1"). Independent verification (T4/T5) proved that condition
+       * is STRUCTURALLY UNREACHABLE under the frozen protocol: issuePairingSession refuses a device
+       * that holds a live lease (DEVICE_ALREADY_PAIRED_USE_RENEW, pairingSessionService.js ~L1200),
+       * so a challenger's claim ceremony can only be armed AFTER the revoke has committed. The
+       * measured burst therefore has no contention window at all: 25 revoke matches + 25 claim
+       * matches over 25 rounds, zero failed-closed arms, epoch delta 2.
+       *
+       * The owner ruled (2026-10-22) that the plan be amended to the realizable sequential
+       * expectation rather than reinterpreting it silently or changing frozen protocol behaviour.
+       * The fixture now asserts the sequenced law below; the un-reachable contention property is
+       * recorded as an explicit residual gap, NOT claimed as tested.
+       */
+      amended: {
+        at: '2026-10-22',
+        authority: 'owner ruling (option: amend the plan to the realizable sequential expectation)',
+        supersedes:
+          'exactly one CAS matches; loser matched 0, never a blind write; epoch delta exactly 1',
+        rationale:
+          'one-CAS contention is unreachable while the protocol forbids arming a claim during a live lease; the reachable law is a sequenced revoke-then-claim',
+      },
       steps: [
         'seed one device D with a live lease held by owner A (grant gA, epoch eA)',
-        'process A issues revokeLease({ownerId:A, epoch:eA}); process B issues claimAuthority for owner B',
+        'process A issues revokeLease({ownerId:A, epoch:eA}) inside the shared window',
+        'process B arms the real pairing ceremony AFTER the revoke commits (the protocol forbids earlier arming) and then claims D for owner B using the epoch the PRODUCT frozen in mintPairingClaimChallenge',
         'N>=50 attempts total; both processes share one database',
       ],
       expected: [
-        'exactly one CAS matches; loser matched 0, never a blind write',
-        'epoch delta exactly 1',
-        'final row satisfies exactly one of {leaseState revoked} or {leaseState active under the new owner}',
+        'the revoke matches exactly once per raced row (epoch eA -> eA+1) and never rotates the grant (G-2)',
+        'the fresh-owner claim then matches exactly once per raced row (epoch eA+1 -> eA+2) against the revoked row',
+        'no attempt blind-writes: every CAS transition that matched is accounted for, and epoch delta equals the number of matched transitions (monotone)',
+        'no live authorization remains for the seeded owner after the sequence',
+        'each raced row ends in exactly one of the two legal end states: {leaseState revoked} or {leaseState active under the new owner}',
+        'RESIDUAL GAP (not tested): a regression permitting two conflicting writes inside a contended revoke/claim window would NOT be detected, because no such window can be constructed under the frozen protocol',
       ],
     },
   },

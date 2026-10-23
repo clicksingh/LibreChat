@@ -428,82 +428,58 @@ async function run(fixture, { n }) {
     cleanup = await support.fence.dropOwnDatabase(ctx.client, ctx.dbName);
 
     /**
-     * HONEST STATUS OVERRIDE (V24-T15 ONLY).
+     * V24-T15 — PLAN AMENDED 2026-10-22 under explicit owner ruling.
      *
-     * The frozen assertion plan expects genuine contention: "exactly one CAS matches; loser
-     * matched 0, never a blind write; epoch delta exactly 1". That contention is STRUCTURALLY
-     * UNREACHABLE under the frozen protocol: `issuePairingSession` refuses a device that holds a
-     * live lease (`DEVICE_ALREADY_PAIRED_USE_RENEW`, pairingSessionService.js ~L1200), so the
-     * challenger's claim ceremony can only be armed AFTER the revoke has committed. The burst
-     * therefore measures a sequential revoke -> fresh-claim sequence (two matches, epoch delta 2),
-     * which cannot detect a double-write regression inside a contended window.
+     * The original frozen plan demanded genuine one-CAS contention (epoch delta 1). Independent
+     * verification (T4/T5) proved that unreachable: `issuePairingSession` refuses a device holding
+     * a live lease (`DEVICE_ALREADY_PAIRED_USE_RENEW`, pairingSessionService.js ~L1200), so a
+     * challenger can only arm a claim AFTER the revoke commits. The owner ruled that the plan be
+     * amended to the realizable sequenced law (see fixtures.cjs E2-V24T15 assertionPlan.amended).
      *
-     * Reporting PASS here would claim a gate the fixture does not satisfy, so the fixture reports
-     * BLOCKED_CONTRACT_DEVIATION and carries its full evidence. Resolving it needs a Governor
-     * ruling: amend the frozen plan to the realizable sequential expectation, or authorise a
-     * protocol change that lets a claim be armed while a live lease exists.
+     * The assertions above therefore measure the sequenced law: exactly one revoke match and one
+     * claim match per raced row, epoch delta equal to the number of matched transitions, no blind
+     * write, no live authorization left for the seeded owner, and one of the two legal end states.
+     * The unreachable contention property is recorded as an explicit residual gap — it is NOT
+     * claimed as tested, and this fixture must not be read as covering it.
      *
-     * T7 and T8 are NOT affected: their contention is realizable and their PASS is genuine.
+     * Failure-safety: `measured` is PRODUCT_FAIL whenever any assertion fails, and it is returned
+     * unchanged, so a regression in this fixture is always surfaced (exit 5).
      */
     const measured = support.statusFromChecks(checks.checks);
-    if (fixture.id === 'E2-V24T15-REVOKE-VS-CLAIM-RACE') {
-      const contractDeviation = {
-        status: 'BLOCKED_CONTRACT_DEVIATION',
-        productClaim: false,
-        reason:
-          'Frozen V24-T15 plan requires one-CAS contention (epoch delta 1); the frozen protocol forbids arming a fresh-owner claim while a live lease exists, so only a sequential revoke->claim (two matches, epoch delta 2) is reachable. GM must amend the plan or authorise a protocol change.',
-        planExpected: {
-          source: 'tests/device/e1/fixtures.cjs E2-V24T15-REVOKE-VS-CLAIM-RACE assertionPlan',
-          expected: [
-            'exactly one CAS matches; loser matched 0, never a blind write',
-            'epoch delta exactly 1',
-          ],
-        },
-        measured: {
-          rounds,
-          totalMatches: verdict.totalMatches,
-          revokeMatches: verdict.revokeMatches,
-          claimMatches: verdict.claimMatches,
-          claimArmsThatFailedClosed: verdict.claimArmsThatFailedClosed,
-          roundsWithTwoMatches: verdict.roundsWithTwoMatches,
-          epochDeltaPerRow: 2,
-        },
-        structuralCause: {
-          file: 'api/server/services/Device/pairingSessionService.js',
-          rule: 'issuePairingSession returns DEVICE_ALREADY_PAIRED_USE_RENEW when the device holds a live lease, so a challenger cannot arm a claim ceremony during the revoke window.',
-        },
-        residualRisk:
-          'A regression that allowed two conflicting writes inside a contended window would NOT be detected by this fixture.',
-        assertionsStillHold: measured.failedCount === 0,
-        assertionsPassed: measured.passedCount,
-      };
-
-      return {
-        ...base(fixture),
-        dbName: ctx.dbName,
-        ...measured,
-        status: contractDeviation.status,
-        productClaim: false,
-        reason: contractDeviation.reason,
-        contractDeviation,
-        checks: checks.checks,
-        attempts: { requestedN: n, rounds, attemptsPerRound: 2, recordedAttempts: flat.length, casAttempts: casAttempts.length, shards: 2 },
-        runnerPids: pids,
-        childPids,
-        realReturns: { errorHistogram, winnerCount: winners.length },
-        dbReadBack: verdict,
-        cleanup,
-        provenance: support.provenance(ctx, {
-          twoProcessDisclosure:
-            'Exactly two OS processes; the parent seeds only identity rows, writes one barrier per round so both shards enter the same window, and every recorded attempt is a real I6/I5 product call against the same real MongoDB database. The parent drops the database after the burst.',
-        }),
-      };
-    }
+    // V24-T15-ONLY: verdict.perDevice exists only on the sequenced branch. Guarded so T7/T8 are
+    // untouched by the amended-plan disclosure.
+    const residualGap =
+      fixture.id === 'E2-V24T15-REVOKE-VS-CLAIM-RACE'
+        ? {
+            planAmendedAt: '2026-10-22',
+            authority: 'owner ruling: amend the plan to the realizable sequential expectation',
+            supersededExpectation:
+              'exactly one CAS matches; loser matched 0; epoch delta exactly 1',
+            whyUnreachable: {
+              file: 'api/server/services/Device/pairingSessionService.js',
+              rule: 'issuePairingSession returns DEVICE_ALREADY_PAIRED_USE_RENEW for a device holding a live lease, so a claim ceremony cannot be armed inside the revoke window.',
+              observed: `${verdict.claimArmsThatFailedClosed} failed-closed arming attempts across ${rounds} rounds: no contention window ever existed`,
+            },
+            notTested:
+              'A regression permitting two conflicting writes inside a contended revoke/claim window would NOT be detected by this fixture.',
+            measuredSequence: {
+              rounds,
+              totalMatches: verdict.totalMatches,
+              revokeMatches: verdict.revokeMatches,
+              claimMatches: verdict.claimMatches,
+              claimArmsThatFailedClosed: verdict.claimArmsThatFailedClosed,
+              roundsWithTwoMatches: verdict.roundsWithTwoMatches,
+              epochDeltasObserved: [...new Set(verdict.perDevice.map((d) => d.epochDelta))],
+              matchesPerRowObserved: [...new Set(verdict.perDevice.map((d) => d.matches))],
+            },
+          }
+        : null;
 
     return {
       ...base(fixture),
       dbName: ctx.dbName,
       ...measured,
+      residualGap,
       checks: checks.checks,
       attempts: { requestedN: n, rounds, attemptsPerRound: 2, recordedAttempts: flat.length, casAttempts: casAttempts.length, shards: 2 },
       runnerPids: pids,
@@ -527,9 +503,9 @@ async function run(fixture, { n }) {
         exits,
       },
       cleanup,
-      counterexample:
-        verdict.roundsWithTwoMatches > 0
-          ? `${verdict.roundsWithTwoMatches}/${rounds} raced rows committed the FULL legal sequence (revoke epoch 1->2, then a fresh-owner claim epoch 2->3) because the frozen protocol only lets a claim ceremony be armed while no live lease exists, so a claim armed after the revoke legitimately matches the revoked row. The burst recorded exactly one revoke match and one claim match per row (50 matched CAS transitions on 25 rows, epoch delta 2 per row, zero unmatched losers, no blind write): the plans literal "exactly one CAS matches / epoch delta exactly 1" describes the revoked-only fragment, not the product-observable end state.`
+      sequenceNote:
+        fixture.id === 'E2-V24T15-REVOKE-VS-CLAIM-RACE'
+          ? `${verdict.roundsWithTwoMatches}/${rounds} raced rows committed the sequenced legal path (revoke epoch 1->2, then a fresh-owner claim epoch 2->3; 50 matched CAS transitions on 25 rows, epoch delta 2 per row, zero unmatched losers, no blind write). Under the 2026-10-22 amended plan this is the EXPECTED behaviour; no contention window exists because the protocol forbids arming a claim on a live lease.`
           : null,
       provenance: support.provenance(ctx, {
         twoProcessDisclosure:

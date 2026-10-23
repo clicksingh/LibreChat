@@ -185,6 +185,20 @@ async function runE1(options = {}) {
   const fabricatedProductPasses = results.filter(
     (entry) => entry.kind === 'product' && entry.status === 'PASS' && !productPassIsBacked(entry.report),
   );
+  /**
+   * A blocked product result must be evidence, not a bare label: productClaim must be false and a
+   * truthful reason must be present. This enforces at the gate what suite.test.cjs also asserts,
+   * so the new BLOCKED_CONTRACT_DEVIATION status cannot be used to smuggle a failure through when
+   * the suite gate is skipped (e.g. a direct --fixture= invocation).
+   */
+  const unevicencedBlocked = results.filter(
+    (entry) =>
+      entry.kind === 'product' &&
+      PRODUCT_BLOCKED_STATUSES.has(entry.status) &&
+      (entry.report?.productClaim !== false ||
+        typeof entry.report?.reason !== 'string' ||
+        entry.report.reason.length === 0),
+  );
   const productFailures = results.filter(
     (entry) => entry.kind === 'product' && PRODUCT_FAILED_STATUSES.has(entry.status),
   );
@@ -193,7 +207,12 @@ async function runE1(options = {}) {
   const namespaceAudit = auditNamespace(namespaceBefore, isolation);
   let status;
   let exitCode;
-  if (controlFailures.length > 0 || fabricatedProductPasses.length > 0 || namespaceAudit.ok !== true) {
+  if (
+    controlFailures.length > 0 ||
+    fabricatedProductPasses.length > 0 ||
+    unevicencedBlocked.length > 0 ||
+    namespaceAudit.ok !== true
+  ) {
     status = 'HARNESS_FAIL';
     exitCode = 4;
   } else if (productFailures.length > 0) {
@@ -224,11 +243,13 @@ async function runE1(options = {}) {
       controls: results.filter((entry) => entry.kind !== 'product').length,
       controlFailures: controlFailures.length,
       fabricatedProductPasses: fabricatedProductPasses.length,
+      unevidencedBlocked: unevicencedBlocked.length,
       productFailures: productFailures.length,
     },
     productBlockedIds: productBlocked.map((entry) => entry.id),
     controlFailureIds: controlFailures.map((entry) => entry.id),
     fabricatedProductPassIds: fabricatedProductPasses.map((entry) => entry.id),
+    unevidencedBlockedIds: unevicencedBlocked.map((entry) => entry.id),
     productFailureIds: productFailures.map((entry) => entry.id),
     isolation,
     namespaceAudit,
