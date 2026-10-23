@@ -104,11 +104,13 @@ export function reconcileManagedDraftModel(
   isManagedUser: boolean,
 ): TConversation | null | undefined {
   if (
-    !isManagedUser || !conversation ||
+    !isManagedUser ||
+    !conversation ||
     conversation.conversationId !== Constants.NEW_CONVO ||
     String(conversation.endpoint ?? '') !== MANAGED_ENDPOINT ||
     !preset?.model ||
-    conversation.agent_id || conversation.assistant_id
+    conversation.agent_id ||
+    conversation.assistant_id
   ) {
     return conversation;
   }

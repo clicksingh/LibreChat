@@ -211,18 +211,21 @@ export default function useMentions({
         }),
         type: 'modelSpec' as const,
       })),
-      ...(isModelSelectionEnabled(interfaceConfig.modelSelect) ? validEndpoints : []).map((endpoint) => ({
-        value: endpoint,
-        label: alternateName[endpoint as string] ?? endpoint ?? '',
-        type: 'endpoint' as const,
-        icon: EndpointIcon({
-          conversation: { endpoint },
-          endpointsConfig,
-          context: 'menu-item',
-          size: 20,
+      ...(isModelSelectionEnabled(interfaceConfig.modelSelect) ? validEndpoints : []).map(
+        (endpoint) => ({
+          value: endpoint,
+          label: alternateName[endpoint as string] ?? endpoint ?? '',
+          type: 'endpoint' as const,
+          icon: EndpointIcon({
+            conversation: { endpoint },
+            endpointsConfig,
+            context: 'menu-item',
+            size: 20,
+          }),
         }),
-      })),
-      ...(isModelSelectionEnabled(interfaceConfig.modelSelect) && validEndpointSet.has(EModelEndpoint.agents)
+      ),
+      ...(isModelSelectionEnabled(interfaceConfig.modelSelect) &&
+      validEndpointSet.has(EModelEndpoint.agents)
         ? (agentsList ?? [])
         : []),
       ...(endpointsConfig?.[EModelEndpoint.assistants] &&

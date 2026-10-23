@@ -45,7 +45,12 @@ import { useAgentsMapContext } from '~/Providers';
 import { usePauseGlobalAudio } from './Audio';
 import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
-import { getManagedNewChatPreset, applyManagedNewChatPreset, reconcileManagedDraftModel, MANAGED_ENDPOINT } from '~/utils/managedDefault';
+import {
+  getManagedNewChatPreset,
+  applyManagedNewChatPreset,
+  reconcileManagedDraftModel,
+  MANAGED_ENDPOINT,
+} from '~/utils/managedDefault';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();
@@ -471,7 +476,12 @@ const useNewConvo = (index = 0) => {
   // company model. The live config queries refresh without logging out;
   // do not overwrite saved conversations, text drafts or ADMIN selections.
   useEffect(() => {
-    if (!isManagedUser || !activeConversation || String(activeConversation.endpoint ?? '') !== MANAGED_ENDPOINT) return;
+    if (
+      !isManagedUser ||
+      !activeConversation ||
+      String(activeConversation.endpoint ?? '') !== MANAGED_ENDPOINT
+    )
+      return;
     const managedPreset = getManagedNewChatPreset({
       isManagedUser,
       conversationId: activeConversation.conversationId,
@@ -481,7 +491,14 @@ const useNewConvo = (index = 0) => {
     });
     const changed = reconcileManagedDraftModel(activeConversation, managedPreset, isManagedUser);
     if (changed && changed !== activeConversation) setConversation(changed);
-  }, [activeConversation, endpointsConfig, isManagedUser, modelsQuery.data, setConversation, startupConfig]);
+  }, [
+    activeConversation,
+    endpointsConfig,
+    isManagedUser,
+    modelsQuery.data,
+    setConversation,
+    startupConfig,
+  ]);
 
   useEffect(() => {
     if (
