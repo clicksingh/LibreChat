@@ -1,15 +1,15 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const { logger, runAsSystem } = require('@librechat/data-schemas');
-const db = require('~/models');
-const { invalidateConfigCaches } = require('~/server/services/Config');
+const db = require('../../models');
+const { invalidateConfigCaches } = require('../services/Config');
 const {
   createModelPolicyServiceAuth,
   fileTokenLoader,
-} = require('~/server/middleware/modelPolicyServiceAuth');
+} = require('../middleware/modelPolicyServiceAuth');
 const {
   publishModelPolicyProjection,
-} = require('~/server/services/Config/modelPolicyPublisher');
+} = require('../services/Config/modelPolicyPublisher');
 
 function defaultPublisher(input) {
   return runAsSystem(() =>
