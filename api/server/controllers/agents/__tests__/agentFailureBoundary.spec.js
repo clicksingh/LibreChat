@@ -7,5 +7,6 @@ describe('AgentClient durable error boundary', () => {
     expect(source).toContain("const { normalizeAgentFailure } = require('./agentFailure');");
     expect(source).toContain('[ContentTypes.ERROR]: videoError ?? normalizeAgentFailure(err)');
     expect(source).not.toContain('An error occurred while processing the request');
+    expect(source).not.toContain('An error occurred while resuming the request');
   });
 });

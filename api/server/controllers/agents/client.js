@@ -3424,7 +3424,7 @@ class AgentClient extends BaseClient {
         );
         this.contentParts.push({
           type: ContentTypes.ERROR,
-          [ContentTypes.ERROR]: `An error occurred while resuming the request${err?.message ? `: ${err.message}` : ''}`,
+          [ContentTypes.ERROR]: normalizeAgentFailure(err),
         });
       }
     } finally {

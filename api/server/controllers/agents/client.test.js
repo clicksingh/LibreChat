@@ -430,7 +430,7 @@ describe('AgentClient - startup telemetry', () => {
     expect(client.contentParts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          [ContentTypes.ERROR]: expect.stringContaining('checkpoint prune failed'),
+          [ContentTypes.ERROR]: expect.stringContaining('MODEL_REQUEST_INTERRUPTED'),
         }),
       ]),
     );
@@ -499,9 +499,7 @@ describe('AgentClient - startup telemetry', () => {
     expect(client.contentParts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          [ContentTypes.ERROR]: expect.stringContaining(
-            'Generation replaced before legacy checkpoint cleanup',
-          ),
+          [ContentTypes.ERROR]: expect.stringContaining('MODEL_REQUEST_INTERRUPTED'),
         }),
       ]),
     );
