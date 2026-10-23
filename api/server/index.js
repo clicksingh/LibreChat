@@ -67,6 +67,7 @@ const { getAppConfig } = require('./services/Config');
 const staticCache = require('./utils/staticCache');
 const noIndex = require('./middleware/noIndex');
 const routes = require('./routes');
+const { startModelPolicyInternalServer } = require('./internal/modelPolicyServer');
 
 /** Route admin file-config MIME patterns through a linear-time engine (ReDoS-safe) on upload. */
 configureFileConfigRegexEngine();
@@ -134,6 +135,15 @@ const startServer = async () => {
   await connectDb();
 
   logger.info('Connected to MongoDB');
+
+  const modelPolicyInternalServer = await startModelPolicyInternalServer();
+  if (modelPolicyInternalServer) {
+    registerShutdownTask('model policy internal publisher', () =>
+      new Promise((resolve, reject) => {
+        modelPolicyInternalServer.close((error) => (error ? reject(error) : resolve()));
+      }),
+    );
+  }
   indexSync().catch((err) => {
     logger.error('[indexSync] Background sync failed:', err);
   });
