@@ -393,4 +393,109 @@ export default [
       ],
     },
   },
+  {
+    // **My Computer panel — single network surface (client/src/components/Device/api.ts)**
+    //
+    // The panel's two-endpoint allowlist only protects callers that go THROUGH api.ts. A new file
+    // next to it could import the shared `request` client (or call `fetch`) directly and reach
+    // `/api/devices/current/renew` with no type error and no runtime guard. These rules make
+    // api.ts the only file under this directory that may touch the network at all, so the
+    // renew-nudge boundary (docs/ARCHITECTURE.md boundary 7, D007, GM-12) cannot be edited around
+    // by adding a file.
+    //
+    // This block must stay AFTER the `**/*.ts` block above, which turns `no-restricted-syntax` off.
+    files: ['client/src/components/Device/**/*.{ts,tsx}'],
+    ignores: ['client/src/components/Device/api.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'librechat-data-provider',
+              importNames: ['request', 'apiBaseUrl'],
+              message:
+                'Only client/src/components/Device/api.ts may import the shared request client. Add the call there, behind assertPanelMayCall, or do not make it.',
+            },
+            {
+              name: 'axios',
+              message:
+                'Only client/src/components/Device/api.ts may use axios (via the shared request client).',
+            },
+          ],
+          patterns: [
+            {
+              group: ['axios', 'axios/*', 'node-fetch', 'cross-fetch', 'whatwg-fetch', 'ky', 'superagent'],
+              message:
+                'Only client/src/components/Device/api.ts may make network calls; the panel is a read-and-approve surface.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message:
+            'Only client/src/components/Device/api.ts may make network calls. Use fetchCurrentDevice/approvePairingCode instead.',
+        },
+        {
+          name: 'XMLHttpRequest',
+          message: 'Only client/src/components/Device/api.ts may make network calls.',
+        },
+        {
+          name: 'WebSocket',
+          message: 'Only client/src/components/Device/api.ts may open a connection.',
+        },
+        {
+          name: 'EventSource',
+          message: 'Only client/src/components/Device/api.ts may open a connection.',
+        },
+      ],
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'navigator',
+          property: 'sendBeacon',
+          message: 'Only client/src/components/Device/api.ts may send data to the server.',
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "MemberExpression[object.name='request']",
+          message:
+            'Only client/src/components/Device/api.ts may use the shared request client (behind assertPanelMayCall).',
+        },
+        {
+          selector: "CallExpression[callee.name='request'], NewExpression[callee.name='request']",
+          message:
+            'Only client/src/components/Device/api.ts may use the shared request client (behind assertPanelMayCall).',
+        },
+        {
+          selector: "VariableDeclarator[id.name='request'][init!=null]",
+          message:
+            'Only client/src/components/Device/api.ts may hold the shared request client (behind assertPanelMayCall).',
+        },
+        {
+          selector:
+            "MemberExpression[object.name='axios'], CallExpression[callee.name='axios'], VariableDeclarator[id.name='axios'][init!=null]",
+          message: 'Only client/src/components/Device/api.ts may make network calls.',
+        },
+        {
+          selector: "CallExpression[callee.name='fetch'], CallExpression[callee.property.name='fetch']",
+          message:
+            'Only client/src/components/Device/api.ts may make network calls. Use fetchCurrentDevice/approvePairingCode instead.',
+        },
+        {
+          selector: "MemberExpression[property.name='sendBeacon']",
+          message: 'Only client/src/components/Device/api.ts may send data to the server.',
+        },
+        {
+          selector: "NewExpression[callee.name=/^(XMLHttpRequest|WebSocket|EventSource)$/]",
+          message: 'Only client/src/components/Device/api.ts may make network calls or open a connection.',
+        },
+      ],
+    },
+  },
 ];

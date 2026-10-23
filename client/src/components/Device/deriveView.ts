@@ -10,6 +10,10 @@
  *    `leaseState === 'active'` AND a readable expiry strictly in the future. Every other shape
  *    — including "looks active but the expiry is unreadable" — maps to a distinct non-connected
  *    state. There is no fallthrough to `connected`.
+ * 3. `now` never means `Date.now()`. `serverClockOffset` turns the body's `serverTime` plus the
+ *    local instant it arrived into `offset = serverTime - localNowAtFetch`, and every expiry test
+ *    and countdown runs on `localNow + offset`. Without a server time the lease reads `unverified`
+ *    — the panel fails closed to a non-green state rather than guess.
  */
 
 import { toDeviceApiError } from './api';
@@ -52,6 +56,29 @@ function parseEpoch(value: unknown): number | null {
 }
 
 /**
+ * How far this browser's clock sits from the server's, in milliseconds (`server - local`).
+ *
+ * The status body carries the server's own reading (`serverTime`) and the panel records the local
+ * reading taken when that body arrived (`localNowAtFetch`). Their difference is the only honest
+ * way to place "now": a snapshot-restored VM or a domain-drifted clock can be hours off, so
+ * comparing `expiresAt` against raw `Date.now()` can show a green "Connected" for a lease the
+ * server expired an hour ago.
+ *
+ * `null` means the server did not state a readable time (or no fetch instant is known), so this
+ * browser cannot judge an expiry at all — callers fail closed rather than assume.
+ */
+export function serverClockOffset(
+  payload: DeviceStatusPayload,
+  localNowAtFetch: number,
+): number | null {
+  const serverTime = parseInstant(payload.serverTime);
+  if (serverTime === null || !Number.isFinite(localNowAtFetch) || localNowAtFetch <= 0) {
+    return null;
+  }
+  return serverTime - localNowAtFetch;
+}
+
+/**
  * The panel's view of the lease. Identity values on the wire are deliberately dropped here —
  * this function is the choke point that keeps them out of the render tree.
  */
@@ -64,8 +91,14 @@ export function toLeaseSnapshot(payload: DeviceStatusPayload): LeaseSnapshot {
   };
 }
 
-/** Classifies a lease snapshot. The single place that may answer "connected". */
-export function classifyLease(lease: LeaseSnapshot, now: number): LeaseClassification {
+/**
+ * Classifies a lease snapshot. The single place that may answer "connected".
+ *
+ * `now` must be SERVER-anchored time (`localNow + serverClockOffset`), or `null` when no server
+ * clock reading is available. A `null` clock can never produce `connected`: without a trustworthy
+ * "now", "unexpired" is not knowable, and the panel's rule is to never claim green on a guess.
+ */
+export function classifyLease(lease: LeaseSnapshot, now: number | null): LeaseClassification {
   if (lease.identityState === 'retired' || lease.leaseState === 'revoked') {
     return { kind: 'revoked', renewalDue: false, remainingMs: null };
   }
@@ -77,6 +110,10 @@ export function classifyLease(lease: LeaseSnapshot, now: number): LeaseClassific
       return { kind: 'paired-incomplete', renewalDue: false, remainingMs: null };
     }
     // Active-looking states but no readable expiry: never claim connected.
+    return { kind: 'unverified', renewalDue: false, remainingMs: null };
+  }
+  if (now === null || !Number.isFinite(now)) {
+    // The server never stated its time: the expiry cannot be judged here. Fail closed.
     return { kind: 'unverified', renewalDue: false, remainingMs: null };
   }
   const remainingMs = lease.expiresAt - now;
@@ -98,7 +135,14 @@ export interface DeriveStatusViewInput {
   error: unknown;
   /** The most recent successful body, if any. A missing body with no error means "loading". */
   payload: DeviceStatusPayload | undefined;
+  /** Current local tick (`Date.now()` via `useNow`), for the live countdown. */
   now: number;
+  /**
+   * Local `Date.now()` captured when `payload` arrived (React Query's `dataUpdatedAt`). The
+   * server-clock offset is anchored here, not at render time, so the countdown advances at the
+   * same rate as the server rather than freezing or drifting.
+   */
+  fetchedAt: number;
 }
 
 /**
@@ -107,8 +151,18 @@ export interface DeriveStatusViewInput {
  * A failed poll WINS over last-known data: if the page cannot reach the server it must not keep
  * showing "Connected" from a stale response, because that is exactly the false-connected state
  * the panel is required never to display.
+ *
+ * The lease clock is the SERVER's: `expiresAt` is compared against `now + offset`, where
+ * `offset = serverTime - localNowAtFetch`. A local clock that is two hours slow can therefore no
+ * longer turn an expired lease green, and a fast clock can no longer misfire the T-2h renewal
+ * window. If the server's time is missing or unreadable, the lease reads `unverified`.
  */
-export function deriveStatusView({ error, payload, now }: DeriveStatusViewInput): StatusView {
+export function deriveStatusView({
+  error,
+  payload,
+  now,
+  fetchedAt,
+}: DeriveStatusViewInput): StatusView {
   if (error != null) {
     const apiError: DeviceApiError = toDeviceApiError(error);
     if (apiError.kind === 'http' && apiError.status === 401) {
@@ -134,13 +188,20 @@ export function deriveStatusView({ error, payload, now }: DeriveStatusViewInput)
   }
 
   const lease = toLeaseSnapshot(payload);
-  const classification = classifyLease(lease, now);
-  if (classification.kind === 'connected' && classification.remainingMs !== null) {
+  const offsetMs = serverClockOffset(payload, fetchedAt);
+  const serverNow = offsetMs === null ? null : now + offsetMs;
+  const classification = classifyLease(lease, serverNow);
+  if (
+    classification.kind === 'connected' &&
+    classification.remainingMs !== null &&
+    offsetMs !== null
+  ) {
     return {
       kind: 'connected',
       lease,
       renewalDue: classification.renewalDue,
       remainingMs: classification.remainingMs,
+      serverNowOffsetMs: offsetMs,
     };
   }
   if (classification.kind === 'expired') {

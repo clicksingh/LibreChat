@@ -305,7 +305,7 @@ function isActiveTenant(tenantId) {
  *         'raw-registry' (the genuine createModels(mongoose) object with no adapter; proves
  *         that the product factories run the frozen contract with zero test object seams).
  */
-async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbName: providedDbName = null, syncIndexes = true, dropOnTeardown = true, tenantId = env.TENANT, principalId = env.OWNER_A, deviceId = null, mode = 'recorded-facade' } = {}) {
+async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbName: providedDbName = null, syncIndexes = true, dropOnTeardown = true, tenantId = env.TENANT, principalId = env.OWNER_A, deviceId = null, mode = 'recorded-facade', predicateAnchor: predicateAnchorMode = 'clock' } = {}) {
   const dbName = providedDbName ?? fence.createDbName(tag);
   const { client } = await fence.connectGuarded({ dbName, appName: `cbhr-phase1-w3a-${tag}`.slice(0, 60) });
   const modelInfo = env.loadModels();
@@ -397,6 +397,27 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
   /* The service db is either the genuine instrumented registry or the disclosed recording facade. */
   const serviceDb = () => (mode === 'raw-registry' ? instrumentedRegistry : facade.db);
 
+  /**
+   * GM-64 / GM-65 TEST-ONLY `predicateAnchor` SEAM, threaded explicitly.
+   *
+   * `predicateAnchorMode`:
+   *   'clock'    (default, every time-travelling fixture) — the predicate comparison anchor follows
+   *              this fixture's injected deterministic clock, so a fixture can place the 48 h / 300 s
+   *              boundary anywhere on the timeline. This substitutes the COMPARISON ANCHOR only; the
+   *              product predicate is still the product predicate, and the writer's own clock still
+   *              never decides a lease state or a TTL through a `Date` baked into a filter.
+   *   'database' — NO seam is supplied. Every predicate is the production `$$NOW` form, decided by
+   *              MongoDB's own clock. The two-clock skew oracle MUST use this mode: with an injected
+   *              anchor its result would be void as skew evidence (GM-64 rule 5).
+   *
+   * Production never constructs a Device service with this seam at all (GM-65: "tests only;
+   * production must omit"); a non-test caller that passes it is a review event.
+   */
+  const anchorSeam =
+    predicateAnchorMode === 'clock' ? { predicateAnchor: () => clock.now() } : {};
+  context.predicateAnchorMode = predicateAnchorMode;
+  context.predicateAnchorSeam = anchorSeam;
+
   context.authorityService = (overrides = {}) =>
     env.product.createAuthorityService({
       db: serviceDb(),
@@ -408,6 +429,7 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
       resolveRetirePrincipal: context.retireTrust.resolveRetirePrincipal,
       verifyRetireAuthorization: context.retireTrust.verifyRetireAuthorization,
       verifyRenewalProof: async () => ({ ok: false }),
+      ...anchorSeam,
       ...overrides,
     });
 
@@ -420,6 +442,7 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
       audit: audit.audit,
       tenantPolicy,
       tenantContext: context.tenantContext,
+      ...anchorSeam,
       ...overrides,
     });
 
@@ -435,6 +458,7 @@ async function makeContext({ tag, point = null, auditSink = 'durable-raw', dbNam
       verifyLocalConsent: consent.verify.bind(consent),
       pepperLookup: env.LAB_PEPPER,
       tenantContext: context.tenantContext,
+      ...anchorSeam,
       ...overrides,
     });
 
@@ -765,6 +789,20 @@ function findBySerializedValue(dump, needle) {
   return found;
 }
 
+/**
+ * Reads the DATABASE server clock in epoch milliseconds from the replica-set primary's own
+ * `hello.localTime`. Never a wall-clock read of this process, so a fixture that anchors its
+ * reference timeline to it is anchored to the same clock the production `$$NOW` predicates use.
+ */
+async function serverNowMs(client) {
+  const hello = await client.db('admin').command({ hello: 1 });
+  const parsed = Date.parse(hello.localTime);
+  if (!Number.isFinite(parsed)) {
+    throw new Error('serverNowMs: hello.localTime is not a parseable instant');
+  }
+  return parsed;
+}
+
 module.exports = {
   currentRunKey,
   runsRoot,
@@ -776,6 +814,7 @@ module.exports = {
   sha256Json,
   makeChecks,
   statusFromChecks,
+  serverNowMs,
   provenance,
   errorView,
   authorizePredicate,

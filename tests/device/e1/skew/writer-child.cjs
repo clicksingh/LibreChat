@@ -298,6 +298,55 @@ async function runProbe(ctx, probe) {
         proofInput: { __accept: true },
       }),
     );
+  } else if (probe.kind === 'admission') {
+    /*
+     * MARGIN-FREE ADMISSION (GM-45 site 5 `isLiveLease`, site 11 `pairingCompleteHttpHandler
+     * .isLiveLease`, site 8 redeem). No margin applies on this axis, so a writer whose clock is
+     * offset can accept a lease that is live by only a few milliseconds — unless the decision is
+     * made against database time. This is the verifier's PROBE-ADMISSION case, probed here at the
+     * fixture's full ±delta.
+     */
+    const pairing = ctx.pairingService({
+      authorityService: authority,
+      verifyLocalConsent: ctx.consent.verify.bind(ctx.consent),
+    });
+    const open = await pairing.mintPairingOpenChallenge({
+      tenantId: TENANT,
+      deviceId: probe.deviceId,
+      deviceKeyId: probe.deviceKeyId,
+    });
+    const issue = open.ok
+      ? await pairing.issuePairingSession({
+          tenantId: TENANT,
+          deviceId: probe.deviceId,
+          deviceKeyId: probe.deviceKeyId,
+          domainTag: env.constants.PAIRING_OPEN_DOMAIN,
+          requestSource: 'skew-harness-admission',
+          challengeHash: open.challengeHash,
+          proof: support.pairingOpenProof(ctx, {
+            deviceId: probe.deviceId,
+            deviceKeyId: probe.deviceKeyId,
+            key,
+            challengeHash: open.challengeHash,
+            issuedAt: open.issuedAt,
+          }),
+        })
+      : { ok: false, code: null, error: open.error };
+    const codeIssued = typeof issue.code === 'string' && /^[0-9]{6}$/.test(issue.code);
+    const sessions = await ctx.models.PairingSession.countDocuments({
+      tenantId: TENANT,
+      deviceId: probe.deviceId,
+    });
+    action = 'admission(mint-open->issue)';
+    detail = {
+      ok: issue.ok === true,
+      matched: null,
+      errorCode: issue.error ? issue.error.code : null,
+      codeIssued,
+      codeDigits: typeof issue.code === 'string' ? issue.code.length : 0,
+      pairingSessionRows: sessions,
+      openChallengeOk: open.ok === true,
+    };
   } else if (probe.kind === 'pairingCeremony') {
     const pairing = ctx.pairingService({
       authorityService: authority,
@@ -341,12 +390,34 @@ async function runProbe(ctx, probe) {
   };
 }
 
+/**
+ * Waits on the DATABASE clock until `targetMs` arrives, then returns the observed database instant.
+ * This is a database-clock wait (never a wall-clock assumption): the fixture's reference timeline is
+ * a real instant on the server's clock, so a writer must not act before the server reaches it.
+ * Returns `null` if the budget expires without reaching the target.
+ */
+async function waitForDatabaseInstant(ctx, targetMs, budgetMs) {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const observed = await support.serverNowMs(ctx.client);
+    if (observed >= targetMs) return observed;
+    if (Date.now() > deadline) return null;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const role = args.role;
   const offsetMs = Number(args.offset);
   const clockMs = Number(args.clock);
   const timeoutMs = Number(args.timeoutMs ?? 60000);
+  // GM-64 rule 5: the skew oracle runs in DATABASE mode unless a caller explicitly says otherwise.
+  // `--anchor=clock` would substitute an injected comparison anchor and VOID the result as skew
+  // evidence; it exists only so a future fixture can be shown to be running in the wrong mode.
+  const anchorMode = args.anchor ?? 'database';
   const plan = readJson(args.plan);
   const barrierDir = args.barrier;
   const outFile = args.out;
@@ -358,6 +429,7 @@ async function main() {
     offsetMs,
     clockNowMs: clockMs + offsetMs,
     referenceNowMs: clockMs,
+    predicateAnchorMode: anchorMode,
     dbName: args.db,
     pid: process.pid,
     ppid: process.ppid,
@@ -383,6 +455,8 @@ async function main() {
       syncIndexes: false,
       dropOnTeardown: false,
       mode: 'raw-registry',
+      // 'database' ⇒ NO injected anchor: every lease/TTL predicate is the production `$$NOW` form.
+      predicateAnchor: anchorMode,
     });
     ctx.clock.set(clockMs + offsetMs);
     report.clockKind = ctx.clock.kind;
@@ -401,11 +475,34 @@ async function main() {
     await waitForFile(path.join(barrierDir, `go-${role}.json`), timeoutMs);
     report.peerReady = true;
 
+    /*
+     * GM-64 rule 5: the fixture's reference timeline is an instant on the DATABASE clock. Wait until
+     * the server reaches it before deciding anything, so every probe is evaluated exactly at the
+     * declared reference instant (a row live by EPSILON is live by EPSILON when the product decides,
+     * and one expired by EPSILON is expired by EPSILON). This is a database-clock wait.
+     */
+    const reachedAtMs = await waitForDatabaseInstant(ctx, clockMs, timeoutMs);
+    report.referenceReached = reachedAtMs !== null;
+    report.referenceReachedAtMs = reachedAtMs;
+    if (reachedAtMs === null) {
+      throw new Error(
+        `REFERENCE_INSTANT_NOT_REACHED: database clock did not reach ${clockMs} within ${timeoutMs} ms`,
+      );
+    }
+
     const startedAt = process.hrtime.bigint();
     for (const probe of plan.probes) {
+      // The instant the product's own `$$NOW` will see, recorded for the liveness cross-check.
+      // eslint-disable-next-line no-await-in-loop
+      const dbNowAtProbeMs = await support.serverNowMs(ctx.client);
       // eslint-disable-next-line no-await-in-loop
       const result = await runProbe(ctx, probe);
-      report.probes.push({ ...result, clockNowMs: ctx.clock.now(), pid: process.pid });
+      report.probes.push({
+        ...result,
+        clockNowMs: ctx.clock.now(),
+        dbNowAtProbeMs,
+        pid: process.pid,
+      });
       report.probeCount += 1;
     }
     report.durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;

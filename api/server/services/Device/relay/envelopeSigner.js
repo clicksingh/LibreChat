@@ -27,12 +27,45 @@
  */
 
 const deviceCrypto = require('../crypto');
-const { assertEnvelopeCore, buildEnvelopeCore, canonicalRpcBytes } = require('./envelopeCore');
+const {
+  RPC_ENVELOPE_AUDIENCES,
+  assertEnvelopeCore,
+  buildEnvelopeCore,
+  canonicalRpcBytes,
+} = require('./envelopeCore');
 const { decodeBase64UrlBytes } = require('./envelopeCore');
 const { isRelayError, relayFailure } = require('./errors');
 
 /** The ONLY keys the signer seam accepts. Anything else is refused (custody containment). */
 const SIGNER_SEAM_KEYS = Object.freeze(['sign', 'keyId']);
+
+/**
+ * AUDIENCE POLICY OF THE SIGNING PRIMITIVE (GM-48 m3).
+ *
+ * The backend mints `audience: 'endpoint'` only. `audience: 'relay'` frames are ENDPOINT-signed
+ * replies and cancel-acks; a backend-signed one would forge the endpoint half of the protocol. That
+ * refusal used to live only in `parseDispatchRequest`, so any future caller of the exported
+ * `signCore()` could bypass it and mint the endpoint's half. The policy therefore lives HERE, in the
+ * primitive, and the dispatch path inherits it instead of owning it.
+ *
+ * The opt-in is deliberately explicit and hard to type by accident. It exists only for an
+ * endpoint-side reply path that legitimately signs relay-audience frames; no caller in this
+ * repository needs it (the endpoint app is a separate codebase), so it defaults to refused.
+ */
+const SIGNER_AUDIENCE_POLICY = Object.freeze({
+  /** Refuse `audience: 'relay'` unless the caller opted in by name. */
+  REFUSE_RELAY_BY_DEFAULT: true,
+  /** The opt-in option name, exported so callers and reviewers can assert on it. */
+  RELAY_AUDIENCE_OPT_IN: 'allowRelayAudience',
+});
+
+function refuseRelayAudience() {
+  return relayFailure(
+    'ENVELOPE_AUDIENCE_NOT_DISPATCHABLE',
+    'this signer refuses audience "relay": relay-audience frames are endpoint-signed replies and cancel-acks, so a backend-signed one would forge the endpoint half of the protocol',
+    { field: 'audience' },
+  );
+}
 
 const ED25519_SIGNATURE_BYTES = 64;
 const MAX_KEY_ID_LENGTH = 200;
@@ -88,10 +121,15 @@ function assertSignerSeam(surface) {
  * @param {(canonicalBytes: Buffer) => (string|Promise<string>)} surface.sign receives the exact
  *   canonical bytes; must resolve to an unpadded base64url Ed25519 (PureEdDSA) signature
  * @param {string} surface.keyId opaque backend signing-key label
+ * @param {object} [options]
+ * @param {boolean} [options.allowRelayAudience=false] explicit opt-in for signing
+ *   `audience: 'relay'` cores. Default false: the primitive refuses that audience (GM-48 m3), so a
+ *   caller that bypasses `parseDispatchRequest` still cannot mint the endpoint's half.
  * @returns {Readonly<{keyId: string, signBytes: Function, signCore: Function}>}
  */
-function createEnvelopeSigner(surface) {
+function createEnvelopeSigner(surface, options = {}) {
   const seam = assertSignerSeam(surface);
+  const allowRelayAudience = options.allowRelayAudience === true;
 
   /**
    * Signs exact bytes through the injected custody implementation. The bytes are handed over
@@ -126,10 +164,21 @@ function createEnvelopeSigner(surface) {
 
   /**
    * Canonicalizes and signs a core, returning the signed envelope.
+   *
+   * The audience policy is enforced HERE, before the core is built and before custody is touched
+   * (GM-48 m3): this is the primitive, so it must refuse on its own rather than rely on any caller.
    * @param {object} coreInput the 15 core fields (tag optional; defaults to CBHR-RPC-V2)
    * @returns {Promise<Readonly<{core: object, signatureB64u: string, keyId: string}>>}
    */
   async function signCore(coreInput) {
+    if (
+      allowRelayAudience !== true &&
+      coreInput !== null &&
+      typeof coreInput === 'object' &&
+      coreInput.audience === RPC_ENVELOPE_AUDIENCES.RELAY
+    ) {
+      throw refuseRelayAudience();
+    }
     const core = buildEnvelopeCore(coreInput);
     const canonicalBytes = canonicalRpcBytes(core);
     const signatureB64u = await signBytes(canonicalBytes);
@@ -240,6 +289,7 @@ function keyIdForPublicKey(publicKeySpkiB64u, options = {}) {
 
 module.exports = {
   SIGNER_SEAM_KEYS,
+  SIGNER_AUDIENCE_POLICY,
   ED25519_SIGNATURE_BYTES,
   assertSignerSeam,
   createEnvelopeSigner,

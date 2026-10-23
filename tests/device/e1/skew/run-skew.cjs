@@ -33,6 +33,7 @@ const PRODUCT_SOURCE_FILES = [
   'api/server/services/Device/authorityService.js',
   'api/server/services/Device/pairingSessionService.js',
   'api/server/services/Device/registrationService.js',
+  'api/server/services/Device/databaseTime.js',
   'api/server/services/Device/crypto.js',
   'api/server/services/Device/errors.js',
   'packages/data-schemas/src/schema/deviceAuthority.ts',
@@ -260,7 +261,26 @@ async function runSkew(options = {}) {
       node: process.version,
       mongo: await topology().catch((err) => ({ error: `${err.name}: ${err.message}` })),
       productSourceHashes: hashProductFiles(),
-      injectedClockBase: env.constants.EPOCH_BASE_MS,
+      /*
+       * GM-64 rule 5: this oracle runs in DATABASE mode. There is NO injected predicate anchor, so
+       * every lease/TTL predicate under test is the production `$$NOW` form. The "reference
+       * timeline" below is a real instant on the DATABASE clock (read from `hello.localTime`), not a
+       * fixture constant — that is what makes "live on the reference timeline" mean "live in the
+       * database". The writer clocks are still injected (reference ± offset) so the two-clock
+       * counterexample is reproducible without depending on the host's wall clock.
+       */
+      predicateAnchorMode: 'database',
+      predicateAnchorSupplied: false,
+      referenceTimeline: aggregate.results.map((entry) => ({
+        fixtureId: entry.id,
+        referenceNowMs: entry.report?.plan?.referenceNowMs ?? null,
+        correctWriterReachedAtMs: entry.report?.realReturns?.writers?.CORRECT?.referenceReachedAtMs ?? null,
+        offsetWriterReachedAtMs: entry.report?.realReturns?.writers?.OFFSET?.referenceReachedAtMs ?? null,
+        correctWriterAnchorMode: entry.report?.realReturns?.writers?.CORRECT?.predicateAnchorMode ?? null,
+        offsetWriterAnchorMode: entry.report?.realReturns?.writers?.OFFSET?.predicateAnchorMode ?? null,
+      })),
+      referenceTimelineLeadMs: require('./skew-constants.cjs').LEAD_MS,
+      legacyFixedEpochUnused: env.constants.EPOCH_BASE_MS,
       constants: {
         deltaMs: require('./skew-constants.cjs').DELTA_MS,
         epsilonMs: require('./skew-constants.cjs').EPSILON_MS,

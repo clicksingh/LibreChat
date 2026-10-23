@@ -134,9 +134,10 @@ function DetailRow({ label, value }: { label: string; value: string }) {
  * What the server says about this account's PC.
  *
  * The "Connected" pill is rendered only for `view.kind === 'connected'`, which `classifyLease`
- * produces only from an active identity, an active lease and an unexpired expiry. Every other
- * state renders a different pill or a notice, so no failure mode can leave a success badge on
- * screen.
+ * produces only from an active identity, an active lease and an expiry that is still in the future
+ * ON THE SERVER'S CLOCK. Every other state renders a different pill or a notice, so no failure mode
+ * can leave a success badge on screen — and a browser whose local clock is wrong cannot manufacture
+ * one either, because the countdown and the expiry test are both anchored to `serverTime`.
  */
 export default function DeviceStatusCard({ view, now }: DeviceStatusCardProps) {
   if (view.kind === 'loading') {
@@ -238,12 +239,12 @@ export default function DeviceStatusCard({ view, now }: DeviceStatusCardProps) {
         <div className="mt-3 space-y-3">
           <LeaseCountdown
             expiresAt={lease.expiresAt}
-            now={now}
+            now={now + view.serverNowOffsetMs}
             label={deviceCopy.status.expiresLabel}
           />
           <RenewalNudge
             renewalDue={view.renewalDue}
-            remainingMs={remainingUntil(lease.expiresAt, now)}
+            remainingMs={remainingUntil(lease.expiresAt, now + view.serverNowOffsetMs)}
           />
         </div>
       ) : null}

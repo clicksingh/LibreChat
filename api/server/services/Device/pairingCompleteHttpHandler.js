@@ -88,6 +88,7 @@ const deviceCrypto = require('./crypto');
 const { createAuthorityService } = require('./authorityService');
 const { createPairingSessionService } = require('./pairingSessionService');
 const { DeviceError } = require('./errors');
+const { readAnchorNowMs, assertPredicateAnchorShape, createClockSkewGuard } = require('./databaseTime');
 const {
   assertHttpHandlerDependencies,
   createAuditAccessor,
@@ -128,14 +129,20 @@ function toMillis(value) {
   return null;
 }
 
-/** True when the row carries a lease that is still live at `now` (identity included). */
-function isLiveLease(row, now) {
+/**
+ * True when the row carries a lease that is still live at `serverNow` (identity included).
+ *
+ * GM-44 site 11 (MARGIN-FREE): `serverNow` MUST be database time. This is the idempotency and
+ * committed-lease test, and reading the writer's clock here let a writer skewed by the full budget
+ * treat a live lease as absent.
+ */
+function isLiveLease(row, serverNow) {
   const expiresAt = toMillis(row?.expiresAt);
   return (
     row?.leaseState === 'active' &&
     row?.identityState !== 'retired' &&
     expiresAt !== null &&
-    expiresAt > now
+    expiresAt > serverNow
   );
 }
 
@@ -395,6 +402,7 @@ function buildPairingServices({
   audit,
   tenantContext,
   tenantId,
+  predicateAnchor,
 }) {
   // The tenant seam is pinned to the server-resolved tenant for this request. Both accepted
   // services require the trusted context to agree with the tenant they act in; the value is
@@ -410,6 +418,10 @@ function buildPairingServices({
     logger,
     audit,
     tenantContext: requestTenantContext,
+    // GM-65: the test anchor rides along so the claim CAS decides against the same timeline.
+    predicateAnchor,
+    // GM-44 rule 3: the claim CAS refuses to write when this host cannot prove its clock.
+    clockSkewGuard: createClockSkewGuard({ db, logger }),
     verifyRenewalProof: async () => ({ ok: false }),
   });
   const pairingSessionService = createPairingSessionService({
@@ -420,6 +432,8 @@ function buildPairingServices({
     audit,
     authorityService,
     tenantContext: requestTenantContext,
+    // GM-65: the test anchor rides along so the claim CAS decides against the same timeline.
+    predicateAnchor,
     verifyLocalConsent: createEndpointSignatureConsent({ clock, crypto }),
   });
   return { authorityService, pairingSessionService };
@@ -442,13 +456,25 @@ function createPairingCompleteHandler(deps = {}) {
     logger = null,
     audit,
     domainTag,
+    predicateAnchor,
   } = deps;
   assertHttpHandlerDependencies({ db, tenantContext, label: 'pairing complete handler' });
   if (!isNonEmptyString(domainTag)) {
     throw new TypeError('pairing complete handler requires the frozen canonical domain tag seam');
   }
+  // GM-64/GM-65: the test-only comparison anchor (shape-validated here, resolved per predicate).
+  assertPredicateAnchorShape(predicateAnchor);
 
   const auditFn = createAuditAccessor({ db, logger, audit });
+
+  /**
+   * GM-44: the DATABASE clock for every lease-state predicate in this handler (`null` ⇒ refuse).
+   * A GM-65 test anchor stands in for the server clock when one is supplied.
+   */
+  async function databaseNow() {
+    const nowMs = await readAnchorNowMs(db, predicateAnchor);
+    return Number.isFinite(nowMs) ? nowMs : null;
+  }
 
   async function armLeg({ res, device, now }) {
     const { tenantId, deviceId, deviceKeyId } = device;
@@ -532,6 +558,7 @@ function createPairingCompleteHandler(deps = {}) {
         audit: auditFn,
         tenantContext,
         tenantId,
+        predicateAnchor,
       });
       const minted = await pairingSessionService.mintPairingClaimChallenge({
         pairingSessionId,
@@ -620,6 +647,7 @@ function createPairingCompleteHandler(deps = {}) {
       audit: auditFn,
       tenantContext,
       tenantId,
+      predicateAnchor,
     });
     const result = await pairingSessionService.approvePairingClaim({
       pairingSessionId: String(session._id),
@@ -644,8 +672,11 @@ function createPairingCompleteHandler(deps = {}) {
         : uniformMiss();
 
     // A committed lease whose audit delivery is uncertain is REAL and must never be reported as a
-    // no-op: the device holds the lease and the employee is not stranded.
-    const liveAfter = isLiveLease(authority, now);
+    // no-op: the device holds the lease and the employee is not stranded. GM-44 site 11: the
+    // liveness test is DATABASE time; without it the committed lease is simply reported as
+    // "not provably live" and the request falls through to the error envelope.
+    const serverNow = await databaseNow();
+    const liveAfter = serverNow !== null && isLiveLease(authority, serverNow);
     if (liveAfter) {
       const committedError =
         error.code === 'AUDIT_DELIVERY_UNCERTAIN'
@@ -666,7 +697,8 @@ function createPairingCompleteHandler(deps = {}) {
     // Late idempotency re-read: a concurrent poll (or a lost acknowledgement) may have landed the
     // lease after this request's own pre-check. A live lease is a success, never an error.
     const fresh = await readAuthorityRow({ db, tenantId, deviceId });
-    if (fresh.error === null && isLiveLease(fresh.row, now)) {
+    const freshNow = fresh.error === null ? await databaseNow() : null;
+    if (fresh.error === null && freshNow !== null && isLiveLease(fresh.row, freshNow)) {
       return res.status(200).json(leaseSummary(fresh.row, deviceId, 'active'));
     }
 
@@ -742,7 +774,10 @@ function createPairingCompleteHandler(deps = {}) {
       }
 
       // IDEMPOTENCY: a live lease from this ceremony means the claim already landed. Report it.
-      if (isLiveLease(current.row, now)) {
+      // GM-44 site 11: database time decides, so a fast writer cannot mistake a live lease for an
+      // absent one (and a slow writer cannot mistake an expired one for live).
+      const idempotencyNow = await databaseNow();
+      if (idempotencyNow !== null && isLiveLease(current.row, idempotencyNow)) {
         return res.status(200).json(leaseSummary(current.row, device.deviceId, 'active'));
       }
 

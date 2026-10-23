@@ -67,6 +67,14 @@ const FIXTURES = [
         remainingLifeMsAtReferenceNow: k.EPSILON_MS,
         claimant: true,
       },
+      {
+        // GM-45 sites 5/8/11: the MARGIN-FREE admission axis. A lease live by EPSILON at the
+        // reference instant must refuse issuance at the full +delta writer offset, and no pairing
+        // session row may be created (a minted-and-consumed code is the security-relevant failure).
+        probeId: 'SKEW-01-P4-MARGIN-FREE-ADMISSION',
+        kind: 'admission',
+        remainingLifeMsAtReferenceNow: k.EPSILON_MS,
+      },
     ],
   },
   {
@@ -116,13 +124,13 @@ function shortId(fixtureId) {
 }
 
 /** Builds the JSON-safe probe plan shared by both writers (no secrets). */
-function buildPlan(ctx, fixture) {
+function buildPlan(ctx, fixture, referenceNowMs) {
   const short = shortId(fixture.id);
   return {
     fixtureId: fixture.id,
     direction: fixture.direction,
     offsetMs: fixture.offsetMs,
-    referenceNowMs: k.TRUE_NOW_MS,
+    referenceNowMs,
     deltaMs: k.DELTA_MS,
     epsilonMs: k.EPSILON_MS,
     skewMarginMs: k.SKEW_MARGIN_MS,
@@ -131,7 +139,7 @@ function buildPlan(ctx, fixture) {
     probes: fixture.probes.map((probe, index) => {
       const tag = `${short}-d${index + 1}`;
       const key = env.makeDeviceKey(tag);
-      const expiresAtMs = k.TRUE_NOW_MS + probe.remainingLifeMsAtReferenceNow;
+      const expiresAtMs = referenceNowMs + probe.remainingLifeMsAtReferenceNow;
       return {
         probeId: probe.probeId,
         kind: probe.kind,
@@ -168,12 +176,13 @@ function sha256FileSafe(file) {
   }
 }
 
-function spawnWriter({ role, offsetMs, dbName, planFile, barrierDir, outFile, logFile }) {
+function spawnWriter({ role, offsetMs, referenceNowMs, dbName, planFile, barrierDir, outFile, logFile }) {
   const args = [
     CHILD,
     `--role=${role}`,
     `--offset=${offsetMs}`,
-    `--clock=${k.TRUE_NOW_MS}`,
+    `--clock=${referenceNowMs}`,
+    '--anchor=database',
     `--db=${dbName}`,
     `--plan=${planFile}`,
     `--barrier=${barrierDir}`,
@@ -269,7 +278,12 @@ function overReleaseFor(planProbe, offsetProbe) {
   const transitioned =
     planProbe.kind === 'pairingCeremony'
       ? outcome.ok === true || outcome.codeIssued === true
-      : matched !== null && matched > 0;
+      : planProbe.kind === 'admission'
+        // The margin-free admission axis is violated by a minted code OR a created session row:
+        // either means a code was accepted against a lease that was live on the reference timeline.
+        ? outcome.codeIssued === true ||
+          (typeof outcome.pairingSessionRows === 'number' && outcome.pairingSessionRows > 0)
+        : matched !== null && matched > 0;
   return {
     probeId: planProbe.probeId,
     kind: planProbe.kind,
@@ -298,9 +312,25 @@ async function run(fixture) {
     point: fixture.id,
     mode: 'raw-registry',
     dropOnTeardown: false,
+    // GM-64 rule 5: the skew oracle runs in DATABASE mode — NO injected predicate anchor. Every
+    // predicate under test is the production `$$NOW` form, decided by MongoDB's own clock. If this
+    // fixture were ever run with an injected anchor its result would be void as skew evidence.
+    predicateAnchor: 'database',
   });
-  ctx.clock.set(k.TRUE_NOW_MS);
-  const plan = buildPlan(ctx, fixture);
+
+  /*
+   * GM-64 rule 5 / GM-66: the REFERENCE TIMELINE is anchored to the DATABASE clock. The parent reads
+   * `hello.localTime` and places the reference instant `LEAD_MS` ahead of it, so the rows can be
+   * seeded while the reference instant is still in the future and each writer can wait on the
+   * DATABASE clock until it arrives. Both sides of every boundary are then exercised AT the declared
+   * reference instant: a row with `remainingLife = +EPSILON` is live by exactly EPSILON ms, and one
+   * with `-EPSILON` is expired by exactly EPSILON ms, at the moment the product decides.
+   * `referenceNowMs` is fixed for the whole fixture and is what the law assertions judge against.
+   */
+  const seededAtMs = await support.serverNowMs(ctx.client);
+  const referenceNowMs = seededAtMs + k.LEAD_MS;
+  ctx.clock.set(referenceNowMs);
+  const plan = buildPlan(ctx, fixture, referenceNowMs);
   const planFile = support.writeJson(rundir, 'plan.json', plan);
   const writers = [];
   let cleanup = 'not_attempted';
@@ -347,6 +377,7 @@ async function run(fixture) {
         spawnWriter({
           role: spec.role,
           offsetMs: spec.offsetMs,
+          referenceNowMs,
           dbName: ctx.dbName,
           planFile,
           barrierDir,
@@ -366,9 +397,9 @@ async function run(fixture) {
        row, so the offset writer then acts on the identical preimage. Both clocks are injected and
        deterministic, so no wall-clock truth is consumed by the ordering. */
     const writerReports = {};
-    releaseGo(barrierDir, 'CORRECT', { releasedAt: k.TRUE_NOW_MS, order: 1 });
+    releaseGo(barrierDir, 'CORRECT', { releasedAt: referenceNowMs, order: 1 });
     writerReports.CORRECT = await waitForJson(path.join(barrierDir, 'out-CORRECT.json'));
-    releaseGo(barrierDir, 'OFFSET', { releasedAt: k.TRUE_NOW_MS, order: 2, after: 'CORRECT' });
+    releaseGo(barrierDir, 'OFFSET', { releasedAt: referenceNowMs, order: 2, after: 'CORRECT' });
     writerReports.OFFSET = await waitForJson(path.join(barrierDir, 'out-OFFSET.json'));
 
     const exits = await Promise.all(writers.map((writer) => writer.exit));
@@ -406,11 +437,11 @@ async function run(fixture) {
       correct.barrierReached === true && offset.barrierReached === true,
       { CORRECT: correct.barrierReached, OFFSET: offset.barrierReached },
     );
-    gate.eq('the CORRECT writer ran with offset 0', [correct.offsetMs, correct.clockNowMs], [0, k.TRUE_NOW_MS]);
+    gate.eq('the CORRECT writer ran with offset 0', [correct.offsetMs, correct.clockNowMs], [0, referenceNowMs]);
     gate.eq(
       'the OFFSET writer ran with the injected offset',
       [offset.offsetMs, offset.clockNowMs],
-      [fixture.offsetMs, k.TRUE_NOW_MS + fixture.offsetMs],
+      [fixture.offsetMs, referenceNowMs + fixture.offsetMs],
     );
     gate.eq(
       'both writers executed every planned probe',
@@ -421,6 +452,33 @@ async function run(fixture) {
       CORRECT: correct.fatal,
       OFFSET: offset.fatal,
     });
+    /*
+     * GATE: the fixture actually realised its declared premise. Under database-time predicates the
+     * reference timeline is an instant on the DATABASE clock, so "live on the reference timeline"
+     * is only meaningful if the server really reached that instant before the probe AND the row was
+     * really still live at the instant the product decided. Both are gate conditions, not law
+     * conditions: if they fail the evidence is void rather than a product finding.
+     */
+    gate.ok(
+      'both writers waited on the DATABASE clock for the reference instant',
+      correct.referenceReached === true && offset.referenceReached === true,
+      { CORRECT: correct.referenceReachedAtMs, OFFSET: offset.referenceReachedAtMs, referenceNowMs },
+    );
+    for (const writerReport of [correct, offset]) {
+      for (const probe of plan.probes) {
+        const observedProbe = probeOf(writerReport, probe.probeId);
+        const dbNowAtProbeMs = observedProbe === null ? null : observedProbe.dbNowAtProbeMs;
+        const declaredLive = probe.remainingLifeMsAtReferenceNow > 0;
+        gate.eq(
+          `${writerReport.role} decided ${probe.probeId} at a database instant on the correct side of its seeded expiry`,
+          [
+            typeof dbNowAtProbeMs === 'number',
+            declaredLive ? dbNowAtProbeMs < probe.expiresAtMs : dbNowAtProbeMs > probe.expiresAtMs,
+          ],
+          [true, true],
+        );
+      }
+    }
 
     /* ---------------------------------------------------------- LAW: control arm (CORRECT) */
     for (const probe of plan.probes) {
@@ -468,6 +526,17 @@ async function run(fixture) {
           `CORRECT writer's ceremony was refused at the issue step on ${probe.probeId}`,
           [observed.ceremonyStage, observed.errorCode, observed.codeIssued],
           ['issue', 'DEVICE_ALREADY_PAIRED_USE_RENEW', false],
+        );
+        law.eq(
+          `CORRECT writer left ${probe.probeId} owned by the seed owner at the seed epoch`,
+          [rowAfter.ownerId, rowAfter.epoch, rowAfter.leaseState],
+          [seed.ownerId, seed.epoch, seed.leaseState],
+        );
+      } else if (probe.kind === 'admission') {
+        law.eq(
+          `CORRECT writer refused margin-free admission on ${probe.probeId} (no code, no session row)`,
+          [observed.codeIssued, observed.pairingSessionRows, observed.errorCode],
+          [false, 0, 'DEVICE_ALREADY_PAIRED_USE_RENEW'],
         );
         law.eq(
           `CORRECT writer left ${probe.probeId} owned by the seed owner at the seed epoch`,
@@ -525,6 +594,13 @@ async function run(fixture) {
           observed.ceremonyOk === true,
           observed.codeIssued === true,
         ], [false, false]);
+      } else if (entry.kind === 'admission') {
+        const observed = outcomeOf(probeOf(offset, entry.probeId));
+        law.eq(
+          `OFFSET writer refused MARGIN-FREE admission of a live lease at ${label}`,
+          [observed.codeIssued, observed.pairingSessionRows, observed.errorCode],
+          [false, 0, 'DEVICE_ALREADY_PAIRED_USE_RENEW'],
+        );
       } else {
         const observed = outcomeOf(probeOf(offset, entry.probeId));
         law.eq(`OFFSET writer did not transition the live lease at ${label}`, observed.matched, 0);
@@ -651,7 +727,7 @@ async function run(fixture) {
       gate: { status: gateStatus.status, failedCount: gateStatus.failedCount, passedCount: gateStatus.passedCount, checks: gate.checks },
       desiredLaw: { status: lawStatus.status, failedCount: lawStatus.failedCount, passedCount: lawStatus.passedCount, failedAssertions: lawStatus.failedAssertions, checks: law.checks },
       plan: {
-        referenceNowMs: k.TRUE_NOW_MS,
+        referenceNowMs,
         deltaMs: k.DELTA_MS,
         epsilonMs: k.EPSILON_MS,
         skewMarginMs: k.SKEW_MARGIN_MS,
@@ -683,6 +759,8 @@ async function run(fixture) {
           offsetMs: correct.offsetMs,
           clockNowMs: correct.clockNowMs,
           probeCount: correct.probeCount,
+          predicateAnchorMode: correct.predicateAnchorMode ?? null,
+          referenceReachedAtMs: correct.referenceReachedAtMs ?? null,
           barrierReached: correct.barrierReached,
           fatal: correct.fatal,
           durationMs: correct.durationMs,
@@ -693,6 +771,8 @@ async function run(fixture) {
           offsetMs: offset.offsetMs,
           clockNowMs: offset.clockNowMs,
           probeCount: offset.probeCount,
+          predicateAnchorMode: offset.predicateAnchorMode ?? null,
+          referenceReachedAtMs: offset.referenceReachedAtMs ?? null,
           barrierReached: offset.barrierReached,
           fatal: offset.fatal,
           durationMs: offset.durationMs,
@@ -721,7 +801,10 @@ async function run(fixture) {
       cleanup,
       provenance: support.provenance(ctx, {
         twoClockDisclosure:
-          'Two real OS processes; each writer owns ONE injected deterministic clock (offset 0 and offset delta). No wall-clock value participates in any lease decision or assertion: TRUE_NOW is the fixture reference timeline carried by the correct writer.',
+          'Two real OS processes; each writer owns ONE injected deterministic clock (offset 0 and offset delta). No wall-clock value participates in any lease decision or assertion: the reference timeline is a real instant on the DATABASE clock, carried by both writers and gated before either acts.',
+        anchorModeDisclosure:
+          'GM-64 rule 5: DATABASE mode. NO injected predicate anchor is supplied to any Device service in this fixture, so every lease-state / TTL predicate is the production `$expr` with `$$NOW` and is decided by MongoDB. If this fixture were ever run with an injected anchor its result would be void as skew evidence.',
+        referenceTimelineDisclosure: `The reference instant ${referenceNowMs} was derived from the replica set's own hello.localTime at seed time plus a disclosed ${k.LEAD_MS} ms lead; each writer waits on the DATABASE clock until that instant before deciding, and the gate re-checks that every probe ran on the declared side of its seeded expiry.`,
         orderingDisclosure:
           'Both writers are armed at the file barrier before either acts. The CORRECT writer is released first from the pristine preimage; its refusal changes no row, so the offset writer acts on the identical preimage.',
         productPath:

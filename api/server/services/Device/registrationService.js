@@ -5,8 +5,12 @@
  *
  * Implements the frozen PM-INTERFACE-FREEZE §9 registration surface against injected
  * Mongoose models. Invariants held here:
- *   - the only clock is the injected `clock.now()` (no `Date.now()`, no wall-clock read, no
- *     sleep);
+ *   - the injected `clock.now()` remains the seam for written timestamps (`issuedAt`/`expiresAt`/
+ *     `registeredAt`), audit events and response fields;
+ *   - every predicate that decides a TTL is evaluated against DATABASE time (GM-44): the
+ *     registration-challenge spend CAS builds its `$expr` through `databaseTime.expiryPredicate`,
+ *     which emits `$$NOW` in production and only substitutes the test-only `predicateAnchor`
+ *     (GM-64/GM-65) when a fixture supplies one;
  *   - `tenantPolicy.validateRegistrationTenant(tenantId, requestSource)` is evaluated before
  *     ANY row creation; a missing policy or a non-`true` result fails closed with
  *     `REGISTRATION_TENANT_NOT_PERMITTED` (G-3);
@@ -33,6 +37,7 @@ const {
   classifyWriteOutcome,
   isDuplicateKeyError,
 } = require('./errors');
+const { expiryPredicate, assertPredicateAnchorShape } = require('./databaseTime');
 
 /** Frozen registration-challenge lifetime: exactly 120 seconds (PM-INTERFACE-FREEZE §9). */
 const REGISTRATION_CHALLENGE_TTL_MS = 120000;
@@ -224,13 +229,18 @@ function assertDependencies({ db, clock, crypto }) {
  * @param {(event: object) => (void|Promise<void>)} [deps.audit] authority-event sink.
  * @param {{validateRegistrationTenant: (tenantId: string, requestSource: *) => (boolean|Promise<boolean>)}} [deps.tenantPolicy]
  *   server-controlled tenant allowlist seam; absence fails closed (G-3).
+ * @param {Date|number|(() => (Date|number))} [deps.predicateAnchor] **TESTS ONLY; PRODUCTION MUST
+ *   OMIT** (GM-64 / GM-65). A concrete comparison anchor substituted for the `$$NOW` reference in
+ *   the registration-challenge TTL predicate. Absent ⇒ `$$NOW` (database time). Read only from this
+ *   server-owned dependency, never from a request or a row.
  * @returns {{
  *   beginRegistration: Function, completeRegistration: Function,
  * }}
  */
 function createRegistrationService(deps = {}) {
-  const { db, clock, crypto, logger, audit, tenantPolicy, tenantContext } = deps;
+  const { db, clock, crypto, logger, audit, tenantPolicy, tenantContext, predicateAnchor } = deps;
 
+  assertPredicateAnchorShape(predicateAnchor);
   assertDependencies({ db, clock, crypto });
 
   function tenantAgreementError(args) {
@@ -596,7 +606,9 @@ function createRegistrationService(deps = {}) {
           challengeHash,
           purpose: REGISTRATION_PURPOSE,
           consumedAt: null,
-          expiresAt: { $gt: new Date(now) },
+          // GM-44 site 13 (MARGIN-FREE): the 120 s registration-challenge TTL is decided by
+          // DATABASE time, so a slow writer can no longer spend a challenge that is already dead.
+          $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
           tenantId,
         },
         { $set: { consumedAt: new Date(now) } },

@@ -51,7 +51,7 @@ function freshnessWindowMsFor(audience) {
  * @param {string|number} params.issuedAt epoch-ms (canonical decimal string, as signed)
  * @param {string|number} params.deadlineMs epoch-ms (canonical decimal string, as signed)
  * @param {number} params.now server clock reading in epoch-ms
- * @returns {{ok: true, windowMs: number, ageMs: number, deadlineMs: number}
+ * @returns {{ok: true, windowMs: number, ageMs: number, deadlineMs: number, issuedMs: number}
  *   | {ok: false, error: import('./errors').RelayError}}
  */
 function evaluateFreshness(params = {}) {
@@ -152,7 +152,7 @@ function evaluateFreshness(params = {}) {
     };
   }
 
-  return { ok: true, windowMs, ageMs, deadlineMs: deadlineEpochMs };
+  return { ok: true, windowMs, ageMs, deadlineMs: deadlineEpochMs, issuedMs };
 }
 
 module.exports = {

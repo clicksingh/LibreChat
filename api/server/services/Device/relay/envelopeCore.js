@@ -66,6 +66,8 @@ const DECIMAL_PATTERN = /^(0|[1-9][0-9]*)$/;
 /** Positive decimal for `epoch` (contract: integer >= 1). */
 const POSITIVE_DECIMAL_PATTERN = /^[1-9][0-9]*$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+/** The same alphabet permitting the EMPTY string: empty argument bytes are legal (GM-47). */
+const BASE64URL_PATTERN_EMPTY_OK = /^[A-Za-z0-9_-]*$/;
 
 /** Byte lengths fixed by the contract: 128-bit grantId/nonce, 256-bit SHA-256 thumbprint. */
 const GRANT_ID_BYTES = 16;
@@ -179,14 +181,26 @@ const RPC_ENVELOPE_CONTRACT_NAMES = Object.freeze(
 /**
  * Unsigned transport fields (contract: routing/metadata, never authorization inputs). They live on
  * the wire frame, never inside the signed core.
+ *
+ * `argsB64u` is the GM-47/GM-48-M1 addition: the exact argument BYTES whose sha256 is the signed
+ * field 15. GM-29 requires the endpoint to re-hash "the bytes it actually received", so those bytes
+ * must travel with the frame; a signature over a digest whose preimage never travels is not a
+ * signature over the payload. It is OUTSIDE the signature exactly like `keyId` (the signature binds
+ * `sha256(args)` as field 15, unchanged), it is NOT canonicalised (GM-29 stands: the bytes are the
+ * bytes), and the relay never decodes it (GM-9: it stays an opaque byte carrier, which is also what
+ * lets GM-10 E2E encryption wrap these bytes later without a protocol change).
  */
 const RPC_FRAME_TRANSPORT_FIELDS = Object.freeze([
   'signatureB64u',
   'keyId',
+  'argsB64u',
   'seq',
   'idempotencyKey',
   'callId',
 ]);
+
+/** The transport field carrying the exact args bytes (GM-47). Named once, so it is greppable. */
+const ARGS_B64U_FIELD = 'argsB64u';
 
 /** Every key a wire frame may carry: exactly the core plus the transport fields. */
 const RPC_FRAME_KEYS = Object.freeze([
@@ -224,6 +238,52 @@ function decodeBase64UrlBytes(value) {
   }
   const decoded = Buffer.from(value, 'base64url');
   return decoded.toString('base64url') === value ? decoded : null;
+}
+
+/**
+ * Strict unpadded-base64url decode of the transported args bytes (`argsB64u`).
+ *
+ * This is the ONE difference from `decodeBase64UrlBytes`: the EMPTY byte string is legal, because an
+ * argument payload may legitimately be empty (a `resync` carries none) and `sha256('')` is a real,
+ * signed digest. Everything else stays canonical: the value must be unpadded base64url whose
+ * re-encoding is byte-identical, so two spellings can never denote the same bytes.
+ *
+ * DECODING ONLY — no canonicalisation, no parsing, no re-serialization of the argument payload
+ * (GM-29: the endpoint must hash the bytes it actually received). The relay never calls this.
+ * @param {unknown} value
+ * @returns {Buffer|null} decoded bytes, or null when `value` is not canonical unpadded base64url
+ */
+function decodeArgsB64u(value) {
+  if (typeof value !== 'string' || !BASE64URL_PATTERN_EMPTY_OK.test(value)) {
+    return null;
+  }
+  if (value.length % 4 === 1) {
+    return null;
+  }
+  const decoded = Buffer.from(value, 'base64url');
+  return decoded.toString('base64url') === value ? decoded : null;
+}
+
+/**
+ * Requires the frame's `argsB64u` transport field (GM-47). Shape only: it never compares the bytes
+ * with `argsDigestHex` — that equality is the endpoint-side check in `./argsDigest`.
+ * @param {unknown} value
+ * @returns {string} the canonical unpadded base64url value
+ */
+function assertFrameArgsB64u(value) {
+  if (value === undefined || value === null) {
+    throw shapeFailure(
+      ARGS_B64U_FIELD,
+      'is required on the wire frame: the endpoint must re-hash the bytes it actually received (GM-47)',
+    );
+  }
+  if (decodeArgsB64u(value) === null) {
+    throw shapeFailure(
+      ARGS_B64U_FIELD,
+      'must be canonical unpadded base64url of the exact args bytes (the empty string for empty args)',
+    );
+  }
+  return value;
 }
 
 /**
@@ -509,26 +569,33 @@ function assertTransportText(property, value) {
  * Serializes a signed envelope into the flat wire frame the relay forwards. The frame is FLAT so the
  * relay's keyless per-frame view checks can read `grantId` / `epoch` / `ownerPrincipalId` directly
  * (F-V24C-6), and it carries no identity the core does not already bind.
+ *
+ * `argsB64u` is REQUIRED (GM-47): a frame that binds `sha256(args)` without transporting the bytes
+ * is unverifiable by the endpoint, so the frame cannot be built without them. It is transport data,
+ * outside the signature, and this function never hashes or rewrites it.
  * @param {object} params
  * @param {{core: object, signatureB64u: string, keyId: string}} params.signed
+ * @param {string} params.argsB64u canonical unpadded base64url of the exact args bytes
  * @param {number} [params.seq] relay ordering counter (unsigned transport field)
  * @param {string} [params.idempotencyKey] unsigned transport field
  * @param {string} [params.callId] unsigned transport field (`replyCorrelationId`)
  * @returns {object} frozen wire frame
  */
-function toWireFrame({ signed, seq, idempotencyKey, callId } = {}) {
+function toWireFrame({ signed, argsB64u, seq, idempotencyKey, callId } = {}) {
   if (!isPlainRecord(signed)) {
     throw shapeFailure('signed', 'must be a signed-envelope object');
   }
   const core = assertEnvelopeCore(signed.core);
   assertSignatureB64u(signed.signatureB64u);
   const keyId = assertTransportText('keyId', signed.keyId);
+  const argsField = assertFrameArgsB64u(argsB64u);
   const frame = {};
   for (const property of RPC_ENVELOPE_FIELD_ORDER) {
     frame[property] = core[property];
   }
   frame.signatureB64u = signed.signatureB64u;
   frame.keyId = keyId;
+  frame.argsB64u = argsField;
   if (seq !== undefined && seq !== null) {
     if (!Number.isInteger(seq) || seq < 1) {
       throw shapeFailure('seq', 'must be an integer >= 1');
@@ -545,15 +612,20 @@ function toWireFrame({ signed, seq, idempotencyKey, callId } = {}) {
 }
 
 /**
- * The inverse of `toWireFrame` for a verifier.
+ * The inverse of `toWireFrame` for a verifier / endpoint receiver.
+ *
+ * `argsB64u` is validated as canonical unpadded base64url and returned so the endpoint can run the
+ * GM-47 digest check (`argsDigest.verifyArgsBytes`). It is NOT compared with `argsDigestHex` here:
+ * this module owns the core, and the digest equality belongs to the endpoint admission chain.
  * @param {object} frame
- * @returns {{core: object, signatureB64u: string, keyId: string}} frozen signed envelope
+ * @returns {{core: object, signatureB64u: string, keyId: string, argsB64u: string}} frozen envelope
  */
 function signedFromWireFrame(frame) {
   const core = coreFromWireFrame(frame);
   assertSignatureB64u(frame.signatureB64u);
   const keyId = assertTransportText('keyId', frame.keyId);
-  return Object.freeze({ core, signatureB64u: frame.signatureB64u, keyId });
+  const argsB64u = assertFrameArgsB64u(frame.argsB64u);
+  return Object.freeze({ core, signatureB64u: frame.signatureB64u, keyId, argsB64u });
 }
 
 /**
@@ -597,9 +669,12 @@ module.exports = {
   RPC_ENVELOPE_CONTRACT_NAMES,
   RPC_FRAME_TRANSPORT_FIELDS,
   RPC_FRAME_KEYS,
+  ARGS_B64U_FIELD,
   ARGS_DIGEST_HEX_PATTERN,
   isPlainRecord,
   decodeBase64UrlBytes,
+  decodeArgsB64u,
+  assertFrameArgsB64u,
   parseEpochMs,
   validateFieldValue,
   assertEnvelopeCore,

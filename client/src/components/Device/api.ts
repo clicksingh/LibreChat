@@ -40,8 +40,13 @@ export class PanelBoundaryError extends Error {
 
 const ALLOWED_ENDPOINT_SET: ReadonlySet<string> = new Set(ALLOWED_PANEL_ENDPOINTS);
 
-/** Fail-closed guard: a path outside the allowlist never reaches the network. */
-function assertPanelMayCall(path: string): void {
+/**
+ * Fail-closed guard: a path outside the allowlist never reaches the network.
+ *
+ * Exported only so the boundary spec can assert it throws for every non-allowlisted path — it is
+ * not a public API and every request in this module already runs through it.
+ */
+export function assertPanelMayCall(path: string): void {
   if (!ALLOWED_ENDPOINT_SET.has(path)) {
     throw new PanelBoundaryError(
       `The My Computer panel may not call ${path}. Renewal needs local confirmation on the PC and pairing completion belongs to the device.`,

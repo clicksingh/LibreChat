@@ -30,9 +30,18 @@ function coreAt({ issuedAt = T0, deadlineMs = T0 + 60000, ...overrides } = {}) {
   };
 }
 
-/** Signs a core and returns the signed envelope. */
+/**
+ * Signs a core and returns the signed envelope.
+ *
+ * Relay-audience cores are ENDPOINT-signed in production; the backend signing primitive refuses
+ * them by default (GM-48 m3), so this reference-verifier spec opts in explicitly in order to have a
+ * relay-audience envelope to verify at all. The default refusal is asserted in
+ * `defectFixes.spec.js`.
+ */
 async function sign(core) {
-  const signer = relay.createEnvelopeSigner(makeCustodySeam(keypair));
+  const signer = relay.createEnvelopeSigner(makeCustodySeam(keypair), {
+    allowRelayAudience: true,
+  });
   return signer.signCore(core);
 }
 
@@ -367,7 +376,13 @@ describe('replay window (unseen nonce)', () => {
   it('does not reserve the nonce for a frame whose signature failed', async () => {
     const replayWindow = relay.createReplayWindow({ now: () => T0 });
     const genuine = await sign(coreAt());
-    const forged = { ...genuine, signatureB64u: genuine.signatureB64u.slice(0, -2) + 'AA' };
+    // Deterministic forgery: flip one bit of the decoded signature. (Replacing the trailing
+    // characters could, 1 time in 256, reproduce the original signature and make this test pass
+    // for the wrong reason.)
+    const forgedBytes = Buffer.from(genuine.signatureB64u, 'base64url');
+    forgedBytes[0] ^= 0x01;
+    const forged = { ...genuine, signatureB64u: forgedBytes.toString('base64url') };
+    expect(forged.signatureB64u).not.toBe(genuine.signatureB64u);
 
     const forgedResult = await relay.verifyEnvelope({
       signed: forged,
@@ -388,32 +403,101 @@ describe('replay window (unseen nonce)', () => {
     expect(genuineResult.ok).toBe(true);
   });
 
-  it('expires a reservation only after the retention window, which is never shorter than freshness', () => {
+  /**
+   * SAFETY PROPERTY (GM-48 m2) — deliberately NOT a boundary-behaviour assertion.
+   *
+   *   A nonce is never forgotten while an envelope bearing it could still be fresh.
+   *
+   * The old test asserted that a reservation is forgotten at exactly `seenAt + retentionMs`. That
+   * encoded the defect: freshness accepts `ageMs == windowMs`, so at that instant an envelope is
+   * still admissible while its nonce had already been pruned. This test asserts the property
+   * instead, at the ENFORCED MINIMUM retention (where the old off-by-one was live) and through the
+   * real admission chain rather than the ring alone.
+   */
+  it('never forgets a nonce while an envelope bearing it could still be fresh (minimum retention)', async () => {
     let now = T0;
-    const replayWindow = relay.createReplayWindow({ now: () => now });
-    expect(replayWindow.retentionMs).toBeGreaterThanOrEqual(relay.MAX_FRESHNESS_WINDOW_MS);
+    const replayWindow = relay.createReplayWindow({
+      now: () => now,
+      retentionMs: relay.MIN_REPLAY_RETENTION_MS,
+    });
+    expect(replayWindow.retentionMs).toBe(relay.MAX_FRESHNESS_WINDOW_MS);
 
-    return replayWindow.checkAndRemember({ grantId: WORKED_EXAMPLE_CORE.grantId, nonce: WORKED_EXAMPLE_CORE.nonce })
-      .then((first) => {
-        expect(first.ok).toBe(true);
-        now = T0 + replayWindow.retentionMs - 1;
-        return replayWindow.checkAndRemember({
-          grantId: WORKED_EXAMPLE_CORE.grantId,
-          nonce: WORKED_EXAMPLE_CORE.nonce,
-        });
-      })
-      .then((stillRemembered) => {
-        expect(stillRemembered.ok).toBe(false);
-        expect(stillRemembered.error.code).toBe('REPLAY_DETECTED');
-        now = T0 + replayWindow.retentionMs;
-        return replayWindow.checkAndRemember({
-          grantId: WORKED_EXAMPLE_CORE.grantId,
-          nonce: WORKED_EXAMPLE_CORE.nonce,
-        });
-      })
-      .then((forgotten) => {
-        expect(forgotten.ok).toBe(true);
+    const signed = await sign(coreAt({ audience: 'relay', deadlineMs: T0 + 120000 }));
+    const admit = (atMs) =>
+      relay.verifyEnvelope({
+        signed,
+        verifier,
+        expectedAudience: 'relay',
+        now: atMs,
+        replayWindow,
       });
+
+    const first = await admit(T0);
+    expect(first.ok).toBe(true);
+
+    // One millisecond inside the freshness window: forgotten => replay accepted. Must not happen.
+    now = T0 + relay.MAX_FRESHNESS_WINDOW_MS - 1;
+    const inside = await admit(now);
+    expect({ at: 'window-1', ok: inside.ok, code: inside.error?.code }).toEqual({
+      at: 'window-1',
+      ok: false,
+      code: 'REPLAY_DETECTED',
+    });
+
+    // EXACTLY at the widest freshness window: freshness still accepts `ageMs == windowMs`, so the
+    // envelope is still admissible and the nonce MUST still be remembered. This is the boundary the
+    // old `<=` prune reopened.
+    now = T0 + relay.MAX_FRESHNESS_WINDOW_MS;
+    expect(relay.evaluateFreshness({ audience: 'relay', issuedAt: T0, deadlineMs: T0 + 120000, now }).ok)
+      .toBe(true);
+    const atBoundary = await admit(now);
+    expect({ at: 'window', ok: atBoundary.ok, code: atBoundary.error?.code }).toEqual({
+      at: 'window',
+      ok: false,
+      code: 'REPLAY_DETECTED',
+    });
+
+    // Only once the envelope can no longer be fresh is forgetting it safe.
+    now = T0 + relay.MAX_FRESHNESS_WINDOW_MS + 1;
+    expect(relay.evaluateFreshness({ audience: 'relay', issuedAt: T0, deadlineMs: T0 + 120000, now }).ok)
+      .toBe(false);
+    expect(replayWindow.has({ grantId: WORKED_EXAMPLE_CORE.grantId, nonce: WORKED_EXAMPLE_CORE.nonce }))
+      .toBe(false);
+  });
+
+  it('honours a supplied freshness horizon even when it is longer than the retention', async () => {
+    let now = T0;
+    const replayWindow = relay.createReplayWindow({
+      now: () => now,
+      retentionMs: relay.MIN_REPLAY_RETENTION_MS,
+    });
+    const params = { grantId: WORKED_EXAMPLE_CORE.grantId, nonce: WORKED_EXAMPLE_CORE.nonce };
+
+    // Admitted at T0-60000 (future-dated by 60 s): fresh until T0+60000, i.e. 180 s after seenAt.
+    now = T0 - 60000;
+    expect((await replayWindow.checkAndRemember({ ...params, freshUntilMs: T0 + 60000 })).ok).toBe(true);
+
+    now = T0 + 60000;
+    const stillFresh = await replayWindow.checkAndRemember(params);
+    expect({ ok: stillFresh.ok, code: stillFresh.error?.code }).toEqual({
+      ok: false,
+      code: 'REPLAY_DETECTED',
+    });
+  });
+
+  it('fails closed instead of evicting a nonce that could still be fresh', async () => {
+    const replayWindow = relay.createReplayWindow({ now: () => T0, maxEntries: 1 });
+    const first = { grantId: WORKED_EXAMPLE_CORE.grantId, nonce: WORKED_EXAMPLE_CORE.nonce };
+    const second = { grantId: WORKED_EXAMPLE_CORE.grantId, nonce: 'AAECAwQFBgcICQoLDA0OEQ' };
+
+    expect((await replayWindow.checkAndRemember(first)).ok).toBe(true);
+    const blocked = await replayWindow.checkAndRemember(second);
+    expect({ ok: blocked.ok, code: blocked.error?.code }).toEqual({
+      ok: false,
+      code: 'REPLAY_STORE_UNAVAILABLE',
+    });
+    // The original nonce is still remembered: no eviction reopened its replay window.
+    expect(replayWindow.has(first)).toBe(true);
   });
 
   it('refuses a retention shorter than the widest freshness window at construction', () => {

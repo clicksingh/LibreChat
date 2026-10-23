@@ -89,6 +89,7 @@ function buildCycle({ logger, response }) {
     clock: { now: () => T0 },
     nonceFactory: () => 'AAECAwQFBgcICQoLDA0ODw',
     requestIdFactory: () => '3f0c5b1e-8a2d-4c7b-9e61-2d4f8a0b7c93',
+    replayWindow: relay.createReplayWindow({ now: () => T0 }),
   });
   return { signer, verifier, client, calls };
 }
@@ -223,6 +224,7 @@ describe('B. no private key material is serialized', () => {
       clock: { now: () => T0 },
       nonceFactory: () => 'AAECAwQFBgcICQoLDA0ODw',
       requestIdFactory: () => '3f0c5b1e-8a2d-4c7b-9e61-2d4f8a0b7c93',
+      replayWindow: relay.createReplayWindow({ now: () => T0 }),
     });
 
     const signed = await signer.signCore({
@@ -241,7 +243,13 @@ describe('B. no private key material is serialized', () => {
       audience: 'endpoint',
       argsDigestHex: nodeCrypto.createHash('sha256').update(ARGS_BYTES).digest('hex'),
     });
-    const frame = relay.toWireFrame({ signed, seq: 1, idempotencyKey: 'idem-1', callId: 'call-1' });
+    const frame = relay.toWireFrame({
+      signed,
+      argsB64u: ARGS_BYTES.toString('base64url'),
+      seq: 1,
+      idempotencyKey: 'idem-1',
+      callId: 'call-1',
+    });
     const outcome = await client.dispatchCommand({
       authority: AUTHORITY,
       toolName: 'read_file',
@@ -279,7 +287,15 @@ describe('B. no private key material is serialized', () => {
   it('never puts key material on the wire frame or the signed envelope', async () => {
     const { signed, frame } = await everyProducedObject();
 
-    expect(Object.keys(frame)).toEqual([...relay.RPC_FRAME_KEYS.slice(0, 15), 'signatureB64u', 'keyId', 'seq', 'idempotencyKey', 'callId']);
+    expect(Object.keys(frame)).toEqual([
+      ...relay.RPC_FRAME_KEYS.slice(0, 15),
+      'signatureB64u',
+      'keyId',
+      'argsB64u',
+      'seq',
+      'idempotencyKey',
+      'callId',
+    ]);
     expect(Object.keys(signed).sort()).toEqual(['core', 'keyId', 'signatureB64u']);
     expect(Object.isFrozen(frame)).toBe(true);
     expect(Object.isFrozen(signed)).toBe(true);

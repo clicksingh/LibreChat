@@ -20,7 +20,14 @@
  *   missing grant, epoch, device key or owner is a refusal, never a guess.
  * - It refuses to mint `audience: 'relay'`. Relay-audience frames are ENDPOINT-signed replies and
  *   cancel-acks; a backend-signed relay-audience frame would forge the endpoint's half of the
- *   protocol. The backend mints `audience: 'endpoint'` only (`ENVELOPE_AUDIENCE_NOT_DISPATCHABLE`).
+ *   protocol. The refusal is ALSO enforced inside the signing primitive (`./envelopeSigner`), so it
+ *   does not depend on this path being used (GM-48 m3).
+ * - It refuses a dispatch with no args PREIMAGE. GM-47 requires the frame to carry `argsB64u`, the
+ *   exact bytes whose sha256 is the signed field 15; a digest with no bytes cannot be re-hashed by
+ *   the endpoint, so it is refused (`ENVELOPE_ARGS_INVALID`) rather than signed. A declared digest
+ *   that disagrees with the supplied bytes is `ARGS_DIGEST_MISMATCH`.
+ * - It refuses to exist without a replay window (GM-49): `replayWindow: null` is permitted for
+ *   non-dispatch use of the verification primitives, never for a real dispatch.
  *
  * OUTCOME LAW (F-V24C-9: unknown-outcome is never success)
  * - `delivered: 'accepted'` only for a 2xx relay answer that does not explicitly refuse.
@@ -45,8 +52,9 @@ const {
   buildEnvelopeCore,
   toWireFrame,
   isPlainRecord,
+  decodeArgsB64u,
 } = require('./envelopeCore');
-const { resolveArgsDigestHex } = require('./argsDigest');
+const { resolveArgsDigestHex, argsBytesToB64u, sha256Hex } = require('./argsDigest');
 const { freshnessWindowMsFor } = require('./freshness');
 const { isRelayError, relayFailure } = require('./errors');
 
@@ -60,12 +68,20 @@ const TRUSTED_AUTHORITY_FIELDS = Object.freeze([
   'epoch',
 ]);
 
-/** The ONLY request keys `dispatchCommand` accepts. Nothing else is read, ever. */
+/**
+ * The ONLY request keys `dispatchCommand` accepts. Nothing else is read, ever.
+ *
+ * `argsBytes` / `argsB64u` are the PREIMAGE sources: GM-47 requires the exact args bytes to travel
+ * with the frame (`argsB64u`), so a dispatch that supplies only a digest is refused — a signature
+ * over a digest whose preimage never travels is not authority over the payload. `argsDigestHex` /
+ * `argsDigestB64u` remain accepted as CROSS-CHECKS alongside a preimage and are refused alone.
+ */
 const DISPATCH_REQUEST_KEYS = Object.freeze([
   'authority',
   'toolName',
   'opKind',
   'argsBytes',
+  'argsB64u',
   'argsDigestB64u',
   'argsDigestHex',
   'audience',
@@ -202,6 +218,66 @@ function trustedAuthorityFromDeviceRow({ row, tenantId, ownerPrincipalId } = {})
 }
 
 /**
+ * Resolves the args preimage and the signed `sha256(args)` field from a dispatch request (GM-47).
+ *
+ * The frame must transport the exact bytes, so a PREIMAGE source is required:
+ *   - `argsBytes` (raw Buffer/TypedArray/DataView), or
+ *   - `argsB64u` (the same bytes already in canonical unpadded base64url).
+ * Exactly one of those two may be present. `argsDigestHex` / `argsDigestB64u` are optional
+ * CROSS-CHECKS: when supplied they must agree with the recomputed digest (`ARGS_DIGEST_MISMATCH`),
+ * and on their own they are refused, because a digest with no preimage cannot be verified by the
+ * endpoint and therefore cannot be dispatched at all.
+ * @param {object} request the validated-key dispatch request
+ * @returns {{argsDigestHex: string, argsB64u: string}}
+ */
+function resolveDispatchArgs(request) {
+  const hasBytes = request.argsBytes !== undefined && request.argsBytes !== null;
+  const hasB64u = request.argsB64u !== undefined && request.argsB64u !== null;
+  if (hasBytes === hasB64u) {
+    throw relayFailure(
+      'ENVELOPE_ARGS_INVALID',
+      'dispatch requires exactly one args PREIMAGE source (argsBytes | argsB64u); a digest alone cannot travel, because the endpoint must re-hash the bytes it actually received (GM-47)',
+      { field: 'argsB64u' },
+    );
+  }
+  let argsB64u;
+  let argsDigestHex;
+  if (hasBytes) {
+    argsDigestHex = resolveArgsDigestHex({ bytes: request.argsBytes });
+    argsB64u = argsBytesToB64u(request.argsBytes);
+  } else {
+    const decoded = decodeArgsB64u(request.argsB64u);
+    if (decoded === null) {
+      throw relayFailure(
+        'ENVELOPE_ARGS_INVALID',
+        'dispatch argsB64u must be canonical unpadded base64url of the exact args bytes',
+        { field: 'argsB64u' },
+      );
+    }
+    argsB64u = request.argsB64u;
+    argsDigestHex = sha256Hex(decoded);
+  }
+  const declaredHex =
+    request.argsDigestHex !== undefined && request.argsDigestHex !== null
+      ? request.argsDigestHex
+      : undefined;
+  const declaredB64u =
+    request.argsDigestB64u !== undefined && request.argsDigestB64u !== null
+      ? resolveArgsDigestHex({ digestB64u: request.argsDigestB64u })
+      : undefined;
+  for (const declared of [declaredHex, declaredB64u]) {
+    if (declared !== undefined && declared !== argsDigestHex) {
+      throw relayFailure(
+        'ARGS_DIGEST_MISMATCH',
+        'the declared sha256(args) does not match the supplied args bytes; refusing to sign a digest whose preimage disagrees',
+        { field: 'argsDigestHex' },
+      );
+    }
+  }
+  return { argsDigestHex, argsB64u };
+}
+
+/**
  * Parses and validates a dispatch request. Exact-key whitelist; every failure is typed.
  * @param {unknown} request
  * @returns {object} normalized request
@@ -246,26 +322,7 @@ function parseDispatchRequest(request) {
     );
   }
 
-  const argsSources = [
-    request.argsBytes !== undefined && request.argsBytes !== null,
-    request.argsDigestB64u !== undefined && request.argsDigestB64u !== null,
-    request.argsDigestHex !== undefined && request.argsDigestHex !== null,
-  ].filter(Boolean).length;
-  if (argsSources !== 1) {
-    throw relayFailure(
-      'ENVELOPE_ARGS_INVALID',
-      'dispatch requires exactly one of argsBytes | argsDigestB64u | argsDigestHex for sha256(args)',
-      { field: 'argsDigestHex' },
-    );
-  }
-  let argsDigestHex;
-  if (request.argsDigestHex !== undefined && request.argsDigestHex !== null) {
-    argsDigestHex = request.argsDigestHex;
-  } else if (request.argsDigestB64u !== undefined && request.argsDigestB64u !== null) {
-    argsDigestHex = resolveArgsDigestHex({ digestB64u: request.argsDigestB64u });
-  } else {
-    argsDigestHex = resolveArgsDigestHex({ bytes: request.argsBytes });
-  }
+  const { argsDigestHex, argsB64u } = resolveDispatchArgs(request);
 
   const seq = request.seq ?? null;
   if (seq !== null && (!Number.isInteger(seq) || seq < 1)) {
@@ -293,6 +350,7 @@ function parseDispatchRequest(request) {
     opKind,
     audience,
     argsDigestHex,
+    argsB64u,
     seq,
     idempotencyKey: request.idempotencyKey ?? null,
     callId: request.callId ?? null,
@@ -380,7 +438,9 @@ function failureResult(error, { delivered, requestId, deviceId }) {
  *   options.transport injected relay hop; owns URL, TLS and retry policy
  * @param {{keyId: string, signCore: Function}} options.signer the injected custody seam
  * @param {{now: () => number}} [options.clock] server clock (epoch-ms)
- * @param {object} [options.replayWindow] `createReplayWindow()` guard for unseen nonces
+ * @param {object} options.replayWindow REQUIRED `createReplayWindow()` guard for unseen nonces; a
+ *   null window is refused at construction, because a real dispatch without replay enforcement is a
+ *   defect (replayWindow: null is permitted only for non-dispatch use of the primitives)
  * @param {{verifySignature: Function}} [options.verifier] optional pre-dispatch self-check
  * @param {(authority: object) => (boolean|Promise<boolean>)} [options.assertAuthorityCurrent]
  *   optional I-0 re-check inside the dispatch window
@@ -429,6 +489,23 @@ function createRelayDispatchClient(options = {}) {
       { field: 'verifier' },
     );
   }
+  // GM-49: replay enforcement may be opt-in for NON-dispatch use, but a real dispatch without a
+  // replay window is a defect — it would let the same nonce be admitted twice. Refused at
+  // construction, so no dispatch can ever run unprotected.
+  if (replayWindow === null || replayWindow === undefined) {
+    throw relayFailure(
+      'SIGNER_SEAM_INVALID',
+      'the relay dispatch client requires a replay window: a null replayWindow would accept a replayed nonce on a real dispatch (it is permitted only for non-dispatch use of the verification primitives)',
+      { field: 'replayWindow' },
+    );
+  }
+  if (typeof replayWindow.checkAndRemember !== 'function') {
+    throw relayFailure(
+      'SIGNER_SEAM_INVALID',
+      'the replay window must expose checkAndRemember()',
+      { field: 'replayWindow' },
+    );
+  }
   if (assertAuthorityCurrent !== null && typeof assertAuthorityCurrent !== 'function') {
     throw relayFailure(
       'SIGNER_SEAM_INVALID',
@@ -458,7 +535,7 @@ function createRelayDispatchClient(options = {}) {
       }
       return failureResult(err, { delivered: 'no' });
     }
-    const { authority, toolName, opKind, audience, argsDigestHex, seq, idempotencyKey, callId } =
+    const { authority, toolName, opKind, audience, argsDigestHex, argsB64u, seq, idempotencyKey, callId } =
       parsed;
 
     const now = clock.now();
@@ -474,20 +551,20 @@ function createRelayDispatchClient(options = {}) {
     const nonce = nonceFactory();
     const requestId = requestIdFactory();
 
-    if (replayWindow !== null) {
-      if (typeof replayWindow.checkAndRemember !== 'function') {
-        return failureResult(
-          relayFailure('SIGNER_SEAM_INVALID', 'the replay window must expose checkAndRemember()'),
-          { delivered: 'no' },
-        );
-      }
-      const reservation = await replayWindow.checkAndRemember({
-        grantId: authority.grantId,
-        nonce,
-      });
-      if (reservation.ok !== true) {
-        return failureResult(reservation.error, { delivered: 'no', requestId });
-      }
+    // Unconditional: the construction guard refuses a client without a replay window (GM-49).
+    if (typeof replayWindow.checkAndRemember !== 'function') {
+      return failureResult(
+        relayFailure('SIGNER_SEAM_INVALID', 'the replay window must expose checkAndRemember()'),
+        { delivered: 'no' },
+      );
+    }
+    const reservation = await replayWindow.checkAndRemember({
+      grantId: authority.grantId,
+      nonce,
+      freshUntilMs: now + windowMs,
+    });
+    if (reservation.ok !== true) {
+      return failureResult(reservation.error, { delivered: 'no', requestId });
     }
 
     let core;
@@ -555,7 +632,7 @@ function createRelayDispatchClient(options = {}) {
 
     let frame;
     try {
-      frame = toWireFrame({ signed, seq, idempotencyKey, callId });
+      frame = toWireFrame({ signed, argsB64u, seq, idempotencyKey, callId });
     } catch (err) {
       if (!isRelayError(err)) {
         throw err;
@@ -616,6 +693,7 @@ module.exports = {
   DISPATCH_REQUEST_KEYS,
   assertTrustedDispatchAuthority,
   trustedAuthorityFromDeviceRow,
+  resolveDispatchArgs,
   parseDispatchRequest,
   interpretRelayResponse,
   createRelayDispatchClient,

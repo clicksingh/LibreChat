@@ -55,6 +55,18 @@ const PREDICTED_OVER_RELEASE_HORIZON_MS = DELTA_MS - SKEW_MARGIN_MS;
 /** Remaining-life grid for the boundary sweep (crosses the predicted crossover from both sides). */
 const SWEEP_GRID_MS = [1000, 100000, 200000, 294999, 295000, 295001, 300000, 300001];
 
+/**
+ * Reference-timeline lead, in milliseconds (GM-64 rule 5).
+ *
+ * Under DATABASE-time predicates the fixture's reference timeline has to be a real instant on the
+ * database's clock, not a hard-coded epoch. The parent therefore reads `hello.localTime`, places the
+ * reference timeline `LEAD_MS` into the future, seeds the rows against it, and each writer waits on
+ * the DATABASE clock until that instant before acting. Both sides of every boundary are then
+ * exercised at exactly the declared reference instant, with no reliance on how fast the seed →
+ * probe handoff happens to be. This is a database-clock wait, never a wall-clock assumption.
+ */
+const LEAD_MS = 20000;
+
 const OWNER_A = env.OWNER_A;
 const OWNER_B = env.OWNER_B;
 const OWNER_C = env.OWNER_C;
@@ -68,6 +80,7 @@ module.exports = {
   TRUE_NOW_MS,
   DELTA_MS,
   EPSILON_MS,
+  LEAD_MS,
   SKEW_MARGIN_MS,
   LEASE_TTL_MS,
   PREDICTED_OVER_RELEASE_HORIZON_MS,

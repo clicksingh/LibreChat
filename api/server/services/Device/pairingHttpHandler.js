@@ -63,6 +63,7 @@ const deviceCrypto = require('./crypto');
 const { createAuthorityService } = require('./authorityService');
 const { createPairingSessionService } = require('./pairingSessionService');
 const { DeviceError } = require('./errors');
+const { createClockSkewGuard, assertPredicateAnchorShape } = require('./databaseTime');
 const {
   assertHttpHandlerDependencies,
   createAuditAccessor,
@@ -195,7 +196,16 @@ async function readMintedChallenge({ db, tenantId, challengeHash }) {
  * per request (the retire-handler pattern) so a misconfigured model surface fails closed inside the
  * request instead of at module load.
  */
-function buildPairingServices({ db, clock, crypto, logger, audit, tenantContext, pepperLookup }) {
+function buildPairingServices({
+  db,
+  clock,
+  crypto,
+  logger,
+  audit,
+  tenantContext,
+  pepperLookup,
+  predicateAnchor,
+}) {
   const authorityService = createAuthorityService({
     db,
     clock,
@@ -203,6 +213,10 @@ function buildPairingServices({ db, clock, crypto, logger, audit, tenantContext,
     logger,
     audit,
     tenantContext,
+    // GM-65: the test anchor rides along so the ceremony's CAS predicates share one timeline.
+    predicateAnchor,
+    // GM-44 rule 3: the lease-state CAS refuses to write when this host cannot prove its clock.
+    clockSkewGuard: createClockSkewGuard({ db, logger }),
     verifyRenewalProof: async () => ({ ok: false }),
   });
   const pairingSessionService = createPairingSessionService({
@@ -214,6 +228,8 @@ function buildPairingServices({ db, clock, crypto, logger, audit, tenantContext,
     authorityService,
     tenantContext,
     pepperLookup,
+    // GM-65: the test anchor rides along so the ceremony's CAS predicates share one timeline.
+    predicateAnchor,
   });
   return { authorityService, pairingSessionService };
 }
@@ -240,6 +256,8 @@ function createPairingChallengeHandler(deps = {}) {
     domainTag,
     pepperLookup,
     resolvePepperLookup,
+    // GM-65 test-only comparison anchor: TESTS ONLY; PRODUCTION MUST OMIT.
+    predicateAnchor,
   } = deps;
   assertPairingHandlerDependencies({
     db,
@@ -247,6 +265,8 @@ function createPairingChallengeHandler(deps = {}) {
     domainTag,
     label: 'pairing challenge handler',
   });
+  // GM-64/GM-65: test-only comparison anchor, shape-checked at construction.
+  assertPredicateAnchorShape(predicateAnchor);
 
   const auditFn = createAuditAccessor({ db, logger, audit });
 
@@ -293,6 +313,7 @@ function createPairingChallengeHandler(deps = {}) {
         audit: auditFn,
         tenantContext,
         pepperLookup: pepper,
+        predicateAnchor,
       });
       const minted = await pairingSessionService.mintPairingOpenChallenge({
         tenantId: trusted.tenantId,
@@ -340,6 +361,8 @@ function createPairingIssueHandler(deps = {}) {
     requestSource,
     pepperLookup,
     resolvePepperLookup,
+    // GM-65 test-only comparison anchor: TESTS ONLY; PRODUCTION MUST OMIT.
+    predicateAnchor,
   } = deps;
   assertPairingHandlerDependencies({
     db,
@@ -347,6 +370,8 @@ function createPairingIssueHandler(deps = {}) {
     domainTag,
     label: 'pairing issue handler',
   });
+  // GM-64/GM-65: test-only comparison anchor, shape-checked at construction.
+  assertPredicateAnchorShape(predicateAnchor);
   if (!isNonEmptyString(requestSource)) {
     throw new TypeError('pairing issue handler requires a server-derived request source');
   }
@@ -396,6 +421,7 @@ function createPairingIssueHandler(deps = {}) {
         audit: auditFn,
         tenantContext,
         pepperLookup: pepper,
+        predicateAnchor,
       });
       const issued = await pairingSessionService.issuePairingSession({
         tenantId: trusted.tenantId,
@@ -450,8 +476,12 @@ function createPairingApproveHandler(deps = {}) {
     audit,
     pepperLookup,
     resolvePepperLookup,
+    // GM-65 test-only comparison anchor: TESTS ONLY; PRODUCTION MUST OMIT.
+    predicateAnchor,
   } = deps;
   assertHttpHandlerDependencies({ db, tenantContext, label: 'pairing approve handler' });
+  // GM-64/GM-65: test-only comparison anchor, shape-checked at construction.
+  assertPredicateAnchorShape(predicateAnchor);
 
   const auditFn = createAuditAccessor({ db, logger, audit });
 
@@ -488,6 +518,7 @@ function createPairingApproveHandler(deps = {}) {
         audit: auditFn,
         tenantContext,
         pepperLookup: pepper,
+        predicateAnchor,
       });
       const redeemed = await pairingSessionService.redeemPairingCode({
         tenantId: trusted.tenantId,

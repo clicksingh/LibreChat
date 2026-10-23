@@ -15,11 +15,17 @@
  *   3. pinned keyId label (optional)           -> ENVELOPE_KEY_MISMATCH
  *   4. audience equals the expected audience   -> ENVELOPE_AUDIENCE_MISMATCH
  *   5. freshness + deadline (dual bound)       -> FRESHNESS_* / DEADLINE_*
- *   6. unseen nonce in the `(grantId, nonce)` ring -> REPLAY_DETECTED
+ *   6. args bytes re-hash against field 15     -> ARGS_DIGEST_MISMATCH   (GM-47)
+ *   7. unseen nonce in the `(grantId, nonce)` ring -> REPLAY_DETECTED
+ *
+ * Step 6 is the GM-47 requirement made executable: the frame's `argsB64u` is decoded and hashed
+ * exactly as received (no canonicalisation, GM-29) and must equal the SIGNED `argsDigestHex`. It runs
+ * after the signature, so the digest it compares against is authentic, and before replay, so a
+ * payload that cannot be bound never burns a nonce.
  *
  * Step 1 precedes the signature only because the signed bytes must be constructible before they can
  * be verified; it is a parse, never an authority decision, and it leaks nothing beyond a typed code.
- * Step 2 precedes steps 3-6 exactly as the contract requires: no semantic check runs on an
+ * Step 2 precedes steps 3-7 exactly as the contract requires: no semantic check runs on an
  * unverified envelope, so a forged frame can never burn a nonce or probe a grant pin.
  *
  * The nonce is remembered ONLY after every check passes, so a forged or stale frame cannot consume
@@ -33,6 +39,7 @@ const {
   isPlainRecord,
 } = require('./envelopeCore');
 const { evaluateFreshness } = require('./freshness');
+const { verifyArgsBytes } = require('./argsDigest');
 const { isRelayError, relayFailure } = require('./errors');
 
 function asRelayError(err, code, message) {
@@ -47,12 +54,21 @@ function asRelayError(err, code, message) {
  * @param {{verifySignature: Function}} params.verifier from `createEnvelopeVerifier`
  * @param {string} params.expectedAudience the audience this receiver accepts
  * @param {number} params.now epoch-ms clock reading
+ * @param {boolean} [params.requireArgsBytes] require the frame to carry the args bytes and to match
+ *   field 15 (default: true for a wire frame, false for an in-memory `{core, signature, keyId}`)
  * @param {{checkAndRemember: Function}} [params.replayWindow] required to enforce replay rejection
  * @returns {Promise<{ok: true, core: object, keyId: string, windowMs: number}
  *   | {ok: false, error: import('./errors').RelayError}>}
  */
 async function verifyEnvelope(params = {}) {
-  const { signed: input, verifier, expectedAudience, now, replayWindow = null } = params;
+  const {
+    signed: input,
+    verifier,
+    expectedAudience,
+    now,
+    replayWindow = null,
+    requireArgsBytes,
+  } = params;
 
   if (verifier === null || typeof verifier !== 'object' || typeof verifier.verifySignature !== 'function') {
     return {
@@ -107,7 +123,31 @@ async function verifyEnvelope(params = {}) {
     return { ok: false, error: freshness.error };
   }
 
-  // 6. replay
+  // 6. args bytes vs the signed sha256(args) (GM-47)
+  const isSignedObject = isPlainRecord(input) && isPlainRecord(input.core);
+  const carriesArgs = isPlainRecord(input) && Object.prototype.hasOwnProperty.call(input, 'argsB64u');
+  const mustCheckArgs =
+    requireArgsBytes === undefined ? !isSignedObject : requireArgsBytes === true;
+  if (carriesArgs) {
+    const argsResult = verifyArgsBytes({
+      argsB64u: input.argsB64u,
+      argsDigestHex: core.argsDigestHex,
+    });
+    if (argsResult.ok !== true) {
+      return { ok: false, error: argsResult.error };
+    }
+  } else if (mustCheckArgs) {
+    return {
+      ok: false,
+      error: relayFailure(
+        'ARGS_DIGEST_MISMATCH',
+        'the envelope does not carry the args bytes, so sha256(args) cannot be re-derived from what was actually received (GM-47)',
+        { field: 'argsB64u' },
+      ),
+    };
+  }
+
+  // 7. replay
   if (replayWindow !== null && replayWindow !== undefined) {
     if (typeof replayWindow.checkAndRemember !== 'function') {
       return {
@@ -121,6 +161,10 @@ async function verifyEnvelope(params = {}) {
     const reservation = await replayWindow.checkAndRemember({
       grantId: core.grantId,
       nonce: core.nonce,
+      // The last instant this envelope can still satisfy the freshness law. Pinning the
+      // reservation to it is what makes "never forgotten while it could still be fresh" true even
+      // for a future-dated envelope and even at the minimum retention (GM-48 m2).
+      freshUntilMs: freshness.issuedMs + freshness.windowMs,
     });
     if (reservation.ok !== true) {
       return { ok: false, error: reservation.error };

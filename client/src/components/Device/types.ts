@@ -18,6 +18,13 @@ export interface DeviceStatusPayload {
   leaseState?: string | null;
   epoch?: number | string | null;
   expiresAt?: string | null;
+  /**
+   * The server's own wall clock at response time (ISO-8601), or `null`/absent when the server
+   * could not state it. The panel anchors lease expiry to this reading, never to the browser's
+   * clock: a snapshot-restored VM or a domain-drifted clock can be hours off, and a slow local
+   * clock must not be able to turn an expired lease green. No identity, no authority.
+   */
+  serverTime?: string | null;
 }
 
 /** `POST /api/devices/pairing/approve` — the fields the panel actually uses. */
@@ -61,7 +68,18 @@ export type StatusView =
   | { kind: 'session-expired' }
   | { kind: 'request-rejected' }
   | { kind: 'no-device' }
-  | { kind: 'connected'; lease: LeaseSnapshot; renewalDue: boolean; remainingMs: number }
+  | {
+      kind: 'connected';
+      lease: LeaseSnapshot;
+      renewalDue: boolean;
+      remainingMs: number;
+      /**
+       * `serverTime - localNowAtFetch` at the moment the status body arrived. The card renders the
+       * countdown from `now + serverNowOffsetMs` so the number on screen matches the server's
+       * clock, not this browser's (which may be hours off).
+       */
+      serverNowOffsetMs: number;
+    }
   | { kind: 'paired-incomplete'; lease: LeaseSnapshot }
   | { kind: 'expired'; lease: LeaseSnapshot }
   | { kind: 'revoked'; lease: LeaseSnapshot }

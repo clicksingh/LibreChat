@@ -6,8 +6,14 @@
  * Implements the frozen PM-INTERFACE-FREEZE §9 issuance / redemption / rejoin / claim / deny
  * surface plus the §10a A–C transcriptions against injected Mongoose models and the accepted
  * I6 authority service. Invariants held here:
- *   - the only clock is the injected `clock.now()` (no `Date.now()`, no wall-clock read, no
- *     sleep);
+ *   - the injected `clock.now()` remains the seam for everything that is NOT a lease/TTL predicate:
+ *     `issuedAt`/`expiresAt`/`claimedAt`/`consumedAt` values, response fields and freshness checks;
+ *   - every predicate that decides LEASE STATE or a TTL is evaluated against DATABASE time (GM-44):
+ *     `$expr` with `$$NOW` in the filter, or a value read from the server where the decision cannot
+ *     be a single predicate. This is what closes the margin-free sites (`isLiveLease`, the redeem /
+ *     rejoin / mint / approve session-expiry tests), where the 5 s margin never applied. Every such
+ *     predicate is built through ONE helper (`databaseTime.expiryPredicate`) so a single place
+ *     decides `$$NOW` vs the test-only `predicateAnchor` (GM-64/GM-65); production omits it;
  *   - the six-digit pairing code is minted by the injected I7 helper, is returned to the
  *     caller, and is NEVER persisted and NEVER logged — only its tenant-bound 43-character
  *     HMAC-SHA-256 lookup tag is stored;
@@ -15,8 +21,8 @@
  *   - model methods only (no `.collection.`, no `bulkWrite`, no upsert);
  *   - `tenantId`/`ownerId` are trusted-context arguments; a raw request container handed to a
  *     method is rejected with `REQUEST_SUPPLIED_IDENTITY_REJECTED`;
- *   - pairing-session expiry uses the BARE `expiresAt: { $gt: now }` predicate, never the
- *     5-second skew margin (§10a G);
+ *   - pairing-session expiry is decided by DATABASE time (GM-44), never by the writer's clock and
+ *     never with the 5-second skew margin (§10a G keeps the bare expiry form);
  *   - claim order is frozen: device PoP against the DB-stored key → local endpoint consent →
  *     challenge spend → session `claim_pending → consumed` → `authorityService.claimAuthority`.
  *     A crash after the session consume leaves `consumed` without a grant, which is
@@ -32,6 +38,7 @@ const {
   classifyWriteOutcome,
   isDuplicateKeyError,
 } = require('./errors');
+const { readAnchorNowMs, expiryPredicate, assertPredicateAnchorShape } = require('./databaseTime');
 
 /** Frozen pairing-code lifetime: exactly 300000 ms (PM-INTERFACE-FREEZE §9). */
 const PAIRING_CODE_TTL_MS = 300000;
@@ -263,6 +270,10 @@ function assertDependencies({ db, clock, crypto, authorityService }) {
  *   The frozen §9 signature names no pepper seam; this lane therefore resolves the pepper from
  *   `deps.pepperLookup`, then `crypto.pepperLookup`, then `tenantPolicy.pepperLookup`, and
  *   fails closed when none is configured.
+ * @param {Date|number|(() => (Date|number))} [deps.predicateAnchor] **TESTS ONLY; PRODUCTION MUST
+ *   OMIT** (GM-64 / GM-65). Concrete comparison anchor substituted for the `$$NOW` reference in
+ *   every lease/TTL predicate here and in the measured database-clock comparisons. Absent ⇒
+ *   `$$NOW` (database time). Read only from this server-owned dependency.
  * @returns {{
  *   issuePairingSession: Function, redeemPairingCode: Function, rejoinPendingPairing: Function,
  *   approvePairingClaim: Function, denyPairingSession: Function,
@@ -279,7 +290,12 @@ function createPairingSessionService(deps = {}) {
     tenantPolicy,
     verifyLocalConsent,
     tenantContext,
+    predicateAnchor,
   } = deps;
+
+  // GM-64/GM-65: the test-only comparison anchor (shape-validated here, resolved per predicate).
+  // Production omits it, and it is never read from a request, a row, a session or caller data.
+  assertPredicateAnchorShape(predicateAnchor);
 
   assertDependencies({ db, clock, crypto, authorityService });
 
@@ -308,6 +324,26 @@ function createPairingSessionService(deps = {}) {
       throw new DeviceError('WRITE_OUTCOME_UNCERTAIN', 'Injected clock returned a non-finite time');
     }
     return now;
+  }
+
+  /**
+   * The comparison anchor for decisions that cannot be expressed as one in-query predicate (a
+   * pre-check that must run before a write, or a classification). GM-44: the writer's own clock
+   * must not decide a lease state or a TTL, so `null` means "cannot decide" and every caller fails
+   * closed rather than guessing from writer time. A GM-65 test anchor stands in for the database
+   * clock here; production has none, so it reads the server.
+   */
+  async function databaseNow() {
+    const nowMs = await readAnchorNowMs(db, predicateAnchor);
+    return Number.isFinite(nowMs) ? nowMs : null;
+  }
+
+  /** Fails closed when the database clock cannot be read for a lease/TTL decision. */
+  function databaseTimeUnavailable() {
+    return new DeviceError(
+      'WRITE_OUTCOME_UNCERTAIN',
+      'Database time is unavailable; the lease/TTL decision cannot be made',
+    );
   }
 
   function safeLog(level, message, meta) {
@@ -418,7 +454,6 @@ function createPairingSessionService(deps = {}) {
     boundOwnerId,
     boundEpoch,
     boundSessionVersion,
-    now,
   }) {
     const filter = {
       challengeHash,
@@ -427,7 +462,9 @@ function createPairingSessionService(deps = {}) {
       deviceId,
       deviceKeyId,
       consumedAt: null,
-      expiresAt: { $gt: new Date(now) },
+      // GM-44: the challenge TTL (120 s) is a TTL decision, so it is database time. A slow writer
+      // can no longer read a challenge that is already dead as usable.
+      $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
     };
     if (boundPairingSessionId !== undefined) filter.boundPairingSessionId = boundPairingSessionId;
     if (boundOwnerId !== undefined) filter.boundOwnerId = boundOwnerId;
@@ -632,13 +669,18 @@ function createPairingSessionService(deps = {}) {
   }
 
   async function recoverCommittedClaim({
-    tenantId, deviceId, ownerId, pairingSessionId, expectedEpoch, now,
+    tenantId, deviceId, ownerId, pairingSessionId, expectedEpoch,
   }) {
     if (!Number.isInteger(expectedEpoch) || expectedEpoch < 0) {
       return null;
     }
     const authority = await authorityService.readAuthority({ deviceId, tenantId });
     if (authority === null || typeof authority !== 'object') {
+      return null;
+    }
+    // GM-44: whether the recovered lease is live is a lease-state decision ⇒ DATABASE time.
+    const serverNow = await databaseNow();
+    if (serverNow === null) {
       return null;
     }
     const expiresAt = toMillis(authority.expiresAt);
@@ -650,7 +692,7 @@ function createPairingSessionService(deps = {}) {
       authority.epoch === expectedEpoch + 1 &&
       isNonEmptyString(authority.grantId) &&
       expiresAt !== null &&
-      expiresAt > now;
+      expiresAt > serverNow;
     return matches ? authority : null;
   }
 
@@ -1025,19 +1067,28 @@ function createPairingSessionService(deps = {}) {
     }
   }
 
-  function isLiveLease(authority, now) {
+  /**
+   * Live-lease test (GM-44 site 5, MARGIN-FREE). `serverNow` MUST be database time: this predicate
+   * is the ceremony admission gate, and reading the writer's clock here is exactly what let a
+   * writer skewed by the full 5 s budget mint a code against a lease that was still live.
+   */
+  function isLiveLease(authority, serverNow) {
     const expiresAt = toMillis(authority.expiresAt);
     return (
-      authority.leaseState === 'active' && expiresAt !== null && now < expiresAt
+      authority.leaseState === 'active' && expiresAt !== null && serverNow < expiresAt
     );
   }
 
-  function isLapsedLease(authority, now) {
+  /**
+   * Lapsed-lease test (GM-44 site 6). `serverNow` MUST be database time; the margin is applied to
+   * the database clock, not to a writer clock that could be anywhere.
+   */
+  function isLapsedLease(authority, serverNow) {
     if (authority.leaseState !== 'active') {
       return false;
     }
     const expiresAt = toMillis(authority.expiresAt);
-    return expiresAt === null || expiresAt + SKEW_MARGIN_MS <= now;
+    return expiresAt === null || expiresAt + SKEW_MARGIN_MS <= serverNow;
   }
 
   /**
@@ -1160,7 +1211,6 @@ function createPairingSessionService(deps = {}) {
       tenantId,
       deviceId,
       deviceKeyId,
-      now,
     });
     if (challengeRead.error) {
       return issueFailure(challengeRead.error);
@@ -1197,7 +1247,14 @@ function createPairingSessionService(deps = {}) {
       return issueFailure(uniformMiss());
     }
 
-    if (isLiveLease(authority, now)) {
+    // GM-44 sites 5/6: the admission decision is made against DATABASE time. `null` (the server
+    // clock could not be read) fails closed — an unprovable lease state must not mint a code.
+    const leaseNow = await databaseNow();
+    if (leaseNow === null) {
+      return issueFailure(databaseTimeUnavailable());
+    }
+
+    if (isLiveLease(authority, leaseNow)) {
       return issueFailure(
         new DeviceError(
           'DEVICE_ALREADY_PAIRED_USE_RENEW',
@@ -1206,7 +1263,7 @@ function createPairingSessionService(deps = {}) {
       );
     }
 
-    if (isLapsedLease(authority, now)) {
+    if (isLapsedLease(authority, leaseNow)) {
       const release = await authorityService.releaseLapsedLease({ deviceId, tenantId });
       if (release === null || typeof release !== 'object') {
         return issueFailure(
@@ -1228,7 +1285,13 @@ function createPairingSessionService(deps = {}) {
             new DeviceError('DEVICE_IDENTITY_REVOKED', 'Device identity is retired'),
           );
         }
-        if (isLiveLease(reread, now)) {
+        // The re-read is judged on database time too, and a fresh read (the release may have taken
+        // a round trip) rather than the value used for the first test.
+        const rereadNow = await databaseNow();
+        if (rereadNow === null) {
+          return issueFailure(databaseTimeUnavailable());
+        }
+        if (isLiveLease(reread, rereadNow)) {
           return issueFailure(
             new DeviceError(
               'DEVICE_ALREADY_PAIRED_USE_RENEW',
@@ -1375,7 +1438,9 @@ function createPairingSessionService(deps = {}) {
         lookupTag: tag.lookupTag,
         tenantId,
         state: 'open',
-        expiresAt: { $gt: new Date(now) },
+        // GM-44 site 8 (MARGIN-FREE): the 300 s pairing-code TTL is decided by DATABASE time, so a
+        // slow writer can no longer accept — and resurrect — a code that is already dead.
+        $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
         attemptsUsed: { $lt: MAX_CODE_ATTEMPTS },
       }).lean();
     } catch (err) {
@@ -1397,7 +1462,7 @@ function createPairingSessionService(deps = {}) {
           tenantId,
           state: 'open',
           sessionVersion: expectedSessionVersion,
-          expiresAt: { $gt: new Date(now) },
+          $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
           attemptsUsed: { $lt: MAX_CODE_ATTEMPTS },
         },
         {
@@ -1440,7 +1505,9 @@ function createPairingSessionService(deps = {}) {
       return rejoinFailure(uniformMiss());
     }
     const tenantId = args.tenantId;
-    const now = currentTime();
+    // Keeps the frozen "a non-finite injected clock fails closed" invariant; the expiry decision
+    // itself is database time (see the `$expr` conjuncts below).
+    currentTime();
     const tag = deriveLookupTag({ code: args.code, tenantId });
     if (tag.error) {
       return rejoinFailure(tag.error);
@@ -1452,7 +1519,8 @@ function createPairingSessionService(deps = {}) {
         tenantId,
         state: 'claim_pending',
         pendingOwnerId: args.ownerId,
-        expiresAt: { $gt: new Date(now) },
+        // GM-44 site 9 (MARGIN-FREE): database time, not writer time.
+        $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
       }).lean();
     } catch (err) {
       return rejoinFailure(classifyWriteFailure(err));
@@ -1474,7 +1542,7 @@ function createPairingSessionService(deps = {}) {
           state: 'claim_pending',
           pendingOwnerId: args.ownerId,
           sessionVersion: expectedSessionVersion,
-          expiresAt: { $gt: new Date(now) },
+          $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
         },
         { $inc: { sessionVersion: 1 } },
         { new: true, writeConcern: AUTHORITY_WRITE_CONCERN },
@@ -1522,7 +1590,12 @@ function createPairingSessionService(deps = {}) {
       );
     }
     const sessionExpiresAt = toMillis(session.expiresAt);
-    if (sessionExpiresAt === null || sessionExpiresAt <= now) {
+    // GM-44 site 9 (MARGIN-FREE): the session TTL pre-check is decided by DATABASE time.
+    const leaseNow = await databaseNow();
+    if (leaseNow === null) {
+      return challengeFailure(databaseTimeUnavailable());
+    }
+    if (sessionExpiresAt === null || sessionExpiresAt <= leaseNow) {
       return challengeFailure(uniformMiss());
     }
     const claim =
@@ -1563,7 +1636,7 @@ function createPairingSessionService(deps = {}) {
       sessionExpiresAt,
       now + CLAIM_CHALLENGE_TTL_MS,
     );
-    if (challengeExpiresAt <= now) {
+    if (challengeExpiresAt <= leaseNow) {
       return challengeFailure(uniformMiss());
     }
     const minted = await mintChallengeRecord({
@@ -1589,7 +1662,8 @@ function createPairingSessionService(deps = {}) {
           state: 'claim_pending',
           pendingOwnerId: ownerId,
           sessionVersion: expectedSessionVersion,
-          expiresAt: { $gt: new Date(now) },
+          // GM-44 site 9 (MARGIN-FREE): database time.
+          $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
           'claim.challengeRef': null,
           'claim.expectedEpoch': null,
         },
@@ -1723,7 +1797,12 @@ function createPairingSessionService(deps = {}) {
       return approveFailure(uniformMiss());
     }
     const expiresAt = toMillis(session.expiresAt);
-    if (expiresAt === null || expiresAt <= now) {
+    // GM-44 site 9 (MARGIN-FREE): the session TTL pre-check is decided by DATABASE time.
+    const leaseNow = await databaseNow();
+    if (leaseNow === null) {
+      return approveFailure(databaseTimeUnavailable());
+    }
+    if (expiresAt === null || expiresAt <= leaseNow) {
       return approveFailure(uniformMiss());
     }
     if (session.pendingOwnerId !== ownerId) {
@@ -1784,7 +1863,6 @@ function createPairingSessionService(deps = {}) {
       boundOwnerId: ownerId,
       boundEpoch: claimArm.expectedEpoch,
       boundSessionVersion: expectedSessionVersion,
-      now,
     });
     if (challengeRead.error) {
       return approveFailure(challengeRead.error);
@@ -1895,7 +1973,8 @@ function createPairingSessionService(deps = {}) {
           sessionVersion: expectedSessionVersion,
           'claim.challengeRef': session.claim?.challengeRef ?? null,
           'claim.expectedEpoch': session.claim?.expectedEpoch ?? null,
-          expiresAt: { $gt: new Date(now) },
+          // GM-44 site 9 (MARGIN-FREE): the consume CAS cannot land on a dead session.
+          $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
         },
         {
           $set: { state: 'consumed', consumedAt: new Date(now) },
@@ -1963,7 +2042,6 @@ function createPairingSessionService(deps = {}) {
           ownerId,
           pairingSessionId,
           expectedEpoch,
-          now,
         });
         if (recovered !== null) {
           committed = recovered;
@@ -2049,7 +2127,13 @@ function createPairingSessionService(deps = {}) {
       return denyFailure(uniformMiss());
     }
     const expiresAt = toMillis(session.expiresAt);
-    if (expiresAt === null || expiresAt <= now) {
+    // GM-45 lists 13 sites; `denyPairingSession` carries the same margin-free session-TTL pattern
+    // and is therefore converted too (GM-44 rule 2 is "every clock decision", not "the listed 13").
+    const leaseNow = await databaseNow();
+    if (leaseNow === null) {
+      return denyFailure(databaseTimeUnavailable());
+    }
+    if (expiresAt === null || expiresAt <= leaseNow) {
       return denyFailure(uniformMiss());
     }
     if (session.pendingOwnerId !== null && session.pendingOwnerId !== ownerId) {
@@ -2105,7 +2189,8 @@ function createPairingSessionService(deps = {}) {
           tenantId,
           state: { $in: NON_TERMINAL_SESSION_STATES },
           sessionVersion: expectedSessionVersion,
-          expiresAt: { $gt: new Date(now) },
+          // GM-44: database time (see the deny pre-check above).
+          $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
         },
         {
           $set: { state: 'denied' },

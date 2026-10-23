@@ -560,6 +560,14 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
   const deviceCrypto = jest.requireActual('~/server/services/Device/crypto');
 
   const clock = { now: () => currentNow };
+  /**
+   * GM-64/GM-65 TEST-ONLY `predicateAnchor`: the seam rides the same injected fixture clock the
+   * suite already advances (this is the ONLY mechanism that changed — every asserted boundary is
+   * untouched). The fixture clock is deterministic, so the comparison anchor per predicate is the
+   * fixture instant, never a wall-clock read; production omits the seam and compares against the
+   * database's own clock (`$$NOW`).
+   */
+  const predicateAnchor = () => new Date(currentNow);
   const tenantContext = {
     getActiveTenantId: () => currentTenant,
     alsAbsencePermitted: false,
@@ -734,6 +742,8 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
         db: counting.db,
         tenantContext,
         clock,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
         domainTag: PAIRING_OPEN_DOMAIN,
         pepperLookup: LAB_PEPPER,
       }),
@@ -744,28 +754,38 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
         domainTag: PAIRING_OPEN_DOMAIN,
         requestSource: PAIRING_ISSUE_SOURCE,
         pepperLookup: LAB_PEPPER,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
       }),
       approve: pairingHttp.createPairingApproveHandler({
         db: counting.db,
         tenantContext,
         clock,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
         pepperLookup: LAB_PEPPER,
       }),
       complete: completeHttp.createPairingCompleteHandler({
         db: counting.db,
         tenantContext,
         clock,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
         domainTag: PAIRING_COMPLETE_DOMAIN,
       }),
       status: currentHttp.createCurrentDeviceStatusHandler({
         db: counting.db,
         tenantContext,
         clock,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
       }),
       renew: renewEnvelope.createCurrentDeviceRenewEnvelopeHandler({
         db: counting.db,
         tenantContext,
         clock,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
         domainTag: RENEWAL_DOMAIN,
       }),
     };
@@ -1251,6 +1271,9 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
         leaseState: 'active',
         epoch: 4,
         expiresAt: new Date(currentNow + 5 * 3600000).toISOString(),
+        // Server wall clock: lets the panel detect local clock skew instead of trusting the
+        // browser for lease expiry. Carries no identity and no authority.
+        serverTime: new Date(currentNow).toISOString(),
       });
       const serialized = JSON.stringify(res.body);
       for (const secretField of [
@@ -1970,6 +1993,8 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
         db: counting.db,
         tenantContext,
         clock,
+        // GM-64/GM-65 test-only seam; production omits it. See the `predicateAnchor` note above.
+        predicateAnchor,
         domainTag: RENEWAL_DOMAIN,
         audit: async () => {
           throw new Error('LAB_INJECTED_AUDIT_SINK_FAILURE');

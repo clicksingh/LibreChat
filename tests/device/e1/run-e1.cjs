@@ -126,18 +126,54 @@ async function finalIsolationAudit() {
   }
 }
 
-/** before/after namespace comparison; a non-empty diff aborts the run. */
+/**
+ * before/after namespace comparison; a non-empty diff aborts the run.
+ *
+ * WHAT IS A REAL BREACH, AND WHAT IS NOT
+ * Every fixture is SUPPOSED to create its own `cbhr_rdc_phase1_*` database and drop it in teardown,
+ * so an own-namespace name appearing in `created`/`removed` is expected lifecycle, not a fence
+ * breach. MongoDB drops databases lazily, so the catalog view behind `listDatabases` can also lag a
+ * teardown that already completed — which made the raw `created`/`removed` diff a flaky gate that
+ * fired on a clean run. The audit therefore separates the two:
+ *
+ *   HARD FAILURES (unchanged in substance, and one is added):
+ *     - `leftoverOwnDatabases`: a fixture database still present at the END of the run. This is the
+ *       actual leak check and is computed from `after` alone, so catalog lag cannot mask it.
+ *     - `foreignAfter`: any database outside the `cbhr_rdc_phase1_` namespace.
+ *     - `protectedRemoved` (new, explicit): a protected pre-existing database disappeared during the
+ *       run. Previously this was only caught incidentally by the blanket `removed` diff.
+ *   NOT A FAILURE:
+ *     - own-namespace `created`/`removed` churn, which is the fixture lifecycle itself.
+ *
+ * Nothing that used to be caught is now missed: the blanket diff's only true-positive classes were a
+ * protected database being removed and a foreign database appearing, and both are asserted directly.
+ */
 function auditNamespace(before, after) {
+  const isOwnNamespace = (name) =>
+    name.startsWith(harness.DDL_PREFIX) && !harness.PROTECTED_DATABASES.includes(name);
   const created = after.databases.filter((name) => !before.databases.includes(name));
   const removed = before.databases.filter((name) => !after.databases.includes(name));
+  // Own-namespace churn is expected; anything else created or removed is a real namespace change.
+  const unexpectedCreated = created.filter((name) => !isOwnNamespace(name));
+  const unexpectedRemoved = removed.filter((name) => !isOwnNamespace(name));
+  const protectedRemoved = removed.filter((name) => harness.PROTECTED_DATABASES.includes(name));
   return {
     before: before.databases,
     after: after.databases,
     created,
     removed,
+    unexpectedCreated,
+    unexpectedRemoved,
+    protectedRemoved,
+    ownNamespaceChurn: { created: created.filter(isOwnNamespace), removed: removed.filter(isOwnNamespace) },
     leftoverOwnDatabases: after.leftoverOwnDatabases,
     foreignAfter: after.foreign,
-    ok: created.length === 0 && removed.length === 0 && after.leftoverOwnDatabases.length === 0 && after.foreign.length === 0,
+    ok:
+      unexpectedCreated.length === 0 &&
+      unexpectedRemoved.length === 0 &&
+      protectedRemoved.length === 0 &&
+      after.leftoverOwnDatabases.length === 0 &&
+      after.foreign.length === 0,
   };
 }
 

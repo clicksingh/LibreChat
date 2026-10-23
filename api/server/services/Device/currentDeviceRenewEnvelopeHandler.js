@@ -65,6 +65,7 @@
 const deviceCrypto = require('./crypto');
 const { createAuthorityService, LEASE_TTL_MS, SKEW_MARGIN_MS } = require('./authorityService');
 const { DeviceError } = require('./errors');
+const { readAnchorNowMs, expiryPredicate, assertPredicateAnchorShape, createClockSkewGuard } = require('./databaseTime');
 const {
   assertHttpHandlerDependencies,
   createAuditAccessor,
@@ -155,8 +156,12 @@ function buildRenewalMessage({
   }
 }
 
-/** Renewal eligibility: a live lease with more than the frozen margin left. Never a write. */
-function isRenewable(row, now) {
+/**
+ * Renewal eligibility: a live lease with more than the frozen margin left. Never a write.
+ * `serverNow` MUST be database time (GM-44 site 10): a slow writer must not renew a lease that has
+ * already expired on the true timeline, and a fast writer must not refuse a live one.
+ */
+function isRenewable(row, serverNow) {
   const expiresAt = toMillis(row?.expiresAt);
   return (
     row?.leaseState === 'active' &&
@@ -165,7 +170,7 @@ function isRenewable(row, now) {
     isNonEmptyString(row?.grantId) &&
     Number.isInteger(row?.epoch) &&
     expiresAt !== null &&
-    expiresAt > now + SKEW_MARGIN_MS
+    expiresAt > serverNow + SKEW_MARGIN_MS
   );
 }
 
@@ -255,13 +260,34 @@ function createCurrentDeviceRenewEnvelopeHandler(deps = {}) {
     logger = null,
     audit,
     domainTag,
+    predicateAnchor,
   } = deps;
   assertHttpHandlerDependencies({ db, tenantContext, label: 'current device renew handler' });
   if (!isNonEmptyString(domainTag)) {
     throw new TypeError('current device renew handler requires the frozen canonical domain tag');
   }
+  // GM-64/GM-65: the test-only comparison anchor (shape-validated here, resolved per predicate).
+  assertPredicateAnchorShape(predicateAnchor);
 
   const auditFn = createAuditAccessor({ db, logger, audit });
+
+  /**
+   * GM-44: the DATABASE clock, used for every lease-state/TTL predicate in this handler. `null`
+   * means the server clock could not be read, and every caller then fails closed rather than
+   * deciding a lease state from the writer's own clock. A GM-65 test anchor stands in for the
+   * server clock when one is supplied.
+   */
+  async function databaseNow() {
+    const nowMs = await readAnchorNowMs(db, predicateAnchor);
+    return Number.isFinite(nowMs) ? nowMs : null;
+  }
+
+  function databaseTimeUnavailable() {
+    return new DeviceError(
+      'WRITE_OUTCOME_UNCERTAIN',
+      'Database time is unavailable; the lease state cannot be decided',
+    );
+  }
 
   async function mintLeg({ res, body, trusted, now }) {
     const read = await readOwnedDeviceByPublicKey({
@@ -290,7 +316,11 @@ function createCurrentDeviceRenewEnvelopeHandler(deps = {}) {
         new DeviceError('DEVICE_IDENTITY_REVOKED', 'Device identity is retired'),
       );
     }
-    if (!isRenewable(row, now)) {
+    const leaseNow = await databaseNow();
+    if (leaseNow === null) {
+      return sendClassifiedError(res, databaseTimeUnavailable(), { committed: false, deviceId });
+    }
+    if (!isRenewable(row, leaseNow)) {
       // Frozen law: the margin/expiry refusal must write nothing at all (no challenge row either).
       return sendLeaseExpired(res, { deviceId, epoch: row.epoch, expiresAt: row.expiresAt });
     }
@@ -417,7 +447,12 @@ function createCurrentDeviceRenewEnvelopeHandler(deps = {}) {
     }
 
     // Frozen law first: inside the margin / after expiry is a refusal with NO write at all.
-    if (!isRenewable(row, now)) {
+    // GM-44 site 10: both eligibility tests use DATABASE time, read once for this leg.
+    const leaseNow = await databaseNow();
+    if (leaseNow === null) {
+      return sendClassifiedError(res, databaseTimeUnavailable(), { committed: false, deviceId });
+    }
+    if (!isRenewable(row, leaseNow)) {
       return sendLeaseExpired(res, { deviceId, epoch: row.epoch, expiresAt: row.expiresAt });
     }
 
@@ -441,7 +476,12 @@ function createCurrentDeviceRenewEnvelopeHandler(deps = {}) {
         new DeviceError('DEVICE_IDENTITY_REVOKED', 'Device identity is retired'),
       );
     }
-    if (!isRenewable(currentRow, now)) {
+    // Re-read on the CURRENT row, again against database time (the preimage may have moved).
+    const currentNow = await databaseNow();
+    if (currentNow === null) {
+      return sendClassifiedError(res, databaseTimeUnavailable(), { committed: false, deviceId });
+    }
+    if (!isRenewable(currentRow, currentNow)) {
       return sendLeaseExpired(res, {
         deviceId,
         epoch: currentRow.epoch,
@@ -458,7 +498,8 @@ function createCurrentDeviceRenewEnvelopeHandler(deps = {}) {
         deviceId,
         tenantId: trusted.tenantId,
         consumedAt: null,
-        expiresAt: { $gt: new Date(now) },
+        // GM-44: the 120 s renewal-challenge TTL is a TTL decision ⇒ database time.
+        $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
       }).lean();
     } catch {
       return sendClassifiedError(
@@ -533,6 +574,11 @@ function createCurrentDeviceRenewEnvelopeHandler(deps = {}) {
       logger,
       audit: auditFn,
       tenantContext,
+      // GM-65: the test anchor rides along so the renewal CAS decides against the same timeline.
+      predicateAnchor,
+      // GM-44 rule 3: the lease-state CAS this handler drives refuses to write when this host
+      // cannot prove its clock is inside the frozen skew budget.
+      clockSkewGuard: createClockSkewGuard({ db, logger }),
       verifyRenewalProof: async (input) => {
         if (input !== proofSource) {
           return { ok: false, binding: null };

@@ -22,6 +22,19 @@
  *   a nonce can never be forgotten while an envelope bearing it could still be fresh. A shorter
  *   retention is a construction-time refusal, not a runtime surprise.
  *
+ * SAFETY PROPERTY (GM-48 m2) — this is the invariant, not the boundary behaviour:
+ *
+ *   A nonce is NEVER forgotten while an envelope bearing it could still be fresh.
+ *
+ * An envelope minted at the instant the nonce was reserved is still admissible at
+ * `now == seenAt + windowMs` (freshness is inclusive: `ageMs <= windowMs`). Pruning therefore uses
+ * the STRICT comparison `expiresAt < atMs`: an entry whose `expiresAt` equals `atMs` is retained.
+ * With the old `<=` comparison, `retentionMs === MIN_REPLAY_RETENTION_MS` (the enforced minimum)
+ * pruned the entry at exactly `seenAt + retentionMs` and a replay at exactly `+120 000 ms` was
+ * ACCEPTED. The default 300 000 ms retention masked it, but the module's claim was false at the
+ * boundary. The strict comparison makes the property hold for every permitted retention, including
+ * the minimum.
+ *
  * The reservation is inserted into memory BEFORE any `await`, so two concurrent calls in this process
  * cannot both accept the same nonce even when the durable store is asynchronous.
  */
@@ -143,10 +156,19 @@ function createReplayWindow(options = {}) {
     return value;
   }
 
+  /**
+   * Forgets reservations that are STRICTLY older than `atMs`.
+   *
+   * Strict, not `<=` (GM-48 m2): freshness accepts `ageMs == windowMs`, so at `atMs == expiresAt`
+   * the envelope bearing the nonce may still be fresh. Only once the clock has moved PAST the
+   * expiry can the nonce be forgotten without reopening a replay window.
+   * @param {number} atMs epoch-ms
+   * @returns {number} entries removed
+   */
   function pruneAt(atMs) {
     let removed = 0;
     for (const [key, entry] of reservations) {
-      if (entry.expiresAt <= atMs) {
+      if (entry.expiresAt < atMs) {
         reservations.delete(key);
         removed += 1;
       }
@@ -171,7 +193,13 @@ function createReplayWindow(options = {}) {
   /**
    * Accepts the nonce exactly once per grant. Fails closed with `REPLAY_DETECTED` when the nonce was
    * already spent inside the retention window.
-   * @param {{grantId: string, nonce: string}} params
+   *
+   * `freshUntilMs` is the last instant at which an envelope bearing this nonce can still satisfy the
+   * freshness law (the signed `issuedAt + <audience window>`). Supplying it EXTENDS the reservation
+   * to that horizon, so the safety property holds even for an envelope admitted while future-dated
+   * and even at the minimum retention: the nonce is forgotten only once no envelope bearing it could
+   * still be fresh. Omitting it keeps the plain `seenAt + retentionMs` expiry.
+   * @param {{grantId: string, nonce: string, freshUntilMs?: number}} params
    * @returns {Promise<{ok: true, key: string, seenAt: number, expiresAt: number}
    *   | {ok: false, error: import('./errors').RelayError}>}
    */
@@ -179,6 +207,21 @@ function createReplayWindow(options = {}) {
     const key = nonceRingKey(params);
     const atMs = nowMs();
     pruneAt(atMs);
+    const { freshUntilMs } = params ?? {};
+    if (
+      freshUntilMs !== undefined &&
+      freshUntilMs !== null &&
+      (!Number.isSafeInteger(freshUntilMs) || freshUntilMs < 0)
+    ) {
+      return {
+        ok: false,
+        error: relayFailure(
+          'ENVELOPE_SHAPE_INVALID',
+          'the replay reservation freshness horizon must be non-negative epoch milliseconds',
+          { field: 'freshUntilMs' },
+        ),
+      };
+    }
     if (reservations.has(key)) {
       return {
         ok: false,
@@ -189,11 +232,36 @@ function createReplayWindow(options = {}) {
         ),
       };
     }
-    while (reservations.size >= maxEntries) {
-      const oldestKey = reservations.keys().next().value;
-      reservations.delete(oldestKey);
+    // Memory bound. Eviction must never forget a nonce an envelope could still carry, so only
+    // entries past the widest freshness window are eligible; if none is, the admission fails
+    // closed instead of reopening a replay window (the same safety property as `pruneAt`).
+    if (reservations.size >= maxEntries) {
+      for (const [candidate, entry] of reservations) {
+        if (entry.seenAt + MAX_FRESHNESS_WINDOW_MS < atMs) {
+          reservations.delete(candidate);
+          if (reservations.size < maxEntries) {
+            break;
+          }
+        }
+      }
+      if (reservations.size >= maxEntries) {
+        return {
+          ok: false,
+          error: relayFailure(
+            'REPLAY_STORE_UNAVAILABLE',
+            'the replay ring is full of nonces that may still be fresh; refusing rather than forgetting one and reopening a replay window',
+            { field: 'maxEntries' },
+          ),
+        };
+      }
     }
-    const entry = { seenAt: atMs, expiresAt: atMs + retentionMs };
+    // Never expires before the envelope's own freshness horizon: at `now == freshUntilMs` the
+    // envelope is still admissible, and the strict `pruneAt` keeps the entry until `now > expiresAt`.
+    const horizon = Number.isSafeInteger(freshUntilMs) ? freshUntilMs : 0;
+    const entry = {
+      seenAt: atMs,
+      expiresAt: Math.max(atMs + retentionMs, horizon),
+    };
     // Reserved before any await: in-process concurrency cannot double-accept.
     reservations.set(key, entry);
     if (store !== null) {

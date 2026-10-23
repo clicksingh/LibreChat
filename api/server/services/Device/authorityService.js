@@ -7,8 +7,14 @@
  * gates G-1..G-9 against injected Mongoose models. Invariants held here:
  *   - every authority/challenge CAS pins `{ w: 'majority', j: true }` and carries its own
  *     explicit `tenantId` conjunct (G-9);
- *   - the only clock is the injected `clock.now()` (no `Date.now()`, no wall-clock reads, no
- *     sleeps);
+ *   - every predicate that decides LEASE STATE is evaluated against DATABASE time (`$$NOW` in the
+ *     filter, or a value read from the server), never the writer's clock (GM-44). The injected
+ *     `clock.now()` seam is retained for everything that is NOT such a predicate: audit timestamps,
+ *     the values written into a row (`activatedAt`/`expiresAt`/`renewedAt`/`consumedAt`) and
+ *     response fields;
+ *   - those predicates are built through ONE helper (`databaseTime.expiryPredicate`) so exactly one
+ *     place decides `$$NOW` vs the test-only `predicateAnchor` (GM-64/GM-65). Production omits the
+ *     anchor, so production compares against the database's own clock;
  *   - authority success is exactly `matchedCount === 1`; an unacknowledged, non-integer,
  *     non-finite, negative or above-one matched count fails closed as `WRITE_OUTCOME_UNCERTAIN`
  *     and `0` is a truthful miss;
@@ -26,6 +32,7 @@ const {
   classifyWriteOutcome,
   isDuplicateKeyError,
 } = require('./errors');
+const { readAnchorNowMs, expiryPredicate, assertPredicateAnchorShape } = require('./databaseTime');
 
 /** Frozen authority lease duration: exactly 48 hours. */
 const LEASE_TTL_MS = 172800000;
@@ -143,7 +150,15 @@ function normalizeGrantProof(grantProof) {
   };
 }
 
-function buildClaimFilter({ deviceId, tenantId, expectedEpoch, now }) {
+/**
+ * Claim CAS filter (GM-44 site 1). The lapsed branch is evaluated by MongoDB against `$$NOW`, so a
+ * writer whose own clock is skewed can never dislodge a lease that is still live.
+ *
+ * The `$expr` sits INSIDE the `active` branch on purpose: the `never`/`expired`/`revoked` branches
+ * must stay unconditional (a revoked or retired row may legitimately still carry a future
+ * `expiresAt`), and hoisting the conjunct would silently make those rows unclaimable.
+ */
+function buildClaimFilter({ deviceId, tenantId, expectedEpoch, predicateAnchor }) {
   return {
     _id: deviceId,
     tenantId,
@@ -151,7 +166,14 @@ function buildClaimFilter({ deviceId, tenantId, expectedEpoch, now }) {
     epoch: expectedEpoch,
     $or: [
       { leaseState: { $in: ['never', 'expired', 'revoked'] } },
-      { leaseState: 'active', expiresAt: { $lte: new Date(now - SKEW_MARGIN_MS) } },
+      {
+        leaseState: 'active',
+        $expr: expiryPredicate({
+          predicateAnchor,
+          operator: '$lte',
+          marginMs: SKEW_MARGIN_MS,
+        }),
+      },
     ],
   };
 }
@@ -320,6 +342,18 @@ function assertDependencies({
  *   authorization seam; REQUIRED by the admin branch of `retireIdentity` (absent ⇒ `NOT_OWNER`
  *   403), optional at construction, and legitimately absent for owner self-retirement. Validated
  *   at construction when supplied.
+ * @param {{check: () => Promise<{ok: boolean, error: (Error|null)}>}} [deps.clockSkewGuard] GM-44
+ *   rule 3 defence-in-depth seam (`databaseTime.createClockSkewGuard`). When supplied, every
+ *   LEASE-STATE write (`claimAuthority`, `renewAuthority`, `releaseLapsedLease`, and the own-lapsed
+ *   dislodge they can trigger) refuses to proceed unless `check()` resolves `ok:true`. Correctness
+ *   never depends on it — the CAS predicates use database time — but a host that cannot prove its
+ *   clock must not write lease state, because its written timestamps would be wrong too.
+ * @param {Date|number|(() => (Date|number))} [deps.predicateAnchor] **TESTS ONLY; PRODUCTION MUST
+ *   OMIT** (GM-64 / GM-65). A concrete comparison anchor substituted for the `$$NOW` reference in
+ *   every lease-state / TTL predicate, and for the measured database clock where a decision cannot
+ *   be one predicate. Absent ⇒ `$$NOW` (database time), the production behaviour. It is read only
+ *   from this server-owned dependency and never from a request, a stored row, a session or any
+ *   caller data. A non-test construction that passes it is a review event.
  * @returns {{
  *   readAuthority: Function, releaseLapsedLease: Function, claimAuthority: Function,
  *   renewAuthority: Function, revokeLease: Function, retireIdentity: Function,
@@ -337,7 +371,13 @@ function createAuthorityService(deps = {}) {
     tenantContext,
     resolveRetirePrincipal,
     verifyRetireAuthorization,
+    clockSkewGuard,
+    predicateAnchor,
   } = deps;
+
+  // GM-64/GM-65: the test-only comparison anchor. Validated here (shape only) so a malformed seam
+  // fails at construction, and never read from a request, a row, a session or caller data.
+  assertPredicateAnchorShape(predicateAnchor);
 
   assertDependencies({
     db,
@@ -372,6 +412,58 @@ function createAuthorityService(deps = {}) {
       throw new DeviceError('WRITE_OUTCOME_UNCERTAIN', 'Injected clock returned a non-finite time');
     }
     return now;
+  }
+
+  /**
+   * GM-44 rule 3 defence-in-depth gate, run immediately before every LEASE-STATE write.
+   *
+   * Correctness does not depend on this: the CAS predicates are already evaluated against database
+   * time. It exists because a process whose clock is wildly wrong also corrupts the timestamps it
+   * writes (`activatedAt`/`expiresAt`/`renewedAt`) and its freshness checks, so it must refuse to
+   * serve lease-state writes at all. `null` means "proceed"; a `DeviceError` means "refuse".
+   *
+   * The guard is optional so that a composition which has no database surface (pure unit harness)
+   * still works; when it IS supplied and unusable, this fails closed rather than proceeding.
+   */
+  async function requireClockBudget() {
+    if (clockSkewGuard === null || clockSkewGuard === undefined) {
+      return null;
+    }
+    if (typeof clockSkewGuard.check !== 'function') {
+      return new DeviceError(
+        'CLOCK_SKEW_EXCEEDED',
+        'The configured clock-skew guard is unusable; lease-state writes fail closed',
+      );
+    }
+    let verdict;
+    try {
+      verdict = await clockSkewGuard.check();
+    } catch (err) {
+      return new DeviceError(
+        'CLOCK_SKEW_EXCEEDED',
+        'Clock-skew validation failed; lease-state writes fail closed',
+        { cause: err },
+      );
+    }
+    if (verdict !== null && typeof verdict === 'object' && verdict.ok === true) {
+      return null;
+    }
+    return (
+      (verdict !== null && typeof verdict === 'object' ? verdict.error : null) ??
+      new DeviceError(
+        'CLOCK_SKEW_EXCEEDED',
+        'Host clock is outside the skew budget; lease-state writes fail closed',
+      )
+    );
+  }
+
+  /**
+   * The comparison anchor for decisions that cannot be a single predicate. Production reads the
+   * DATABASE clock; a test anchor (GM-65 `predicateAnchor`) stands in for it. `null` ⇒ cannot decide.
+   */
+  async function databaseNow() {
+    const nowMs = await readAnchorNowMs(db, predicateAnchor);
+    return Number.isFinite(nowMs) ? nowMs : null;
   }
 
   function safeLog(level, message, meta) {
@@ -523,12 +615,17 @@ function createAuthorityService(deps = {}) {
     }
     const tenantId = args.tenantId;
     const deviceId = args.deviceId;
+    const clockError = await requireClockBudget();
+    if (clockError) {
+      return failure(clockError);
+    }
     const now = currentTime();
     const filter = {
       _id: deviceId,
       tenantId,
       leaseState: 'active',
-      expiresAt: { $lte: new Date(now - SKEW_MARGIN_MS) },
+      // GM-44 site 2: the lapsed test is database time, never `now - SKEW_MARGIN_MS`.
+      $expr: expiryPredicate({ predicateAnchor, operator: '$lte', marginMs: SKEW_MARGIN_MS }),
     };
     const update = { $set: { leaseState: 'expired' }, $inc: { epoch: 1 } };
     let matched;
@@ -564,11 +661,16 @@ function createAuthorityService(deps = {}) {
    * A 0-match is the normal first-pairing case.
    */
   async function dislodgeOwnLapsedLease({ ownerId, tenantId, now }) {
+    const clockError = await requireClockBudget();
+    if (clockError) {
+      return { fatal: clockError, auditError: null };
+    }
     const filter = {
       ownerId,
       tenantId,
       leaseState: 'active',
-      expiresAt: { $lte: new Date(now - SKEW_MARGIN_MS) },
+      // GM-44 site 3: previously missed by every enumeration. Database time, not writer time.
+      $expr: expiryPredicate({ predicateAnchor, operator: '$lte', marginMs: SKEW_MARGIN_MS }),
       identityState: { $ne: 'retired' },
     };
     const candidate = await safeReadOne(filter);
@@ -605,7 +707,7 @@ function createAuthorityService(deps = {}) {
    * triaged by expiry: live, inside the skew margin, or an older ambiguous expiry that fails
    * closed as `WRITE_OUTCOME_UNCERTAIN`.
    */
-  async function classifyClaimMiss({ deviceId, tenantId, expectedEpoch, now }) {
+  async function classifyClaimMiss({ deviceId, tenantId, expectedEpoch }) {
     const authority = await safeReadAuthority(deviceId, tenantId);
     if (authority === null) {
       return {
@@ -633,7 +735,19 @@ function createAuthorityService(deps = {}) {
     }
     if (authority.leaseState === 'active') {
       const expiresAt = toMillis(authority.expiresAt);
-      if (expiresAt !== null && now < expiresAt) {
+      // GM-44: the disposition is a lease-state decision, so it is classified against DATABASE
+      // time. Without a database clock the state cannot be proven, so this fails closed.
+      const serverNow = await databaseNow();
+      if (serverNow === null) {
+        return {
+          authority,
+          error: new DeviceError(
+            'WRITE_OUTCOME_UNCERTAIN',
+            'Database time is unavailable; the lease state cannot be classified',
+          ),
+        };
+      }
+      if (expiresAt !== null && serverNow < expiresAt) {
         return {
           authority,
           error: new DeviceError(
@@ -642,7 +756,7 @@ function createAuthorityService(deps = {}) {
           ),
         };
       }
-      if (expiresAt !== null && expiresAt > now - SKEW_MARGIN_MS) {
+      if (expiresAt !== null && expiresAt > serverNow - SKEW_MARGIN_MS) {
         return {
           authority,
           error: new DeviceError(
@@ -691,6 +805,11 @@ function createAuthorityService(deps = {}) {
         ),
       );
     }
+    // GM-44 rule 3: refuse to decide lease state at all when this host cannot prove its clock.
+    const clockError = await requireClockBudget();
+    if (clockError) {
+      return failure(clockError);
+    }
     const now = currentTime();
     let grantId = mintGrantId(crypto);
     let dislodgeUsed = false;
@@ -702,7 +821,7 @@ function createAuthorityService(deps = {}) {
       try {
         matched = await performUpdate(
           db.DeviceAuthority,
-          buildClaimFilter({ deviceId, tenantId, expectedEpoch, now }),
+          buildClaimFilter({ deviceId, tenantId, expectedEpoch, predicateAnchor }),
           buildClaimPipeline({ ownerId, grantId, sessionId, grantProof, now }),
         );
       } catch (err) {
@@ -766,7 +885,7 @@ function createAuthorityService(deps = {}) {
         return { ok: finalAuditError === null, matched, authority, error: finalAuditError };
       }
 
-      const miss = await classifyClaimMiss({ deviceId, tenantId, expectedEpoch, now });
+      const miss = await classifyClaimMiss({ deviceId, tenantId, expectedEpoch });
       return { ok: false, matched: 0, authority: miss.authority, error: miss.error };
     }
 
@@ -826,7 +945,7 @@ function createAuthorityService(deps = {}) {
     return null;
   }
 
-  async function classifyRenewMiss({ deviceId, tenantId, ownerId, epoch, grantId, now }) {
+  async function classifyRenewMiss({ deviceId, tenantId, ownerId, epoch, grantId }) {
     const authority = await safeReadAuthority(deviceId, tenantId);
     if (authority === null) {
       return {
@@ -854,7 +973,18 @@ function createAuthorityService(deps = {}) {
       return { authority, error: new DeviceError('LEASE_EXPIRED', 'Lease is not active') };
     }
     const expiresAt = toMillis(authority.expiresAt);
-    if (expiresAt === null || expiresAt <= now + SKEW_MARGIN_MS) {
+    // GM-44: the margin decision is a lease-state decision, so it uses DATABASE time.
+    const serverNow = await databaseNow();
+    if (serverNow === null) {
+      return {
+        authority,
+        error: new DeviceError(
+          'WRITE_OUTCOME_UNCERTAIN',
+          'Database time is unavailable; the lease state cannot be classified',
+        ),
+      };
+    }
+    if (expiresAt === null || expiresAt <= serverNow + SKEW_MARGIN_MS) {
       return {
         authority,
         error: new DeviceError('LEASE_EXPIRED', 'Lease is inside the renewal skew margin'),
@@ -908,6 +1038,12 @@ function createAuthorityService(deps = {}) {
     if (bindingError) {
       return failure(bindingError);
     }
+    // GM-44 rule 3: the skew guard is the LAST gate before the write, so it can never mask or
+    // reorder an authentication/authorization outcome above it.
+    const clockError = await requireClockBudget();
+    if (clockError) {
+      return failure(clockError);
+    }
     const now = currentTime();
     const filter = {
       _id: deviceId,
@@ -917,7 +1053,9 @@ function createAuthorityService(deps = {}) {
       identityState: { $ne: 'retired' },
       epoch,
       grantId,
-      expiresAt: { $gt: new Date(now + SKEW_MARGIN_MS) },
+      // GM-44 site 4: "strictly before expiry, by the margin" is database time, so a slow writer
+      // can no longer renew a lease that has already expired on the true timeline.
+      $expr: expiryPredicate({ predicateAnchor, operator: '$gt', marginMs: SKEW_MARGIN_MS }),
     };
     const update = {
       $set: {
@@ -945,7 +1083,6 @@ function createAuthorityService(deps = {}) {
         ownerId,
         epoch,
         grantId,
-        now,
       });
       return { ok: false, matched: 0, authority: classified.authority, error: classified.error };
     }
@@ -1155,7 +1292,9 @@ function createAuthorityService(deps = {}) {
       challengeHash: args.challengeHash,
       purpose: args.purpose,
       consumedAt: null,
-      expiresAt: { $gt: new Date(now) },
+      // GM-44 site 7 (MARGIN-FREE): the TTL is decided by database time, so a slow writer can no
+      // longer spend (and thereby resurrect) a challenge that is already dead on the true timeline.
+      $expr: expiryPredicate({ predicateAnchor, operator: '$gt' }),
       tenantId,
     };
     for (const field of CHALLENGE_BINDING_FIELDS) {

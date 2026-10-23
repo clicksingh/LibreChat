@@ -20,6 +20,12 @@ const DEVICE_ERROR_CODES = Object.freeze({
   PAIRING_CEREMONY_STALE: 409,
   PAIRING_CEREMONY_REQUIRED: 400,
   AUDIT_EVENT_SHAPE_INVALID: 500,
+  /**
+   * GM-44 rule 3 defence-in-depth: the host clock is outside the frozen skew budget (or could not
+   * be measured), so the process refuses to make lease-state decisions. 503 is deliberate: this is
+   * a self-detected inability to serve, not a client fault and not a 500 defect.
+   */
+  CLOCK_SKEW_EXCEEDED: 503,
 });
 
 const DUPLICATE_DISPOSITIONS = Object.freeze({

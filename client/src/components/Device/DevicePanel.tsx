@@ -38,7 +38,18 @@ export default function DevicePanel() {
   const statusQuery = useDeviceStatusQuery({ claimPending: claimActive });
   const approval = usePairingApprovalMutation();
 
-  const view = deriveStatusView({ error: statusQuery.error, payload: statusQuery.data, now });
+  /**
+   * `dataUpdatedAt` is the local instant the current body arrived. Paired with the body's
+   * `serverTime`, it yields the browser's clock offset, so lease expiry is judged on the server's
+   * clock instead of a possibly hours-wrong local one (a snapshot-restored VM, a domain-drifted
+   * clock). See `serverClockOffset` in `deriveView.ts`.
+   */
+  const view = deriveStatusView({
+    error: statusQuery.error,
+    payload: statusQuery.data,
+    now,
+    fetchedAt: statusQuery.dataUpdatedAt,
+  });
 
   /** The lease landing is the end of the ceremony: drop the local approval window. */
   useEffect(() => {

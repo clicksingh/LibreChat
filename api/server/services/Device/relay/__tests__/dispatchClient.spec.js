@@ -25,7 +25,13 @@ const keypair = makeTestKeypair();
 const signer = relay.createEnvelopeSigner(makeCustodySeam(keypair));
 const verifier = relay.createEnvelopeVerifier({ publicKeySpkiB64u: keypair.publicKeySpkiB64u });
 
-/** Builds a client with reproducible minters and a recording transport. */
+/**
+ * Builds a client with reproducible minters and a recording transport.
+ *
+ * A replay window is ALWAYS supplied: `createRelayDispatchClient` refuses `replayWindow: null`
+ * (GM-49 — a real dispatch without replay enforcement is a defect). `overrides.replayWindow` lets a
+ * test share or replace it.
+ */
 function buildClient(overrides = {}) {
   const response = 'response' in overrides ? overrides.response : { status: 200, body: { accepted: true } };
   const { transport, calls } = makeTransport(response);
@@ -36,7 +42,10 @@ function buildClient(overrides = {}) {
     nonceFactory: overrides.nonceFactory ?? (() => AUTHORITY_NONCE),
     requestIdFactory: overrides.requestIdFactory ?? (() => REQUEST_ID),
     verifier: overrides.verifier === undefined ? verifier : overrides.verifier,
-    replayWindow: overrides.replayWindow ?? null,
+    replayWindow:
+      overrides.replayWindow === undefined
+        ? relay.createReplayWindow({ now: () => (overrides.now ?? T0) })
+        : overrides.replayWindow,
     logger: overrides.logger ?? null,
     assertAuthorityCurrent: overrides.assertAuthorityCurrent ?? null,
   });
@@ -45,6 +54,12 @@ function buildClient(overrides = {}) {
 
 const AUTHORITY_NONCE = 'AAECAwQFBgcICQoLDA0ODw';
 const REQUEST_ID = '3f0c5b1e-8a2d-4c7b-9e61-2d4f8a0b7c93';
+
+/** A fresh 128-bit nonce per call, so a shared replay window does not see a replay. */
+function uniqueNonces() {
+  let counter = 0;
+  return () => Buffer.alloc(16, (counter += 1)).toString('base64url');
+}
 
 const ARGS_BYTES = Buffer.from('{"path":"C:/notes/today.txt"}', 'utf8');
 const ARGS_DIGEST_HEX = nodeCrypto.createHash('sha256').update(ARGS_BYTES).digest('hex');
@@ -78,10 +93,12 @@ describe('dispatch client — identity comes only from trusted server context', 
     expect(frame.opKind).toBe('command');
     expect(frame.audience).toBe('endpoint');
     expect(frame.argsDigestHex).toBe(ARGS_DIGEST_HEX);
+    // GM-47: the exact args bytes travel with the frame, outside the signature.
+    expect(frame.argsB64u).toBe(ARGS_BYTES.toString('base64url'));
     expect(frame.tag).toBe('CBHR-RPC-V2');
     expect(frame.keyId).toBe('test-custody-key-1');
     expect(frame.seq).toBe(12);
-    expect(Object.keys(frame)).toHaveLength(18);
+    expect(Object.keys(frame)).toHaveLength(19);
   });
 
   it('sets the signed deadline to issuedAt + the endpoint freshness window', async () => {
@@ -217,44 +234,75 @@ describe('dispatch client — audience and args', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('accepts exactly one of the three args sources', async () => {
-    const { client, calls } = buildClient();
+  /**
+   * REPLACES the old "accepts exactly one of the three args sources" test, which asserted that a
+   * digest-only dispatch succeeds. That behaviour is now a defect: GM-47 requires the args BYTES to
+   * travel, so a digest with no preimage cannot be dispatched at all.
+   */
+  it('requires an args preimage (bytes travel), refusing a digest-only dispatch', async () => {
+    const { client, calls } = buildClient({ nonceFactory: uniqueNonces() });
 
     const fromBytes = await client.dispatchCommand({
       authority: AUTHORITY,
       toolName: 'read_file',
       argsBytes: ARGS_BYTES,
     });
-    const fromHex = await client.dispatchCommand({
+    const fromB64u = await client.dispatchCommand({
+      authority: AUTHORITY,
+      toolName: 'read_file',
+      argsB64u: ARGS_BYTES.toString('base64url'),
+    });
+    const bothPreimages = await client.dispatchCommand({
+      authority: AUTHORITY,
+      toolName: 'read_file',
+      argsBytes: ARGS_BYTES,
+      argsB64u: ARGS_BYTES.toString('base64url'),
+    });
+    const digestHexOnly = await client.dispatchCommand({
       authority: AUTHORITY,
       toolName: 'read_file',
       argsDigestHex: ARGS_DIGEST_HEX,
     });
-    const fromB64u = await client.dispatchCommand({
+    const digestB64uOnly = await client.dispatchCommand({
       authority: AUTHORITY,
       toolName: 'read_file',
       argsDigestB64u: Buffer.from(ARGS_DIGEST_HEX, 'hex').toString('base64url'),
     });
-    const both = await client.dispatchCommand({
+    const neither = await client.dispatchCommand({ authority: AUTHORITY, toolName: 'read_file' });
+
+    expect(fromBytes.ok).toBe(true);
+    expect(fromB64u.ok).toBe(true);
+    expect(bothPreimages.code).toBe('ENVELOPE_ARGS_INVALID');
+    expect(digestHexOnly.code).toBe('ENVELOPE_ARGS_INVALID');
+    expect(digestB64uOnly.code).toBe('ENVELOPE_ARGS_INVALID');
+    expect(neither.code).toBe('ENVELOPE_ARGS_INVALID');
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.frame.argsDigestHex).toBe(ARGS_DIGEST_HEX);
+      expect(call.frame.argsB64u).toBe(ARGS_BYTES.toString('base64url'));
+    }
+  });
+
+  it('accepts a declared digest only as a cross-check, and refuses a disagreeing one', async () => {
+    const { client, calls } = buildClient();
+
+    const agreeing = await client.dispatchCommand({
       authority: AUTHORITY,
       toolName: 'read_file',
       argsBytes: ARGS_BYTES,
       argsDigestHex: ARGS_DIGEST_HEX,
     });
-    const neither = await client.dispatchCommand({
+    const disagreeing = await client.dispatchCommand({
       authority: AUTHORITY,
       toolName: 'read_file',
+      argsBytes: ARGS_BYTES,
+      argsDigestHex: '3795b53e4665398f141a5fafb3b006777f9f15f56423821f3e88795a8b972d15',
     });
 
-    expect(fromBytes.ok).toBe(true);
-    expect(fromHex.ok).toBe(true);
-    expect(fromB64u.ok).toBe(true);
-    expect(both.code).toBe('ENVELOPE_ARGS_INVALID');
-    expect(neither.code).toBe('ENVELOPE_ARGS_INVALID');
-    expect(calls).toHaveLength(3);
-    for (const call of calls) {
-      expect(call.frame.argsDigestHex).toBe(ARGS_DIGEST_HEX);
-    }
+    expect(agreeing.ok).toBe(true);
+    expect(disagreeing.ok).toBe(false);
+    expect(disagreeing.code).toBe('ARGS_DIGEST_MISMATCH');
+    expect(calls).toHaveLength(1);
   });
 
   it('carries seq/idempotencyKey/callId as unsigned transport fields', async () => {
@@ -305,7 +353,7 @@ describe('dispatch client — audience and args', () => {
   });
 
   it('mints cancel and resync frames with the same signature grammar', async () => {
-    const { client, calls } = buildClient();
+    const { client, calls } = buildClient({ nonceFactory: uniqueNonces() });
 
     const cancel = await client.dispatchCommand({
       authority: AUTHORITY,
@@ -392,6 +440,7 @@ describe('dispatch client — outcome law (unknown-outcome is never success)', (
       nonceFactory: () => AUTHORITY_NONCE,
       requestIdFactory: () => REQUEST_ID,
       verifier,
+      replayWindow: relay.createReplayWindow({ now: () => T0 }),
     });
 
     const outcome = await client.dispatchCommand({
@@ -524,15 +573,39 @@ describe('dispatch client — pre-send guards', () => {
     expect(current.calls).toHaveLength(1);
   });
 
-  it('requires an injected transport and the signer seam at construction', () => {
-    expect(() => relay.createRelayDispatchClient({ signer })).toThrow(
-      expect.objectContaining({ code: 'SIGNER_SEAM_INVALID' }),
-    );
-    expect(() => relay.createRelayDispatchClient({ transport: async () => ({ status: 200 }) })).toThrow(
+  it('requires an injected transport, the signer seam and a replay window at construction', () => {
+    const replayWindow = relay.createReplayWindow({ now: () => T0 });
+    expect(() => relay.createRelayDispatchClient({ signer, replayWindow })).toThrow(
       expect.objectContaining({ code: 'SIGNER_SEAM_INVALID' }),
     );
     expect(() =>
-      relay.createRelayDispatchClient({ transport: async () => ({ status: 200 }), signer, clock: {} }),
+      relay.createRelayDispatchClient({ transport: async () => ({ status: 200 }), replayWindow }),
+    ).toThrow(expect.objectContaining({ code: 'SIGNER_SEAM_INVALID' }));
+    expect(() =>
+      relay.createRelayDispatchClient({
+        transport: async () => ({ status: 200 }),
+        signer,
+        replayWindow,
+        clock: {},
+      }),
     ).toThrow(expect.objectContaining({ code: 'CLOCK_UNUSABLE' }));
+    // GM-49: a null window on a real dispatch is a defect, refused at construction.
+    expect(() =>
+      relay.createRelayDispatchClient({ transport: async () => ({ status: 200 }), signer }),
+    ).toThrow(expect.objectContaining({ code: 'SIGNER_SEAM_INVALID' }));
+    expect(() =>
+      relay.createRelayDispatchClient({
+        transport: async () => ({ status: 200 }),
+        signer,
+        replayWindow: null,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'SIGNER_SEAM_INVALID' }));
+    expect(() =>
+      relay.createRelayDispatchClient({
+        transport: async () => ({ status: 200 }),
+        signer,
+        replayWindow: { now: () => T0 },
+      }),
+    ).toThrow(expect.objectContaining({ code: 'SIGNER_SEAM_INVALID' }));
   });
 });
