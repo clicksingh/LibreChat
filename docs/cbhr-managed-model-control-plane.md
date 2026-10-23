@@ -17,3 +17,9 @@ The branch contains an **unmounted** service-auth primitive (`modelPolicyService
 ## Transactional publication boundary
 
 The internal publisher must persist its last applied external policy revision in the same Mongo transaction as the base, USER, and ADMIN Config updates. Cache invalidation happens only after transaction commit. Same version plus same digest is idempotent; same version plus different digest is a conflict; lower version is stale; a newer revision advances only through the configured monotonic rule. This avoids creating a second partial-publication problem inside LibreChat.
+
+## Publication-state implementation
+
+The branch now includes a dedicated LibreChat-owned model-policy publication state contract: `modelpolicypublications` stores the last applied external policy revision and SHA-256 content digest. The method layer defines monotonic transitions: first publication must be revision 1; same revision plus same digest is an idempotent no-op; same revision with different content, stale revisions, revision gaps, and concurrent CAS changes fail closed. The state is derived integration metadata only. It is not the canonical model policy, and it is not yet wired into the runtime publisher route.
+
+The next step is to execute the state transition and the three owned Config projections inside one Mongo transaction, then invalidate effective config caches only after commit. Only after a real staging transaction/rollback test will the internal route be mounted.
