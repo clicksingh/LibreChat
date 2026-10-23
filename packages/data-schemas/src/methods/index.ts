@@ -116,15 +116,12 @@ import {
 import {
   createMCPAuthorityMethods,
   MCPAuthorityProofError,
-  ModelPolicyPublicationConflictError,
-  ModelPolicyPublicationInvalidError,
   MAX_MCP_AUTHORITY_TARGETS,
   createMCPAuthorityBootRevision,
   createMCPAuthorityConfigSourceRevision,
   createMCPAuthorityCredentialRevision,
   createMCPAuthorityDatabaseSourceRevision,
   digestMCPAuthorityValue,
-  decideModelPolicyPublicationTransition,
   type MCPAuthorityMethods,
   type MCPAuthorityMethodHooks,
   type MCPAuthorityConfigSourceDocument,
@@ -134,6 +131,8 @@ import {
 export {
   RoleConflictError,
   MCPAuthorityProofError,
+  ModelPolicyPublicationConflictError,
+  ModelPolicyPublicationInvalidError,
   MAX_MCP_AUTHORITY_TARGETS,
   DEFAULT_REFRESH_TOKEN_EXPIRY,
   DEFAULT_SESSION_EXPIRY,
@@ -142,6 +141,7 @@ export {
   createMCPAuthorityCredentialRevision,
   createMCPAuthorityDatabaseSourceRevision,
   digestMCPAuthorityValue,
+  decideModelPolicyPublicationTransition,
 };
 export { tokenValues, cacheTokenValues, premiumTokenValues, defaultRate, createTxMethods };
 export { permissionBitSupersets };
