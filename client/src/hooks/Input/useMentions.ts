@@ -21,6 +21,7 @@ import {
 import useAssistantListMap from '~/hooks/Assistants/useAssistantListMap';
 import { useAgentsMapContext } from '~/Providers/AgentsMapContext';
 import { mapEndpoints, getPresetTitle } from '~/utils';
+import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 import { EndpointIcon } from '~/components/Endpoints';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
 import { filterMentionEndpoints } from './mentions';
@@ -100,7 +101,7 @@ export default function useMentions({
   const validEndpointSet = useMemo(() => new Set(validEndpoints), [validEndpoints]);
   const agentQueryEnabled =
     hasAgentAccess &&
-    interfaceConfig.modelSelect === true &&
+    isModelSelectionEnabled(interfaceConfig.modelSelect) &&
     (includedEndpoints.size === 0 || includedEndpoints.has(EModelEndpoint.agents));
   const { data: agentsList = null, isLoading: isLoadingAgents } = useListAgentsQuery(
     { requiredPermission: PermissionBits.VIEW },
@@ -176,7 +177,7 @@ export default function useMentions({
         return [];
       }
 
-      if (interfaceConfig.modelSelect !== true) {
+      if (!isModelSelectionEnabled(interfaceConfig.modelSelect)) {
         return [];
       }
 
@@ -210,7 +211,7 @@ export default function useMentions({
         }),
         type: 'modelSpec' as const,
       })),
-      ...(interfaceConfig.modelSelect === true ? validEndpoints : []).map((endpoint) => ({
+      ...(isModelSelectionEnabled(interfaceConfig.modelSelect) ? validEndpoints : []).map((endpoint) => ({
         value: endpoint,
         label: alternateName[endpoint as string] ?? endpoint ?? '',
         type: 'endpoint' as const,
@@ -221,22 +222,22 @@ export default function useMentions({
           size: 20,
         }),
       })),
-      ...(interfaceConfig.modelSelect === true && validEndpointSet.has(EModelEndpoint.agents)
+      ...(isModelSelectionEnabled(interfaceConfig.modelSelect) && validEndpointSet.has(EModelEndpoint.agents)
         ? (agentsList ?? [])
         : []),
       ...(endpointsConfig?.[EModelEndpoint.assistants] &&
       includeAssistants &&
       validEndpointSet.has(EModelEndpoint.assistants) &&
-      interfaceConfig.modelSelect === true
+      isModelSelectionEnabled(interfaceConfig.modelSelect)
         ? assistantListMap[EModelEndpoint.assistants] || []
         : []),
       ...(endpointsConfig?.[EModelEndpoint.azureAssistants] &&
       includeAssistants &&
       validEndpointSet.has(EModelEndpoint.azureAssistants) &&
-      interfaceConfig.modelSelect === true
+      isModelSelectionEnabled(interfaceConfig.modelSelect)
         ? assistantListMap[EModelEndpoint.azureAssistants] || []
         : []),
-      ...((interfaceConfig.modelSelect === true && interfaceConfig.presets === true
+      ...((isModelSelectionEnabled(interfaceConfig.modelSelect) && interfaceConfig.presets === true
         ? presets
         : []
       )?.map((preset, index) => ({

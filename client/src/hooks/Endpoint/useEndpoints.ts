@@ -19,6 +19,7 @@ import type { Endpoint } from '~/common';
 import { useHasAccess, useShowMarketplace } from '~/hooks';
 import { useGetEndpointsQuery } from '~/data-provider';
 import { mapEndpoints, getIconKey } from '~/utils';
+import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 import { icons } from './Icons';
 
 const defaultInterface = getConfigDefaults().interface;
@@ -59,7 +60,7 @@ export const useEndpoints = ({
   );
 
   const filteredEndpoints = useMemo(() => {
-    if (!interfaceConfig.modelSelect) {
+    if (!isModelSelectionEnabled(interfaceConfig.modelSelect)) {
       return [];
     }
     const result: EModelEndpoint[] = [];

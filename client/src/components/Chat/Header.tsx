@@ -12,6 +12,7 @@ import AddMultiConvo from './AddMultiConvo';
 import { useHasAccess } from '~/hooks';
 import { cn } from '~/utils';
 import store from '~/store';
+import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 
 const defaultInterface = getConfigDefaults().interface;
 
@@ -54,7 +55,7 @@ function Header() {
               )}
             >
               <ModelSelector startupConfig={startupConfig} />
-              {interfaceConfig.presets === true && interfaceConfig.modelSelect && <PresetsMenu />}
+              {interfaceConfig.presets === true && isModelSelectionEnabled(interfaceConfig.modelSelect) && <PresetsMenu />}
               {hasAccessToBookmarks === true && <BookmarkMenu />}
               {hasAccessToMultiConvo === true && <AddMultiConvo />}
               {isSmallScreen && (
