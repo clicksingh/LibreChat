@@ -138,10 +138,12 @@ const startServer = async () => {
 
   const modelPolicyInternalServer = await startModelPolicyInternalServer();
   if (modelPolicyInternalServer) {
-    registerShutdownTask('model policy internal publisher', () =>
-      new Promise((resolve, reject) => {
-        modelPolicyInternalServer.close((error) => (error ? reject(error) : resolve()));
-      }),
+    registerShutdownTask(
+      'model policy internal publisher',
+      () =>
+        new Promise((resolve, reject) => {
+          modelPolicyInternalServer.close((error) => (error ? reject(error) : resolve()));
+        }),
     );
   }
   indexSync().catch((err) => {
