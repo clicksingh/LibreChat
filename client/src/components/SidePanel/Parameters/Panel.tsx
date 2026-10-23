@@ -13,11 +13,12 @@ import {
   SystemRoles,
 } from 'librechat-data-provider';
 import type { TPreset } from 'librechat-data-provider';
+import { resolveModelReasoningControls } from '~/utils/modelReasoningControls';
 import { useChatContext, useLiveAnnouncer } from '~/Providers';
 import { SaveAsPresetDialog } from '~/components/Endpoints';
-import { useSetIndexOptions, useLocalize, useAuthContext } from '~/hooks';
-import { resolveModelReasoningControls } from '~/utils/modelReasoningControls';
+import { useSetIndexOptions, useLocalize } from '~/hooks';
 import { useGetEndpointsQuery } from '~/data-provider';
+import { useAuthContext } from '~/hooks/AuthContext';
 import { componentMapping } from './components';
 import { logger, cn } from '~/utils';
 

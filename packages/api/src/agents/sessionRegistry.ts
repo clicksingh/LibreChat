@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'crypto';
 import { Constants } from '@librechat/agents';
+import { createHash, randomUUID } from 'crypto';
 import type { CodeSessionContext, ToolSessionMap } from '@librechat/agents';
 
 export interface ExecutionScope {
@@ -10,13 +10,13 @@ export interface ExecutionScope {
   workspaceId: string;
 }
 
-interface StoredSession extends ExecutionScope {
+export interface StoredSession extends ExecutionScope {
   _id: string;
   sessionId: string;
   createdAt: Date;
 }
 
-interface SessionCollection {
+export interface SessionCollection {
   findOneAndUpdate(
     filter: { _id: string },
     update: { $setOnInsert: StoredSession },

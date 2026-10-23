@@ -16,10 +16,11 @@ import {
 import type * as t from 'librechat-data-provider';
 import type { AgentForm, AgentModelPanelProps, StringOption } from '~/common';
 import { componentMapping } from '~/components/SidePanel/Parameters/components';
-import { useGetEndpointsQuery } from '~/data-provider';
-import { useLiveAnnouncer } from '~/Providers';
-import { useLocalize, useAuthContext } from '~/hooks';
 import { resolveModelReasoningControls } from '~/utils/modelReasoningControls';
+import { useGetEndpointsQuery } from '~/data-provider';
+import { useAuthContext } from '~/hooks/AuthContext';
+import { useLiveAnnouncer } from '~/Providers';
+import { useLocalize } from '~/hooks';
 import { Panel } from '~/common';
 import { cn } from '~/utils';
 
@@ -110,9 +111,8 @@ export default function ModelPanel({
     const effortSetting = parameters.find((setting) => setting.key === 'reasoning_effort');
     if (effortSetting?.options?.includes(String(current))) return;
     const { reasoning_effort: _discarded, ...rest } = modelParameters ?? {};
-    const replacement = effortSetting?.default != null
-      ? { ...rest, reasoning_effort: effortSetting.default }
-      : rest;
+    const replacement =
+      effortSetting?.default != null ? { ...rest, reasoning_effort: effortSetting.default } : rest;
     setValue('model_parameters', replacement as t.AgentModelParameters);
   }, [parameters, modelParameters, setValue]);
 

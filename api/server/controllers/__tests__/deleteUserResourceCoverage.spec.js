@@ -17,6 +17,7 @@ const HANDLED_RESOURCE_TYPES = {
   [ResourceType.MCPSERVER]: 'deleteUserMcpServers',
   [ResourceType.SKILL]: 'deleteUserSkills',
   [ResourceType.SHARED_LINK]: 'deleteAllSharedLinksWithCleanup',
+  [ResourceType.WORKSPACE]: 'reconcileOwnedWorkspacesForDeletedUser',
 };
 
 /**

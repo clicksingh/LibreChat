@@ -310,7 +310,11 @@ export const eReasoningEffortSchema = z.nativeEnum(ReasoningEffort);
  */
 export const managedReasoningEffortSchema = z.union([
   eReasoningEffortSchema,
-  z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/),
+  z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/),
 ]);
 export const eReasoningParameterFormatSchema = z.nativeEnum(ReasoningParameterFormat);
 export const eReasoningResponseKeySchema = z.nativeEnum(ReasoningResponseKey);

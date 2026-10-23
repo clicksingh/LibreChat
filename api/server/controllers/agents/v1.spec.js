@@ -2387,7 +2387,10 @@ describe('Agent Controllers - Mass Assignment Protection', () => {
         );
         /** The user-facing list query keeps the request filter, not the refresh scope. */
         expect(listSpy).toHaveBeenCalledWith(
-          expect.objectContaining({ includeSkillConfig: true, otherParams: {} }),
+          expect.objectContaining({
+            includeSkillConfig: true,
+            otherParams: { lifecycle_state: { $ne: 'archived' } },
+          }),
         );
 
         expect(refreshS3Url).not.toHaveBeenCalled();

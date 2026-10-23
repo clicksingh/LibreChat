@@ -23,9 +23,21 @@ describe('Agent Context Utilities', () => {
         id: 'agent',
         tools: ['configured_but_unavailable'],
         toolDefinitions: [
-          { name: 'create_document__office', description: 'Create a document', parameters: {} },
-          { name: 'skill', description: 'Load skill', parameters: {} },
-          { name: 'create_document__office', description: 'Duplicate', parameters: {} },
+          {
+            name: 'create_document__office',
+            description: 'Create a document',
+            parameters: { type: 'object', properties: {} },
+          },
+          {
+            name: 'skill',
+            description: 'Load skill',
+            parameters: { type: 'object', properties: {} },
+          },
+          {
+            name: 'create_document__office',
+            description: 'Duplicate',
+            parameters: { type: 'object', properties: {} },
+          },
         ],
       });
       expect(result).toContain('create_document__office, skill');

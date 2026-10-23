@@ -902,13 +902,11 @@ export class RedisEventTransport implements IEventTransport {
           } catch {
             continue;
           }
-          if (
-            event.seq !== missing[i] ||
-            ![EventTypes.CHUNK, EventTypes.DONE, EventTypes.ERROR].includes(
-              event.type as (typeof EventTypes)[keyof typeof EventTypes],
-            )
-          )
-            continue;
+          const replayableType =
+            event.type === EventTypes.CHUNK ||
+            event.type === EventTypes.DONE ||
+            event.type === EventTypes.ERROR;
+          if (event.seq !== missing[i] || !replayableType) continue;
           buffer.pending.set(missing[i], event);
         }
       }

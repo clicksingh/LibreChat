@@ -4,6 +4,8 @@ import {
   bindExecutionSession,
   executionSessionKey,
   resolveExecutionSession,
+  type SessionCollection,
+  type StoredSession,
 } from './sessionRegistry';
 
 const scope = {
@@ -13,12 +15,12 @@ const scope = {
   workspaceKind: 'personal' as const,
   workspaceId: 'alice',
 };
-const makeStore = () => {
-  const rows = new Map<string, object>();
+const makeStore = (): SessionCollection => {
+  const rows = new Map<string, StoredSession>();
   return {
     findOneAndUpdate: jest.fn(async ({ _id }, { $setOnInsert }) => {
       if (!rows.has(_id)) rows.set(_id, $setOnInsert);
-      return rows.get(_id);
+      return rows.get(_id) ?? null;
     }),
     findOne: jest.fn(async ({ _id }) => rows.get(_id) ?? null),
   };
@@ -61,7 +63,7 @@ describe('conversation execution session registry', () => {
   it('resolves a concurrent upsert collision from the durable row', async () => {
     const store = makeStore();
     const original = await resolveExecutionSession(store, scope);
-    store.findOneAndUpdate.mockImplementationOnce(async () => {
+    (store.findOneAndUpdate as jest.Mock).mockImplementationOnce(async () => {
       throw { code: 11000 };
     });
     expect(await resolveExecutionSession(store, scope)).toBe(original);
@@ -78,7 +80,9 @@ describe('conversation execution session registry', () => {
       ...makeStore(),
       findOneAndUpdate: jest.fn(async () => ({ sessionId: 'legacy' })),
     };
-    await expect(resolveExecutionSession(corrupt, scope)).rejects.toThrow('inconsistent');
+    await expect(
+      resolveExecutionSession(corrupt as unknown as SessionCollection, scope),
+    ).rejects.toThrow('inconsistent');
   });
 
   it('pins execution scratch while retaining approved explicit input storage refs', () => {

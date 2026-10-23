@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import BashCall from '../BashCall';
 
 jest.mock('~/hooks', () => ({
+  useAuthContext: () => ({ user: { role: 'ADMIN' } }),
   useLocalize:
     () =>
     (key: string): string => {

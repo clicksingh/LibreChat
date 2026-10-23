@@ -34,15 +34,18 @@ export function resolveModelReasoningControls(
   ) {
     return withoutEffort;
   }
-  return [...withoutEffort, {
-    key: 'reasoning_effort',
-    type: 'enum',
-    component: 'dropdown',
-    optionType: 'model',
-    label: 'com_endpoint_reasoning_effort',
-    labelCode: true,
-    columnSpan: 2,
-    options: policy.options,
-    default: policy.default,
-  } as SettingDefinition];
+  return [
+    ...withoutEffort,
+    {
+      key: 'reasoning_effort',
+      type: 'enum',
+      component: 'dropdown',
+      optionType: 'model',
+      label: 'com_endpoint_reasoning_effort',
+      labelCode: true,
+      columnSpan: 2,
+      options: policy.options,
+      default: policy.default,
+    } as SettingDefinition,
+  ];
 }

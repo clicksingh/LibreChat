@@ -40,7 +40,7 @@ jobs:
         run: |
           ../../node_modules/.bin/jest --ci --runInBand --coverage=false             src/auth/codeapi.spec.ts             src/agents/sessionRegistry.spec.ts             src/agents/staffWorkstationContract.spec.ts
       - name: Signed Files provenance negatives
-        run: node --test api/server/services/Files/Code/b1Grants.test.js
+        run: node --test api/server/services/Files/Code/b1Grants.contract.cjs
       - name: API build
         run: |
           npm run build:data-provider
