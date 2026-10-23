@@ -34,5 +34,4 @@ export interface IModelPolicyRevision extends IModelPolicyCandidate {
 }
 
 export interface IModelPolicyHeadDocument extends Omit<IModelPolicyHead, '_id'>, Document {}
-export interface IModelPolicyRevisionDocument
-  extends Omit<IModelPolicyRevision, '_id'>, Document {}
+export interface IModelPolicyRevisionDocument extends Omit<IModelPolicyRevision, '_id'>, Document {}

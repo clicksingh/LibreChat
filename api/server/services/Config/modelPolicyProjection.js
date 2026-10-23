@@ -100,10 +100,7 @@ function buildModelPolicyCommitPlan(input) {
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
     throw invalid('policy is required');
   }
-  if (
-    policy.audiences?.USER !== AUDIENCES.USER ||
-    policy.audiences?.ADMIN !== AUDIENCES.ADMIN
-  ) {
+  if (policy.audiences?.USER !== AUDIENCES.USER || policy.audiences?.ADMIN !== AUDIENCES.ADMIN) {
     throw invalid('Unsupported managed-model audience contract');
   }
   if (
@@ -118,8 +115,7 @@ function buildModelPolicyCommitPlan(input) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) {
       throw invalid('Each deployment must be an object');
     }
-    const deploymentId =
-      typeof row.deploymentId === 'string' ? row.deploymentId.trim() : '';
+    const deploymentId = typeof row.deploymentId === 'string' ? row.deploymentId.trim() : '';
     if (!SAFE_DEPLOYMENT_ID.test(deploymentId)) {
       throw invalid('Invalid managed deployment id');
     }

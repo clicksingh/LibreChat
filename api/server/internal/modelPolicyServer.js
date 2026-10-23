@@ -7,7 +7,7 @@ const {
   createModelPolicyServiceAuth,
   fileTokenLoader,
 } = require('../middleware/modelPolicyServiceAuth');
-const { publishModelPolicyProjection } = require('../services/Config/modelPolicyPublisher');
+const { commitManagedModelPolicy } = require('../services/Config/modelPolicyPublisher');
 
 function defaultPublisher(input) {
   return runAsSystem(() =>

@@ -7,7 +7,11 @@ export function createModelPolicyHeadModel(
 ): Model<IModelPolicyHeadDocument> {
   return (
     mongoose.models.ModelPolicyHead ||
-    mongoose.model<IModelPolicyHeadDocument>('ModelPolicyHead', modelPolicyHeadSchema, 'modelpolicyheads')
+    mongoose.model<IModelPolicyHeadDocument>(
+      'ModelPolicyHead',
+      modelPolicyHeadSchema,
+      'modelpolicyheads',
+    )
   );
 }
 

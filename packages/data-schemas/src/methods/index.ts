@@ -117,14 +117,6 @@ import {
   type ModelPolicyMethods,
 } from './modelPolicy';
 import {
-  createModelPolicyPublicationMethods,
-  ModelPolicyPublicationConflictError,
-  ModelPolicyPublicationInvalidError,
-  decideModelPolicyPublicationTransition,
-  type ModelPolicyPublicationMethods,
-  type PublicationTransition,
-} from './modelPolicyPublication';
-import {
   createMCPAuthorityMethods,
   MCPAuthorityProofError,
   MAX_MCP_AUTHORITY_TARGETS,
@@ -142,8 +134,6 @@ import {
 export {
   RoleConflictError,
   MCPAuthorityProofError,
-  ModelPolicyPublicationConflictError,
-  ModelPolicyPublicationInvalidError,
   ModelPolicyRevisionConflictError,
   ModelPolicyInvalidError,
   MODEL_POLICY_KEY,
@@ -159,7 +149,6 @@ export {
   createMCPAuthorityCredentialRevision,
   createMCPAuthorityDatabaseSourceRevision,
   digestMCPAuthorityValue,
-  decideModelPolicyPublicationTransition,
 };
 export { tokenValues, cacheTokenValues, premiumTokenValues, defaultRate, createTxMethods };
 export { permissionBitSupersets };
@@ -217,7 +206,6 @@ export type AllMethods = UserMethods &
   AgentMethods &
   ConfigMethods &
   ModelPolicyMethods &
-  ModelPolicyPublicationMethods &
   MCPAuthorityMethods;
 
 /** Dependencies injected from the api layer into createMethods */
@@ -359,7 +347,6 @@ export function createMethods(
     /* Config */
     ...createConfigMethods(mongoose),
     ...createModelPolicyMethods(mongoose),
-    ...createModelPolicyPublicationMethods(mongoose),
     /* MCP authority proofs */
     ...createMCPAuthorityMethods(mongoose),
   };
@@ -418,8 +405,6 @@ export type {
   AgentMethods,
   ConfigMethods,
   ModelPolicyMethods,
-  ModelPolicyPublicationMethods,
-  PublicationTransition,
   MCPAuthorityMethods,
   MCPAuthorityMethodHooks,
   MCPAuthorityConfigSourceDocument,

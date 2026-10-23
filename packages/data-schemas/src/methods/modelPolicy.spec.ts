@@ -57,7 +57,7 @@ describe('canonical managed-model policy validation', () => {
     expect(() =>
       normalizeModelPolicyCandidate({
         ...candidate,
-        audiences: { USER: 'free-choice', ADMIN: 'managed-catalog' },
+        audiences: { USER: 'free-choice' as never, ADMIN: 'managed-catalog' },
       }),
     ).toThrow(ModelPolicyInvalidError);
   });

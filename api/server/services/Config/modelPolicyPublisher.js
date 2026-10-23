@@ -111,11 +111,12 @@ async function commitManagedModelPolicy(input, deps) {
       );
 
       const writes = await applyProjectionInSession(plan.projection, deps, session);
-      const transition = canonical.noop
-        ? 'noop'
-        : plan.expectedVersion === 0
-          ? 'create'
-          : 'advance';
+      let transition = 'advance';
+      if (canonical.noop) {
+        transition = 'noop';
+      } else if (plan.expectedVersion === 0) {
+        transition = 'create';
+      }
 
       result = {
         policyVersion: canonical.version,

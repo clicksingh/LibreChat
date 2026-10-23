@@ -36,21 +36,21 @@ import {
   requestChatFocus,
   logger,
 } from '~/utils';
-import { useDeleteFilesMutation, useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
-import useGetConversation from './Conversations/useGetConversation';
-import useAssistantListMap from './Assistants/useAssistantListMap';
-import { useResetChatBadges } from './useChatBadges';
-import { useApplyModelSpecEffects } from './Agents';
-import { useAgentsMapContext } from '~/Providers';
-import { usePauseGlobalAudio } from './Audio';
-import { useAuthContext, useHasAccess } from '~/hooks';
-import store from '~/store';
 import {
   getManagedNewChatPreset,
   applyManagedNewChatPreset,
   reconcileManagedDraftModel,
   MANAGED_ENDPOINT,
 } from '~/utils/managedDefault';
+import { useDeleteFilesMutation, useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
+import useGetConversation from './Conversations/useGetConversation';
+import useAssistantListMap from './Assistants/useAssistantListMap';
+import { useAuthContext, useHasAccess } from '~/hooks';
+import { useResetChatBadges } from './useChatBadges';
+import { useApplyModelSpecEffects } from './Agents';
+import { useAgentsMapContext } from '~/Providers';
+import { usePauseGlobalAudio } from './Audio';
+import store from '~/store';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();

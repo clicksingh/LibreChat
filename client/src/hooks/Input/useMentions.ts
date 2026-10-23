@@ -18,10 +18,10 @@ import {
   useListAgentsQuery,
   useGetStartupConfig,
 } from '~/data-provider';
+import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 import useAssistantListMap from '~/hooks/Assistants/useAssistantListMap';
 import { useAgentsMapContext } from '~/Providers/AgentsMapContext';
 import { mapEndpoints, getPresetTitle } from '~/utils';
-import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 import { EndpointIcon } from '~/components/Endpoints';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
 import { filterMentionEndpoints } from './mentions';

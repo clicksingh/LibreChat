@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
 import { useMediaQuery } from '@librechat/client';
 import { getConfigDefaults, PermissionTypes, Permissions } from 'librechat-data-provider';
+import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 import ModelSelector from './Menus/Endpoints/ModelSelector';
 import { useGetStartupConfig } from '~/data-provider';
 import ExportAndShareMenu from './ExportAndShareMenu';
@@ -12,7 +13,6 @@ import AddMultiConvo from './AddMultiConvo';
 import { useHasAccess } from '~/hooks';
 import { cn } from '~/utils';
 import store from '~/store';
-import { isModelSelectionEnabled } from '~/utils/modelSelectionAvailability';
 
 const defaultInterface = getConfigDefaults().interface;
 

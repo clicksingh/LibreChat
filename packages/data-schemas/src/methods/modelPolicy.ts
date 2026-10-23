@@ -1,19 +1,17 @@
 import type { ClientSession, Model } from 'mongoose';
-import {
-  createModelPolicyHeadModel,
-  createModelPolicyRevisionModel,
-} from '~/models/modelPolicy';
 import type {
+  IModelPolicyAudiences,
   IModelPolicyCandidate,
   IModelPolicyHead,
   IModelPolicyHeadDocument,
   IModelPolicyRevision,
   IModelPolicyRevisionDocument,
 } from '~/types';
+import { createModelPolicyHeadModel, createModelPolicyRevisionModel } from '~/models/modelPolicy';
 
 export const MODEL_POLICY_KEY = 'managed-models';
 export const MODEL_POLICY_SCHEMA_VERSION = 1;
-export const MODEL_POLICY_AUDIENCES = Object.freeze({
+export const MODEL_POLICY_AUDIENCES: Readonly<IModelPolicyAudiences> = Object.freeze({
   USER: 'locked-current-default' as const,
   ADMIN: 'managed-catalog' as const,
 });
@@ -43,7 +41,9 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-export function normalizeModelPolicyCandidate(candidate: IModelPolicyCandidate): IModelPolicyCandidate {
+export function normalizeModelPolicyCandidate(
+  candidate: IModelPolicyCandidate,
+): IModelPolicyCandidate {
   if (!candidate || typeof candidate !== 'object') invalid('Policy candidate is required');
   if (candidate.schemaVersion !== MODEL_POLICY_SCHEMA_VERSION) {
     invalid('Unsupported model-policy schema version');
@@ -100,17 +100,15 @@ export function sameModelPolicyCandidate(
   return (
     revision.schemaVersion === normalized.schemaVersion &&
     String(revision.companyDefaultDeploymentId) === normalized.companyDefaultDeploymentId &&
-    JSON.stringify(revision.activeDeploymentIds) === JSON.stringify(normalized.activeDeploymentIds) &&
+    JSON.stringify(revision.activeDeploymentIds) ===
+      JSON.stringify(normalized.activeDeploymentIds) &&
     revision.audiences?.USER === normalized.audiences.USER &&
     revision.audiences?.ADMIN === normalized.audiences.ADMIN
   );
 }
 
 export interface ModelPolicyMethods {
-  getModelPolicyHead(
-    key?: string,
-    session?: ClientSession,
-  ): Promise<IModelPolicyHead | null>;
+  getModelPolicyHead(key?: string, session?: ClientSession): Promise<IModelPolicyHead | null>;
   getModelPolicyRevision(
     version: number,
     session?: ClientSession,
@@ -127,9 +125,7 @@ export interface ModelPolicyMethods {
   ): Promise<{ version: number; revision: IModelPolicyRevision; noop: boolean }>;
 }
 
-export function createModelPolicyMethods(
-  mongoose: typeof import('mongoose'),
-): ModelPolicyMethods {
+export function createModelPolicyMethods(mongoose: typeof import('mongoose')): ModelPolicyMethods {
   const Head: Model<IModelPolicyHeadDocument> = createModelPolicyHeadModel(mongoose);
   const Revision: Model<IModelPolicyRevisionDocument> = createModelPolicyRevisionModel(mongoose);
 
@@ -137,14 +133,18 @@ export function createModelPolicyMethods(
     key = MODEL_POLICY_KEY,
     session?: ClientSession,
   ): Promise<IModelPolicyHead | null> {
-    return Head.findOne({ key }).session(session ?? null).lean<IModelPolicyHead>();
+    return Head.findOne({ key })
+      .session(session ?? null)
+      .lean<IModelPolicyHead>();
   }
 
   async function getModelPolicyRevision(
     version: number,
     session?: ClientSession,
   ): Promise<IModelPolicyRevision | null> {
-    return Revision.findOne({ version }).session(session ?? null).lean<IModelPolicyRevision>();
+    return Revision.findOne({ version })
+      .session(session ?? null)
+      .lean<IModelPolicyRevision>();
   }
 
   async function commitModelPolicyRevision(
