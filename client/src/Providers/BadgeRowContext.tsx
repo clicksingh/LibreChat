@@ -16,6 +16,7 @@ import {
   useAuthContext,
 } from '~/hooks';
 import { getTimestampedValue } from '~/utils/timestamps';
+import { hasManagedUltraSearch } from './managedUltraSearch';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 
@@ -85,6 +86,8 @@ export default function BadgeRowProvider({
   const storageSuffix = isNewConvo && storageContextKey ? storageContextKey : key;
 
   const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(key));
+  const mcpServerManager = useMCPServerManager({ conversationId, storageContextKey });
+  const hasAvailableUltraSearch = hasManagedUltraSearch(mcpServerManager.availableMCPServers);
 
   /**
    * CBHR managed-user baseline.
@@ -106,7 +109,10 @@ export default function BadgeRowProvider({
     setEphemeralAgent((prev) => {
       const current = prev ?? {};
       const mcpIsManaged =
-        Array.isArray(current.mcp) && current.mcp.length === 1 && current.mcp[0] === 'ultrasearch';
+        Array.isArray(current.mcp) &&
+        (hasAvailableUltraSearch
+          ? current.mcp.length === 1 && current.mcp[0] === 'ultrasearch'
+          : current.mcp.length === 0);
 
       if (
         current[Tools.execute_code] === true &&
@@ -126,10 +132,10 @@ export default function BadgeRowProvider({
         [Tools.web_search]: false,
         [AgentCapabilities.skills]: true,
         [AgentCapabilities.artifacts]: 'default',
-        mcp: ['ultrasearch'],
+        mcp: hasAvailableUltraSearch ? ['ultrasearch'] : [],
       };
     });
-  }, [isManagedUser, isSubmitting, key, setEphemeralAgent]);
+  }, [hasAvailableUltraSearch, isManagedUser, isSubmitting, key, setEphemeralAgent]);
 
   /** Initialize ephemeralAgent from localStorage on mount and when conversation/spec changes.
    *  Skipped when a spec is active — applyModelSpecEphemeralAgent handles both new conversations
@@ -323,8 +329,6 @@ export default function BadgeRowProvider({
     localStorageKey: LocalStorageKeys.LAST_MEMORY_TOGGLE_,
     isAuthenticated: true,
   });
-
-  const mcpServerManager = useMCPServerManager({ conversationId, storageContextKey });
 
   const value: BadgeRowContextType = {
     skills,
