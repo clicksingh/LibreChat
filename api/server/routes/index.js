@@ -9,6 +9,7 @@ const adminRoles = require('./admin/roles');
 const adminSkills = require('./admin/skills');
 const adminUsers = require('./admin/users');
 const adminQuotaPolicy = require('./admin/quotaPolicy');
+const adminDevicePolicy = require('./admin/devicePolicy');
 const workspaces = require('./workspaces');
 const endpoints = require('./endpoints');
 const staticRoute = require('./static');
@@ -51,6 +52,7 @@ module.exports = {
   adminSkills,
   adminUsers,
   adminQuotaPolicy,
+  adminDevicePolicy,
   workspaces,
   keys,
   apiKeys,

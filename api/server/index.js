@@ -244,6 +244,7 @@ const startServer = async () => {
   app.use('/api/admin/skills', routes.adminSkills);
   app.use('/api/admin/users', routes.adminUsers);
   app.use('/api/admin/quota-policy', routes.adminQuotaPolicy);
+  app.use('/api/admin/device-policy', routes.adminDevicePolicy);
   app.use('/api/workspaces', routes.workspaces);
   app.use('/api/actions', routes.actions);
   app.use('/api/keys', routes.keys);
