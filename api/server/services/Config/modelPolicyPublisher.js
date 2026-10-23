@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { buildModelPolicyProjection } = require('./modelPolicyProjection');
 
 const ROLE = 'role';
@@ -27,20 +28,25 @@ function mergeEndpointList(current, endpointPatch) {
   return list;
 }
 
-async function applyModelPolicyProjection(input, deps) {
-  const { findConfigByPrincipal, patchConfigFields, invalidateConfigCaches } = deps || {};
-  if (
-    typeof findConfigByPrincipal !== 'function' ||
-    typeof patchConfigFields !== 'function' ||
-    typeof invalidateConfigCaches !== 'function'
-  ) {
-    throw new TypeError('model-policy publisher dependencies are required');
-  }
-  const projection = buildModelPolicyProjection(input);
+function digestProjection(projection) {
+  const canonical = {
+    endpointName: projection.endpointName,
+    companyDefault: projection.companyDefault,
+    adminModels: projection.adminModels,
+    roles: projection.roles,
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+async function applyProjectionInSession(projection, deps, session) {
+  const { findConfigByPrincipal, patchConfigFields } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
   const existing = Object.fromEntries(
     await Promise.all(
-      ids.map(async (id) => [id, await findConfigByPrincipal(ROLE, id, { includeInactive: true })]),
+      ids.map(async (id) => [
+        id,
+        await findConfigByPrincipal(ROLE, id, { includeInactive: true }, session),
+      ]),
     ),
   );
   const writes = [];
@@ -58,8 +64,9 @@ async function applyModelPolicyProjection(input, deps) {
     const endpointPatch = rolePatch.endpoints?.custom?.[0];
     if (endpointPatch) {
       const next = mergeEndpointList(current?.overrides?.endpoints?.custom, endpointPatch);
-      if (!same(current?.overrides?.endpoints?.custom || [], next))
+      if (!same(current?.overrides?.endpoints?.custom || [], next)) {
         fields['endpoints.custom'] = next;
+      }
     }
     if (Object.keys(fields).length === 0) continue;
     await patchConfigFields(
@@ -68,12 +75,73 @@ async function applyModelPolicyProjection(input, deps) {
       ROLE_MODEL,
       fields,
       current?.priority ?? DEFAULT_PRIORITY[id],
+      session,
     );
     writes.push({ principalId: id, fields: Object.keys(fields) });
   }
-
-  if (writes.length > 0) await invalidateConfigCaches();
-  return { policyVersion: projection.policyVersion, writes, noop: writes.length === 0 };
+  return writes;
 }
 
-module.exports = { applyModelPolicyProjection, mergeEndpointList };
+async function publishModelPolicyProjection(input, deps) {
+  const {
+    findConfigByPrincipal,
+    patchConfigFields,
+    claimModelPolicyPublication,
+    invalidateConfigCaches,
+    startSession,
+  } = deps || {};
+  if (
+    typeof findConfigByPrincipal !== 'function' ||
+    typeof patchConfigFields !== 'function' ||
+    typeof claimModelPolicyPublication !== 'function' ||
+    typeof invalidateConfigCaches !== 'function' ||
+    typeof startSession !== 'function'
+  ) {
+    throw new TypeError('model-policy publisher dependencies are required');
+  }
+
+  const projection = buildModelPolicyProjection(input);
+  const digest = digestProjection(projection);
+  const session = await startSession();
+  let result;
+
+  try {
+    await session.withTransaction(async () => {
+      const claimed = await claimModelPolicyPublication(
+        { policyVersion: projection.policyVersion, digest },
+        session,
+      );
+      if (claimed.transition === 'noop') {
+        result = {
+          policyVersion: projection.policyVersion,
+          digest,
+          transition: 'noop',
+          writes: [],
+          noop: true,
+        };
+        return;
+      }
+      const writes = await applyProjectionInSession(projection, deps, session);
+      result = {
+        policyVersion: projection.policyVersion,
+        digest,
+        transition: claimed.transition,
+        writes,
+        noop: false,
+      };
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!result) throw new Error('Model policy transaction completed without a result');
+  if (result.writes.length > 0) await invalidateConfigCaches();
+  return result;
+}
+
+module.exports = {
+  digestProjection,
+  mergeEndpointList,
+  applyProjectionInSession,
+  publishModelPolicyProjection,
+};
