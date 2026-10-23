@@ -3,24 +3,62 @@
 
 const mongoose = require('mongoose');
 const { createModels, createMethods, runAsSystem } = require('@librechat/data-schemas');
-const {
-  publishModelPolicyProjection,
-} = require('../api/server/services/Config/modelPolicyPublisher');
+const { commitManagedModelPolicy } = require('../api/server/services/Config/modelPolicyPublisher');
 
-const FIRST = {
-  policyVersion: 1,
-  endpointName: 'CBHR AI',
-  companyDefault: 'stage-alpha',
-  adminModels: ['stage-alpha', 'stage-beta'],
+const ACCEPTANCE_DB_PATTERN = /^cbhr_model_policy_acceptance_[A-Za-z0-9_-]{1,80}$/;
+const AUDIENCES = {
+  USER: 'locked-current-default',
+  ADMIN: 'managed-catalog',
 };
+const DEPLOYMENTS = {
+  alpha: { deploymentId: 'deployment-alpha', model: 'stage-alpha' },
+  beta: { deploymentId: 'deployment-beta', model: 'stage-beta' },
+};
+
+function acceptanceUri(baseUri, dbName) {
+  const uri = new URL(baseUri);
+  uri.pathname = `/${dbName}`;
+  return uri.toString();
+}
+
+function payload({ expectedVersion, defaultKey, order }) {
+  return {
+    expectedVersion,
+    endpointName: 'CBHR AI',
+    actor: 'stage-acceptance',
+    source: 'transaction-acceptance',
+    policy: {
+      companyDefaultDeploymentId: DEPLOYMENTS[defaultKey].deploymentId,
+      deployments: order.map((key) => DEPLOYMENTS[key]),
+      audiences: AUDIENCES,
+    },
+  };
+}
 
 function managedEndpoint(doc) {
   return doc?.overrides?.endpoints?.custom?.find((item) => item?.name === 'CBHR AI');
 }
 
+async function readPolicy(db) {
+  const head = await db.getModelPolicyHead();
+  const revision = head ? await db.getModelPolicyRevision(head.version) : null;
+  return { head, revision };
+}
+
 async function main() {
   if (!process.env.MONGO_URI) throw new Error('MONGO_URI is required');
-  await mongoose.connect(process.env.MONGO_URI);
+  const dbName = process.env.MODEL_POLICY_ACCEPTANCE_DB;
+  if (!ACCEPTANCE_DB_PATTERN.test(dbName || '')) {
+    throw new Error(
+      'MODEL_POLICY_ACCEPTANCE_DB must match cbhr_model_policy_acceptance_<suffix>; refusing unsafe database',
+    );
+  }
+
+  await mongoose.connect(acceptanceUri(process.env.MONGO_URI, dbName));
+  if (mongoose.connection.name !== dbName) {
+    throw new Error('Connected database does not match the explicitly authorized acceptance database');
+  }
+
   createModels(mongoose);
   await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
   const db = createMethods(mongoose);
@@ -28,7 +66,7 @@ async function main() {
   const deps = {
     findConfigByPrincipal: db.findConfigByPrincipal,
     patchConfigFields: db.patchConfigFields,
-    claimModelPolicyPublication: db.claimModelPolicyPublication,
+    commitModelPolicyRevision: db.commitModelPolicyRevision,
     invalidateConfigCaches: async () => {
       invalidations += 1;
     },
@@ -80,12 +118,27 @@ async function main() {
       20,
     );
 
-    const first = await publishModelPolicyProjection(FIRST, deps);
+    const first = await commitManagedModelPolicy(
+      payload({ expectedVersion: 0, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
+      deps,
+    );
+    const policy1 = await readPolicy(db);
     const base1 = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
     const user1 = await db.findConfigByPrincipal('role', 'USER', { includeInactive: true });
     const admin1 = await db.findConfigByPrincipal('role', 'ADMIN', { includeInactive: true });
-    if (first.transition !== 'create' || invalidations !== 1) throw new Error('initial publication failed');
-    if (managedEndpoint(base1).models.default[0] !== 'stage-alpha') throw new Error('base default mismatch');
+
+    if (
+      first.transition !== 'create' ||
+      first.policyVersion !== 1 ||
+      policy1.head?.version !== 1 ||
+      policy1.revision?.companyDefaultDeploymentId !== DEPLOYMENTS.alpha.deploymentId ||
+      invalidations !== 1
+    ) {
+      throw new Error('initial canonical policy commit failed');
+    }
+    if (managedEndpoint(base1).models.default[0] !== 'stage-alpha') {
+      throw new Error('base default mismatch');
+    }
     if (user1.overrides.interface.modelSelect !== false || user1.overrides.interface.fileSearch !== true) {
       throw new Error('USER projection/preservation mismatch');
     }
@@ -104,38 +157,44 @@ async function main() {
       user: user1.configVersion,
       admin: admin1.configVersion,
     };
-    const retry = await publishModelPolicyProjection(FIRST, deps);
+    const retry = await commitManagedModelPolicy(
+      payload({ expectedVersion: 1, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
+      deps,
+    );
     const baseRetry = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
+    const policyRetry = await readPolicy(db);
     if (
       retry.transition !== 'noop' ||
+      retry.policyNoop !== true ||
+      policyRetry.head?.version !== 1 ||
       invalidations !== 1 ||
       baseRetry.configVersion !== firstVersions.base
     ) {
       throw new Error('idempotent retry failed');
     }
 
-    const secondPolicy = {
-      ...FIRST,
-      policyVersion: 2,
-      companyDefault: 'stage-beta',
-      adminModels: ['stage-beta', 'stage-alpha'],
-    };
-    const second = await publishModelPolicyProjection(secondPolicy, deps);
-    const publication2 = await db.getModelPolicyPublication();
+    const second = await commitManagedModelPolicy(
+      payload({ expectedVersion: 1, defaultKey: 'beta', order: ['beta', 'alpha'] }),
+      deps,
+    );
+    const policy2 = await readPolicy(db);
     const base2 = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
     const user2 = await db.findConfigByPrincipal('role', 'USER', { includeInactive: true });
     const admin2 = await db.findConfigByPrincipal('role', 'ADMIN', { includeInactive: true });
+
     if (
       second.transition !== 'advance' ||
-      publication2.policyVersion !== 2 ||
+      second.policyVersion !== 2 ||
+      policy2.head?.version !== 2 ||
+      policy2.revision?.companyDefaultDeploymentId !== DEPLOYMENTS.beta.deploymentId ||
       managedEndpoint(base2).models.default[0] !== 'stage-beta'
     ) {
       throw new Error('revision 2 advance failed');
     }
 
     const beforeFailure = {
-      publicationVersion: publication2.policyVersion,
-      publicationDigest: publication2.digest,
+      headVersion: policy2.head.version,
+      revisionDefault: policy2.revision.companyDefaultDeploymentId,
       baseVersion: base2.configVersion,
       userVersion: user2.configVersion,
       adminVersion: admin2.configVersion,
@@ -151,23 +210,30 @@ async function main() {
         return db.patchConfigFields(type, id, model, fields, priority, session);
       },
     };
+
     let rolledBack = false;
     try {
-      await publishModelPolicyProjection({ ...FIRST, policyVersion: 3 }, failingDeps);
+      await commitManagedModelPolicy(
+        payload({ expectedVersion: 2, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
+        failingDeps,
+      );
     } catch (error) {
       rolledBack = error.message.includes('synthetic mid-transaction');
     }
     if (!rolledBack) throw new Error('failure injection did not trigger');
 
-    const publicationAfter = await db.getModelPolicyPublication();
+    const policyAfter = await readPolicy(db);
+    const revision3 = await db.getModelPolicyRevision(3);
     const baseAfter = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
     const userAfter = await db.findConfigByPrincipal('role', 'USER', { includeInactive: true });
     const adminAfter = await db.findConfigByPrincipal('role', 'ADMIN', { includeInactive: true });
+
     if (
-      publicationAfter.policyVersion !== beforeFailure.publicationVersion ||
-      publicationAfter.digest !== beforeFailure.publicationDigest
+      policyAfter.head?.version !== beforeFailure.headVersion ||
+      policyAfter.revision?.companyDefaultDeploymentId !== beforeFailure.revisionDefault ||
+      revision3 != null
     ) {
-      throw new Error('publication state did not roll back');
+      throw new Error('canonical policy revision did not roll back');
     }
     if (
       baseAfter.configVersion !== beforeFailure.baseVersion ||
@@ -189,23 +255,45 @@ async function main() {
       throw new Error('cache invalidated after failed transaction');
     }
 
+    let staleRejected = false;
+    try {
+      await commitManagedModelPolicy(
+        payload({ expectedVersion: 1, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
+        deps,
+      );
+    } catch (error) {
+      staleRejected = error.code === 'MODEL_POLICY_REVISION_CONFLICT';
+    }
+    if (!staleRejected) throw new Error('stale expected version was not rejected');
+
     console.log(
       'MODEL_POLICY_V2_TRANSACTION_ACCEPTANCE_PASS',
       JSON.stringify({
         initial: first.transition,
         retry: retry.transition,
         advance: second.transition,
-        activeVersion: publicationAfter.policyVersion,
+        activeVersion: policyAfter.head.version,
         rollback: true,
+        staleRejected,
         invalidations,
+        database: dbName,
       }),
     );
   });
+
+  return dbName;
+}
+
+async function cleanup(dbName) {
+  if (!ACCEPTANCE_DB_PATTERN.test(dbName || '') || mongoose.connection.name !== dbName) {
+    throw new Error('Refusing cleanup outside the explicit model-policy acceptance database');
+  }
+  await mongoose.connection.dropDatabase();
 }
 
 main()
-  .then(async () => {
-    await mongoose.connection.dropDatabase();
+  .then(async (dbName) => {
+    await cleanup(dbName);
     await mongoose.disconnect();
   })
   .catch(async (error) => {
@@ -215,7 +303,10 @@ main()
       error.message,
     );
     try {
-      await mongoose.connection.dropDatabase();
+      const dbName = process.env.MODEL_POLICY_ACCEPTANCE_DB;
+      if (ACCEPTANCE_DB_PATTERN.test(dbName || '') && mongoose.connection.name === dbName) {
+        await mongoose.connection.dropDatabase();
+      }
     } catch {}
     try {
       await mongoose.disconnect();
