@@ -1,3 +1,18 @@
+jest.mock(
+  '@librechat/data-schemas',
+  () => ({
+    logger: { error: jest.fn(), info: jest.fn() },
+    runAsSystem: async (fn) => fn(),
+  }),
+  { virtual: true },
+);
+jest.mock('~/models', () => ({}), { virtual: true });
+jest.mock(
+  '~/server/services/Config',
+  () => ({ invalidateConfigCaches: jest.fn() }),
+  { virtual: true },
+);
+
 const request = require('supertest');
 const { createModelPolicyInternalApp } = require('./modelPolicyServer');
 
