@@ -13,3 +13,7 @@ The canonical architecture and migration plan lives in the companion `clicksingh
 ## Phase 2 implementation status
 
 The branch contains an **unmounted** service-auth primitive (`modelPolicyServiceAuth`) and typed projection builder (`modelPolicyProjection`). They establish the service identity and USER/ADMIN projection contract only; they do not expose an endpoint or mutate config yet. Targeted Jest: 7/7 PASS; local Prettier/ESLint PASS. The publisher must next reuse LibreChat's existing Admin config validation/persistence/cache invalidation path and add revision/idempotence semantics before it can be mounted in staging.
+
+## Transactional publication boundary
+
+The internal publisher must persist its last applied external policy revision in the same Mongo transaction as the base, USER, and ADMIN Config updates. Cache invalidation happens only after transaction commit. Same version plus same digest is idempotent; same version plus different digest is a conflict; lower version is stale; a newer revision advances only through the configured monotonic rule. This avoids creating a second partial-publication problem inside LibreChat.
