@@ -16,9 +16,16 @@ The branch contains an **unmounted** service-auth primitive (`modelPolicyService
 
 ## Transactional publication boundary
 
+The internal publisher is the only runtime writer for the canonical `modelpolicyheads` / immutable `modelpolicyrevisions` stream. It commits the canonical revision and the owned `__base__`, `USER`, and `ADMIN` Config projections in the **same Mongo transaction**. Cache invalidation happens only after commit.
+
+The CBHR Admin service is the control-plane client and supplies `expectedVersion`, actor/source metadata, deployment IDs and the role contract. It must not pre-commit the canonical policy itself before calling LibreChat. Same policy at the current expected version is a no-op; stale/concurrent expected versions fail closed with 409; a projection failure rolls back both the canonical revision and any earlier role writes.
+
+There is intentionally **no separate publication-marker/replay collection**. One canonical revision stream is sufficient and avoids dual authority.
+
+
 The internal publisher must persist its last applied external policy revision in the same Mongo transaction as the base, USER, and ADMIN Config updates. Cache invalidation happens only after transaction commit. Same version plus same digest is idempotent; same version plus different digest is a conflict; lower version is stale; a newer revision advances only through the configured monotonic rule. This avoids creating a second partial-publication problem inside LibreChat.
 
-## Publication-state implementation
+
 
 The branch now includes a dedicated LibreChat-owned model-policy publication state contract: `modelpolicypublications` stores the last applied external policy revision and SHA-256 content digest. The method layer defines monotonic transitions: first publication must be revision 1; same revision plus same digest is an idempotent no-op; same revision with different content, stale revisions, revision gaps, and concurrent CAS changes fail closed. The state is derived integration metadata only. It is not the canonical model policy, and it is not yet wired into the runtime publisher route.
 
