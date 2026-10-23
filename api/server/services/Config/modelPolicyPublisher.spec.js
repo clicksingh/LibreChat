@@ -5,7 +5,8 @@ function fakeDeps(seed) {
   const writes = [];
   let invalidations = 0;
   return {
-    docs, writes,
+    docs,
+    writes,
     invalidations: () => invalidations,
     findConfigByPrincipal: async (_type, id) => docs[id] || null,
     patchConfigFields: async (_type, id, _model, fields, priority) => {
@@ -24,26 +25,53 @@ function fakeDeps(seed) {
       writes.push({ id, fields, priority });
       return doc;
     },
-    invalidateConfigCaches: async () => { invalidations += 1; },
+    invalidateConfigCaches: async () => {
+      invalidations += 1;
+    },
   };
 }
 
 const input = {
-  policyVersion: 7, endpointName: 'CBHR AI', companyDefault: 'model-b',
+  policyVersion: 7,
+  endpointName: 'CBHR AI',
+  companyDefault: 'model-b',
   adminModels: ['model-b', 'model-a'],
 };
 
 describe('model policy publisher', () => {
   test('preserves unrelated config while updating only managed role projection', async () => {
     const deps = fakeDeps({
-      __base__: { priority: 10, overrides: { endpoints: { custom: [
-        { name: 'Other API', baseURL: 'internal-other' },
-        { name: 'CBHR AI', baseURL: 'internal-bridge', tokenConfig: { old: true }, models: { default: ['old'] } },
-      ] } } },
+      __base__: {
+        priority: 10,
+        overrides: {
+          endpoints: {
+            custom: [
+              { name: 'Other API', baseURL: 'internal-other' },
+              {
+                name: 'CBHR AI',
+                baseURL: 'internal-bridge',
+                tokenConfig: { old: true },
+                models: { default: ['old'] },
+              },
+            ],
+          },
+        },
+      },
       USER: { priority: 20, overrides: { interface: { modelSelect: true, fileSearch: true } } },
-      ADMIN: { priority: 20, overrides: { endpoints: { custom: [
-        { name: 'CBHR AI', customParams: { reasoningProfiles: { legacy: {} } }, models: { default: ['old'] } },
-      ] } } },
+      ADMIN: {
+        priority: 20,
+        overrides: {
+          endpoints: {
+            custom: [
+              {
+                name: 'CBHR AI',
+                customParams: { reasoningProfiles: { legacy: {} } },
+                models: { default: ['old'] },
+              },
+            ],
+          },
+        },
+      },
     });
     const result = await applyModelPolicyProjection(input, deps);
     expect(result.noop).toBe(false);
@@ -75,7 +103,9 @@ describe('model policy publisher', () => {
 
   test('invalid projection fails before any persistence or cache invalidation', async () => {
     const deps = fakeDeps({});
-    await expect(applyModelPolicyProjection({ ...input, companyDefault: 'not-in-catalogue' }, deps)).rejects.toMatchObject({ code: 'MODEL_POLICY_PROJECTION_INVALID' });
+    await expect(
+      applyModelPolicyProjection({ ...input, companyDefault: 'not-in-catalogue' }, deps),
+    ).rejects.toMatchObject({ code: 'MODEL_POLICY_PROJECTION_INVALID' });
     expect(deps.writes).toHaveLength(0);
     expect(deps.invalidations()).toBe(0);
   });
