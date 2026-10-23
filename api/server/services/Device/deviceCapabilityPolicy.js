@@ -57,6 +57,14 @@
  * when `clientInfo.name === 'desktop-commander-app'`, which makes the engine advertise 24 tools
  * instead of 26 while the "all tools" promise reads as true. `assertRelayClientInfo` /
  * `assertRelayToolAdvertisement` turn that into a CI failure instead of a silent downgrade.
+ *
+ * TIER 1 — THE SERVER CEILING (GM-72, W8; `api/server/services/Device/deviceToolRegistry.js` owns
+ * tiers 2 and 3). The ceiling is the governor-set server decision: the stage ladder above plus the
+ * always/pilot hard denies, as data (`ceilingForStage`). It is NOT device-settable — the device
+ * reports its own floor and the server intersects (ceiling ∩ floor) at dispatch time, so a device
+ * that hand-edits its config to claim everything reaches only its ceiling. A dispatch for a tool
+ * outside the ceiling is refused with `CEILING_REFUSAL_CODE`, even when the device claims the tool
+ * is enabled. The per-call approval tools stay approval-gated at every stage.
  */
 
 /** The policy document schema id. */
@@ -199,6 +207,9 @@ const ALWAYS_DENIED = Object.freeze({
 /**
  * Denied for the pilot only. `give_feedback_to_desktop_commander` opens an external browser form
  * and pre-sends `client_id` and usage counters to a third party (C05-1, restrictive side).
+ *
+ * GM-72: this is a TIER-1 (server ceiling) deny. It is not in the ceiling of any pilot stage and no
+ * device config can restore it; it is not a device-settable preference.
  */
 const PILOT_DENIED = Object.freeze({
   give_feedback_to_desktop_commander: Object.freeze({
@@ -208,6 +219,35 @@ const PILOT_DENIED = Object.freeze({
       'Denied for the pilot: opens an external browser form and pre-sends client_id and usage counters (GM-14, C05-1)',
   }),
 });
+
+/**
+ * The GM-72 tier-1 ceiling document id. `ceilingForStage` emits this schema; the registry
+ * (`./deviceToolRegistry`) consumes it as the server ceiling and refuses to treat a ceiling as
+ * device data.
+ */
+const CAPABILITY_CEILING_SCHEMA = 'cbhr.rdc.capability-ceiling/1';
+
+/** The only permitted originator of a ceiling document: the server (governor policy). */
+const CEILING_SOURCE = 'server';
+
+/**
+ * GM-72's distinct refusal code for a dispatch that names a tool OUTSIDE the server ceiling — the
+ * load-bearing signal that a device tried to widen. It is deliberately NOT the same code as a
+ * tool the device itself disabled (`TOOL_DISABLED_ON_DEVICE`, tier 2, in the registry), and not
+ * the stage-gate code `TOOL_NOT_ENABLED_AT_STAGE` used by `evaluateTool`, so a refusal can always
+ * be attributed to the tier that caused it.
+ *
+ * The `TOOL_CEILING_` namespace is reserved for tier-1 (ceiling) refusals so the prefix alone
+ * identifies the tier. `assertPolicyIntegrity()` enforces that no per-tool decision code claims it.
+ */
+const CEILING_REFUSAL_CODE = 'TOOL_CEILING_OUTSIDE_SERVER_CEILING';
+
+/**
+ * Scope labels on a tier-1 hard deny. `always` denies at every stage and after the pilot (a
+ * non-tool internal handler); `pilot` denies while the pilot deny-list is in force and is a
+ * declared, reversible overlay — never a silent downgrade.
+ */
+const CEILING_DENY_SCOPES = Object.freeze({ ALWAYS: 'always', PILOT: 'pilot' });
 
 /** The relay must never identify itself as the engine's own UI client. */
 const FORBIDDEN_RELAY_CLIENT_NAMES = Object.freeze(['desktop-commander-app']);
@@ -283,6 +323,89 @@ function deniedToolNames({ stage = 'full', pilot = true } = {}) {
     denied.push(...Object.keys(PILOT_DENIED));
   }
   return denied.sort();
+}
+
+/**
+ * GM-72 TIER 1 — the server ceiling at a stage, as DATA.
+ *
+ * The ceiling is what the server will permit for this device, before the device's own floor narrows
+ * it. It is the stage ladder (`stageToolNames`) with the hard denies removed, plus the deny list
+ * itself so a refusal can be explained rather than appearing as a silent absence:
+ *
+ *   tools            — the permitted set (catalog order). Approval-gated tools ARE members: they are
+ *                      admissible, but every execution still needs owner approval (tier 3).
+ *   approvalRequired — the subset of `tools` that stays approval-gated when enabled (GM-72).
+ *   hardDenied       — tier-1 denies that no stage and no device config can lift, with their code,
+ *                      HTTP status and scope (`always` | `pilot`).
+ *   deviceSettable   — always false. This document is server-owned; the registry refuses a ceiling
+ *                      that declares otherwise.
+ *
+ * Counts cross-check against the pre-existing decision engine: `counts.tools` always equals
+ * `agentReachableToolCount({ stage, pilot })` (8 / 12 / 20 / 25 during the pilot; 26 at `full`
+ * after it), which `assertPolicyIntegrity()` asserts for every stage.
+ *
+ * @param {'A'|'B'|'C'|'full'} stage
+ * @param {object} [options]
+ * @param {boolean} [options.pilot=true] apply the pilot deny-list overlay
+ * @returns {Readonly<object>} frozen, JSON-serializable ceiling document
+ */
+function ceilingForStage(stage, { pilot = true } = {}) {
+  assertStage(stage);
+
+  const stageTools = stageToolNames(stage);
+  const deniedNames = new Set(deniedToolNames({ stage, pilot }));
+  const tools = stageTools.filter((name) => !deniedNames.has(name));
+
+  const hardDenied = [
+    ...Object.entries(ALWAYS_DENIED).map(([name, deny]) => ({
+      tool: name,
+      code: deny.code,
+      httpStatus: deny.httpStatus,
+      reason: deny.reason,
+      scope: CEILING_DENY_SCOPES.ALWAYS,
+    })),
+    ...(pilot
+      ? Object.entries(PILOT_DENIED).map(([name, deny]) => ({
+          tool: name,
+          code: deny.code,
+          httpStatus: deny.httpStatus,
+          reason: deny.reason,
+          scope: CEILING_DENY_SCOPES.PILOT,
+        }))
+      : []),
+  ].map((deny) => Object.freeze(deny));
+
+  const approvalRequired = tools.filter(
+    (name) => TOOL_BY_NAME.get(name).consent === CONSENT_CLASSES.OWNER_APPROVAL,
+  );
+
+  return Object.freeze({
+    schema: CAPABILITY_CEILING_SCHEMA,
+    tier: 1,
+    source: CEILING_SOURCE,
+    deviceSettable: false,
+    stage,
+    pilot,
+    tools: Object.freeze(tools),
+    approvalRequired: Object.freeze(approvalRequired),
+    hardDenied: Object.freeze(hardDenied),
+    counts: Object.freeze({
+      stage: stageTools.length,
+      tools: tools.length,
+      approvalRequired: approvalRequired.length,
+      hardDenied: hardDenied.length,
+    }),
+  });
+}
+
+/** The tool names the server ceiling permits at a stage (tier 1, denies already applied). */
+function ceilingToolNames(stage, options = {}) {
+  return [...ceilingForStage(stage, options).tools];
+}
+
+/** How many tools the server ceiling permits at a stage. */
+function ceilingToolCount(stage, options = {}) {
+  return ceilingForStage(stage, options).tools.length;
 }
 
 /**
@@ -640,12 +763,63 @@ function assertPolicyIntegrity() {
     }
   }
 
+  // GM-72 tier-1 ceiling invariants: the ceiling is exactly the agent-reachable set (so the report
+  // the panel consumes cannot drift from the decision engine), it is never device-settable, it
+  // never contains a hard-denied name, and the reserved tier-1 refusal code is not redeclared as a
+  // per-tool decision code.
+  for (const stage of CAPABILITY_STAGES) {
+    for (const pilot of [true, false]) {
+      const ceiling = ceilingForStage(stage, { pilot });
+      const reachable = agentReachableToolCount({ stage, pilot });
+      if (ceiling.tools.length !== reachable) {
+        throw new CapabilityPolicyError(
+          'POLICY_CEILING_COUNT',
+          `The ceiling at stage ${stage} (pilot ${pilot}) permits ${ceiling.tools.length} tools but ${reachable} are agent-reachable`,
+        );
+      }
+      if (ceiling.deviceSettable !== false || ceiling.source !== CEILING_SOURCE) {
+        throw new CapabilityPolicyError(
+          'POLICY_CEILING_NOT_SERVER_OWNED',
+          'The ceiling must be server-owned data and never device-settable',
+        );
+      }
+      const denied = new Set(ceiling.hardDenied.map((entry) => entry.tool));
+      for (const name of ceiling.tools) {
+        if (denied.has(name)) {
+          throw new CapabilityPolicyError(
+            'POLICY_CEILING_DENY_LEAK',
+            `The ceiling at stage ${stage} permits "${name}" which tier 1 denies`,
+          );
+        }
+      }
+      for (const name of ceiling.approvalRequired) {
+        if (!OWNER_APPROVAL_TOOLS.includes(name)) {
+          throw new CapabilityPolicyError(
+            'POLICY_CEILING_APPROVAL_SET',
+            `The ceiling marks "${name}" approval-required, which is not an owner-approval tool`,
+          );
+        }
+      }
+    }
+  }
+
+  if (Object.values(DECISION_CODES).includes(CEILING_REFUSAL_CODE)) {
+    throw new CapabilityPolicyError(
+      'POLICY_CEILING_CODE_COLLISION',
+      `"${CEILING_REFUSAL_CODE}" is a tier-1 ceiling refusal code and must not be a per-tool decision code`,
+    );
+  }
+
   return true;
 }
 
 module.exports = {
   CAPABILITY_POLICY_SCHEMA,
   CAPABILITY_CONTRACT_SCHEMA,
+  CAPABILITY_CEILING_SCHEMA,
+  CEILING_SOURCE,
+  CEILING_REFUSAL_CODE,
+  CEILING_DENY_SCOPES,
   CAPABILITY_STAGES,
   CONSENT_CLASSES,
   DECISION_CODES,
@@ -666,6 +840,9 @@ module.exports = {
   stageToolCount,
   ownerApprovalTools,
   deniedToolNames,
+  ceilingForStage,
+  ceilingToolNames,
+  ceilingToolCount,
   evaluateTool,
   isAgentReachable,
   agentReachableToolCount,
