@@ -51,6 +51,12 @@ const loadProjectWorkspace = () =>
     Component: m.ProjectWorkspace,
   }));
 
+/** "My Computer" — the CBHR device panel (read-and-approve only; it cannot renew). */
+const loadDeviceView = () =>
+  import('~/components/Device').then((m) => ({
+    Component: m.DeviceView,
+  }));
+
 const baseEl = document.querySelector('base');
 const baseHref = baseEl?.getAttribute('href') || '/';
 
@@ -169,6 +175,10 @@ export const router = createBrowserRouter(
             {
               path: 'projects/:projectId',
               lazy: loadProjectWorkspace,
+            },
+            {
+              path: 'device',
+              lazy: loadDeviceView,
             },
             {
               path: 'agents',

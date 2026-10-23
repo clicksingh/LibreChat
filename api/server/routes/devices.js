@@ -1,6 +1,7 @@
 const express = require('express');
 const { getTenantId } = require('@librechat/data-schemas');
 const requireJwtAuth = require('~/server/middleware/requireJwtAuth');
+const { deviceRateLimiters } = require('~/server/middleware/deviceRateLimit');
 const db = require('~/db/models');
 const {
   createOwnerCurrentRetireHandler,
@@ -86,15 +87,55 @@ const currentDeviceRenew = createCurrentDeviceRenewEnvelopeHandler({
  * server-side from that key's thumbprint. It therefore must be registered BEFORE the router-level
  * `requireJwtAuth` gate, and it must stay the ONLY route outside that gate: the browser/panel
  * endpoints below keep it.
+ *
+ * GM-6 rate limits (W4) are attached PER ROUTE, never as a `router.use`. A router-level limiter
+ * would also run for methods and paths that match no route (the shape the route suite already
+ * pins), spending the caller's budget on 404s and blurring "this endpoint is busy" with "this
+ * endpoint does not exist". Per-route attachment also keeps the deny paths exact:
+ * - `/pairing/complete` runs OUTSIDE the session gate, so it can only be keyed per source and per
+ *   device (there is no principal yet); its denial is the uniform miss of the completion handler.
+ * - every gated route runs its limiter AFTER `requireJwtAuth`, so `req.user.id` is the
+ *   server-resolved principal (never a request value) and an unauthenticated flood never spends a
+ *   principal's budget.
+ * - the uniform-miss surfaces (`pairing/*`) answer a denial with the byte-identical
+ *   `INVALID_OR_EXPIRED_CODE` body, so the limiter cannot be used as a code oracle (GM-6); the
+ *   `current*` surfaces answer an honest 429 because no pairing code exists there.
  */
-router.post('/pairing/complete', pairingComplete);
+router.post(
+  '/pairing/complete',
+  deviceRateLimiters.pairingComplete.source,
+  deviceRateLimiters.pairingComplete.device,
+  pairingComplete,
+);
 
 router.use(requireJwtAuth);
-router.post('/current/retire', retireCurrentOwnedDevice);
-router.get('/current', currentDeviceStatus);
-router.post('/current/renew', currentDeviceRenew);
-router.post('/pairing/challenge', pairingChallenge);
-router.post('/pairing/issue', pairingIssue);
-router.post('/pairing/approve', pairingApprove);
+router.post('/current/retire', deviceRateLimiters.currentRetire.principal, retireCurrentOwnedDevice);
+router.get('/current', deviceRateLimiters.currentStatus.principal, currentDeviceStatus);
+router.post(
+  '/current/renew',
+  deviceRateLimiters.currentRenew.principal,
+  deviceRateLimiters.currentRenew.device,
+  currentDeviceRenew,
+);
+router.post(
+  '/pairing/challenge',
+  deviceRateLimiters.pairingChallenge.principal,
+  deviceRateLimiters.pairingChallenge.source,
+  pairingChallenge,
+);
+router.post(
+  '/pairing/issue',
+  deviceRateLimiters.pairingIssue.principal,
+  deviceRateLimiters.pairingIssue.device,
+  /** Beyond GM-6's stated minimum: the source bucket also catches key rotation across a device. */
+  deviceRateLimiters.pairingIssue.source,
+  pairingIssue,
+);
+router.post(
+  '/pairing/approve',
+  deviceRateLimiters.pairingApprove.principal,
+  deviceRateLimiters.pairingApprove.source,
+  pairingApprove,
+);
 
 module.exports = router;
