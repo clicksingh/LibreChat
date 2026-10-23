@@ -1,48 +1,63 @@
 'use strict';
 
 /**
- * RESULT SINK — the device -> platform result path's authority half (workstream W6, GM-43).
+ * RESULT SINK — the device -> platform result path's authority half (workstream W6, GM-43; adapted to
+ * the `CBHR-RPC-RESULT-V2` frame by GM-80).
  *
  * WHAT ARRIVES. The relay forwards, verbatim and unopened, the bytes a device sent for one call:
  *
  *   { callId, payload, resultSeq, at, replay }         // the relay's transport envelope
  *
- * `payload` is the device's own `CBHR-RPC-V2` wire frame with `audience: 'relay'` — the
- * ENDPOINT-signed reply the contract reserves for exactly this direction — serialized as a string.
- * The relay never parses it; the platform does, and that asymmetry is the whole security argument:
- * the relay is a keyless forwarder, so nothing it says about an outcome can be believed, and this
- * module believes nothing but the device's own authentication.
+ * `payload` is the device's own `CBHR-RPC-RESULT-V2` wire frame with `audience: 'relay'` — the
+ * ENDPOINT-signed reply GM-80 §2 rules is a document of its OWN (twelve fields, its own domain tag,
+ * an explicit signed `outcome` field) — serialized as a string. The relay never parses it; the
+ * platform does, and that asymmetry is the whole security argument: the relay is a keyless
+ * forwarder, so nothing it says about an outcome can be believed, and this module believes nothing
+ * but the device's own authentication.
  *
- * WHERE THE OUTCOME LIVES, AND WHY. The frozen 15-field core has no `outcome` field, and it must not
- * grow one inside a signed core that the relay's own view checks read. The device therefore binds its
- * result document the way the contract already binds a payload: the exact bytes travel in `argsB64u`
- * and their SHA-256 is signed field 15 (`sha256(args)`). Field 15 is authenticated by the device's
- * signature, and `verifyArgsBytes` re-hashes the bytes AS RECEIVED (GM-47/GM-29), so the outcome the
- * platform reads is the outcome the device authenticated — byte for byte. A transport field would
- * have been forgeable by the relay; this is not.
+ * WHY THE FRAME TYPE CHANGED (GM-80). W6 verified the command document (`CBHR-RPC-V2`, 15 fields)
+ * with the outcome smuggled inside `argsB64u`. The endpoint agent (W7) signs a DISTINCT document: a
+ * result is not a command (different audience, different subject, field 12 binds the RESULT bytes),
+ * so results carry their own tag and an explicit signed `outcome`. GM-80 rules W7's definition wins
+ * and this side adapts. The verification chain lives in `./resultFrame`; this module owns the
+ * CORRELATION and the OUTCOME LAW, and nothing about the frame layout.
  *
- * OUTCOME LAW (non-negotiable, F-V24C-9 / GM-43):
- *   - `status: 'completed'` — and ONLY then a possible `success: true` — requires a well-formed,
- *     correlated, authentic frame whose result document names a device-reported outcome.
- *   - `success` is true IF AND ONLY IF `status === 'completed'` AND the device reported `success`.
- *   - `status: 'uncertain'` for anything malformed, unauthenticated, replayed, stale, or bound to a
- *     different call/device/tenant/grant: a 5xx-shaped, thrown, unparsable or contradictory result is
- *     NEVER a success and NEVER a failure — it is unknown. Nothing is stored, and the call stays open
- *     so a genuine report can still land.
- *   - `status: 'refused'` for a result that cannot be attributed at all: an unknown `callId`, a call
- *     that is already completed (a duplicate or a retry), or a forwarded entry of the wrong shape or
- *     size. Nothing is stored. A duplicate never re-reports success: it reports `success: false` and
- *     exposes the already-recorded outcome as `recordedOutcome`, clearly not as this frame's verdict.
+ * OUTCOME LAW (GM-80 §4.7, non-negotiable — F-V24C-9 / GM-43):
+ *   - `succeeded` — `success: true`, and ONLY when the platform's own call state agrees: the call
+ *     exists, is still `dispatched`, binds this device/key/grant/epoch, and the ledger's atomic
+ *     conditional completion wins the call. If any of that disagrees, nothing is completed as a
+ *     success.
+ *   - `refused` — a completed call with `success: false`. The endpoint can PROVE nothing ran.
+ *   - `uncertain` — the call STAYS OPEN and nothing is stored. `uncertain` exists so that "I do not
+ *     know" is never spelled "success".
+ *   - absent or unrecognised `outcome` — `uncertain`, never success.
+ *   - Anything malformed, unauthenticated, replayed, stale, oversized, mis-bound or mis-correlated is
+ *     `uncertain`: a 5xx-shaped, thrown, unparsable or contradictory result is NEVER a success and
+ *     NEVER a failure — it is unknown. Nothing is stored, and the call stays open so a genuine report
+ *     can still land.
+ *   - `status: 'refused'` is reserved for a result that cannot be attributed at all: an unknown
+ *     `callId`, a call that is already completed (a duplicate or a retry), or a forwarded entry of
+ *     the wrong shape or size. Nothing is stored. A duplicate never re-reports success: it reports
+ *     `success: false` and exposes the already-recorded outcome as `recordedOutcome`, clearly not as
+ *     this frame's verdict.
+ *
+ * THE RESULT'S NONCE IS ITS OWN (GM-80 §4.5). The endpoint generates a FRESH nonce per result, so the
+ * replay ring key `(grantId, nonce)` is a different key from the command's and a spent command nonce
+ * can never block a result. A REPLAYED result nonce is still refused (`REPLAY_DETECTED`).
  *
  * WHAT THIS MODULE DOES NOT DO
  * - It never signs and never holds, reads, derives or logs key material: verification is the injected
- *   `verifier` from the accepted `createEnvelopeVerifier`, and the message is joined by the accepted
- *   `envelopeCore`/`../crypto` canonicalisation. There is exactly one signing implementation in this
- *   repository and this file is not it.
- * - It never re-implements a check the envelope chain already owns: structure, signature, keyId pin,
- *   audience, freshness, the args digest and replay are the accepted `verifyEnvelope` order.
- * - It never repairs a correlation. If the authenticated frame names a different call, device, tenant
- *   or grant than the one that was dispatched, the result is UNCERTAIN — the sink does not re-file it
+ *   `verifier` from the accepted `createResultFrameVerifier` (pinned DEVICE key) and the message is
+ *   joined by the accepted `../crypto` canonicalisation. There is exactly one signing implementation
+ *   in this repository and this file is not it.
+ * - It never re-implements a check the result-frame chain already owns: structure, signature, keyId
+ *   pin, audience, freshness, the result-bytes digest and replay are `verifyResultFrame`'s order.
+ * - It never reads unsigned transport metadata as authority. `correlation` (`verified` |
+ *   `unverified-claim`) is carried by the endpoint as INFORMATION about its own correlation claim —
+ *   it is outside the signature, so this module neither requires it nor acts on it. The signed
+ *   `callId`, the signed identity fields and the platform's own ledger are what correlation rests on.
+ * - It never repairs a correlation. If the authenticated frame names a different call, device, grant
+ *   or epoch than the one that was dispatched, the result is UNCERTAIN — the sink does not re-file it
  *   under another call id, because that would be inventing the attribution it exists to check.
  *
  * STORAGE. Accepted results are held in an in-process store by default (NOT durable). The dispatch
@@ -51,15 +66,26 @@
  */
 
 const { relayFailure } = require('./errors');
-const { RPC_ENVELOPE_AUDIENCES, isPlainRecord } = require('./envelopeCore');
-const { verifyEnvelope } = require('./envelopeVerifier');
-const { verifyArgsBytes } = require('./argsDigest');
+const { isPlainRecord } = require('./envelopeCore');
+const {
+  RESULT_AUDIENCE,
+  RESULT_OUTCOMES,
+  SUCCESS_OUTCOME,
+  verifyResultFrame,
+} = require('./resultFrame');
 
 /** The sink's kind label, so a wiring mistake is visible in a log. */
 const RESULT_SINK_KIND = 'relay-result-sink';
 
 /** The exact keys a forwarded result entry may carry (the relay's transport envelope). */
-const FORWARDED_RESULT_KEYS = Object.freeze(['callId', 'payload', 'resultSeq', 'at', 'replay', 't']);
+const FORWARDED_RESULT_KEYS = Object.freeze([
+  'callId',
+  'payload',
+  'resultSeq',
+  'at',
+  'replay',
+  't',
+]);
 
 /** The verdict vocabulary of this module. Only `completed` can ever carry `success: true`. */
 const RESULT_STATUS = Object.freeze({
@@ -69,22 +95,27 @@ const RESULT_STATUS = Object.freeze({
 });
 
 /**
- * The outcome words a device may report. `success` is the only one that maps to success; every other
- * word is a perfectly valid device-reported NON-success (a real outcome, not an uncertainty).
+ * The outcome words a device may sign (GM-80 §2.3). `succeeded` is the only one that maps to success;
+ * `refused` is a real, provable non-success; `uncertain` stays open. Any other word is unrecognised
+ * and therefore ALSO uncertain — never success.
  */
-const DEVICE_RESULT_OUTCOMES = Object.freeze([
-  'success',
-  'failure',
-  'refused',
-  'cancelled',
-  'timeout',
+const RESULT_OUTCOME_VOCABULARY = Object.freeze([
+  RESULT_OUTCOMES.SUCCEEDED,
+  RESULT_OUTCOMES.REFUSED,
+  RESULT_OUTCOMES.UNCERTAIN,
 ]);
 
-/** The one word that means success. Named once, so the law is greppable. */
-const SUCCESS_OUTCOME = 'success';
-
-/** The audience a result frame must carry. Not an option: it is the contract's reply direction. */
-const RESULT_AUDIENCE = RPC_ENVELOPE_AUDIENCES.RELAY;
+/**
+ * The ledger identity fields the RESULT CORE actually carries and this module compares.
+ *
+ * `tenantId` is deliberately absent: the frozen `CBHR-RPC-RESULT-V2` core (GM-80 §2, W7 README §4) is
+ * twelve fields and does NOT sign a tenant. Inventing one, or inferring it from the frame, would be
+ * manufacturing an identity the device never authenticated. The tenant is not lost: the ledger entry
+ * is the platform's own record of which tenant dispatched the call, and `deviceId`/`deviceKeyId` bind
+ * the result to the device that was issued inside that tenant.
+ */
+const RESULT_BINDING_FIELDS = Object.freeze(['deviceId', 'deviceKeyId', 'grantId', 'epoch']);
+const RESULT_BINDING_FIELDS_NOT_CARRIED = Object.freeze(['tenantId']);
 
 const TRANSPORT_TEXT_MAX_CHARS = 200;
 const RESERVED_SEPARATOR = '\u001f';
@@ -106,7 +137,15 @@ function isTransportText(value) {
 }
 
 /** A frozen verdict, so a caller cannot mutate a classification after the fact. */
-function verdict({ status, code, callId = null, detail = null, success = false, outcome = null, extra = {} }) {
+function verdict({
+  status,
+  code,
+  callId = null,
+  detail = null,
+  success = false,
+  outcome = null,
+  extra = {},
+}) {
   return Object.freeze({
     ok: status === RESULT_STATUS.COMPLETED,
     status,
@@ -128,7 +167,7 @@ function refused(code, callId, extra = {}) {
 /**
  * Uncertain: the frame reached us, but it establishes nothing. Nothing is stored, and the call stays
  * open — this is the ONLY classification the outcome law permits for malformed, unauthenticated,
- * duplicated-by-content, replayed or contradictory results.
+ * replayed, stale, mis-correlated, mis-bound or self-reported-uncertain results.
  */
 function uncertain(code, callId, detail = null, extra = {}) {
   return verdict({ status: RESULT_STATUS.UNCERTAIN, code, callId, detail, extra });
@@ -144,7 +183,12 @@ function uncertain(code, callId, detail = null, extra = {}) {
  */
 function forwardedShape(forwarded, maxForwardedChars) {
   if (!isPlainRecord(forwarded)) {
-    return { ok: false, code: 'RESULT_MALFORMED', detail: 'a forwarded result must be a plain object', callId: null };
+    return {
+      ok: false,
+      code: 'RESULT_MALFORMED',
+      detail: 'a forwarded result must be a plain object',
+      callId: null,
+    };
   }
   for (const key of Object.keys(forwarded)) {
     if (!FORWARDED_RESULT_KEYS.includes(key)) {
@@ -157,7 +201,12 @@ function forwardedShape(forwarded, maxForwardedChars) {
     }
   }
   if (!hasOwn(forwarded, 'callId') || !isTransportText(forwarded.callId)) {
-    return { ok: false, code: 'RESULT_MALFORMED', detail: 'a forwarded result must carry a usable callId', callId: null };
+    return {
+      ok: false,
+      code: 'RESULT_MALFORMED',
+      detail: 'a forwarded result must carry a usable callId',
+      callId: null,
+    };
   }
   if (typeof forwarded.payload !== 'string' || forwarded.payload.length === 0) {
     return {
@@ -188,23 +237,35 @@ function forwardedShape(forwarded, maxForwardedChars) {
 }
 
 /**
- * The binding check: the AUTHENTICATED core must name the same device, key, tenant and grant the
- * call was dispatched to. Without this, a genuine result from device B could complete a call
- * dispatched to device A — a valid signature over the wrong call.
+ * The binding check: the AUTHENTICATED core must name the same device, key, grant and epoch the call
+ * was dispatched to. Without this, a genuine result from device B could complete a call dispatched to
+ * device A — a valid signature over the wrong call.
+ *
+ * `tenantId` cannot be compared and is reported as such rather than assumed: the result core does not
+ * carry it (see `RESULT_BINDING_FIELDS_NOT_CARRIED`). The ledger's own `tenantId` remains the platform
+ * record of the call, and the device identity is bound to exactly one tenant.
  * @param {object} core the verified core
  * @param {object} entry the dispatch ledger entry
- * @returns {{ok: true}|{ok: false, field: string}}
+ * @returns {{ok: true, compared: ReadonlyArray<string>, notCarried: ReadonlyArray<string>}
+ *   | {ok: false, field: string}}
  */
 function checkBinding(core, entry) {
-  for (const field of ['deviceId', 'deviceKeyId', 'tenantId', 'grantId']) {
+  for (const field of RESULT_BINDING_FIELDS) {
+    if (field === 'epoch') {
+      if (String(core.epoch) !== String(entry.epoch)) {
+        return { ok: false, field };
+      }
+      continue;
+    }
     if (core[field] !== entry[field]) {
       return { ok: false, field };
     }
   }
-  if (String(core.epoch) !== String(entry.epoch)) {
-    return { ok: false, field: 'epoch' };
-  }
-  return { ok: true };
+  return {
+    ok: true,
+    compared: RESULT_BINDING_FIELDS,
+    notCarried: RESULT_BINDING_FIELDS_NOT_CARRIED,
+  };
 }
 
 /**
@@ -234,13 +295,13 @@ function createMapResultStore() {
  * @param {object} options
  * @param {object} options.ledger REQUIRED dispatch ledger (`createDispatchLedger()`): the correlation
  *   authority. Without it a result cannot be attributed to anything, so it is refused at construction.
- * @param {{verifySignature: Function}} options.verifier REQUIRED verifier from
- *   `createEnvelopeVerifier({ publicKeySpkiB64u: <pinned DEVICE key>, expectedKeyId })`. The sink never
- *   chooses which key is pinned; that is the wiring's decision, taken once.
+ * @param {{verifyResultSignature: Function}} options.verifier REQUIRED verifier from
+ *   `createResultFrameVerifier({ publicKeySpkiB64u: <pinned DEVICE key>, expectedKeyId })`. The sink
+ *   never chooses which key is pinned; that is the wiring's decision, taken once.
  * @param {{now: () => number}} [options.clock] server clock (epoch-ms)
- * @param {object} [options.replayWindow] `createReplayWindow()` guard; when supplied, a replayed nonce
- *   is `uncertain` (`REPLAY_DETECTED`) instead of merely being caught by the ledger
- * @param {number} [options.maxResultBytes] bound on the DECODED result document (GM-58.4)
+ * @param {object} [options.replayWindow] `createReplayWindow()` guard; when supplied, a replayed result
+ *   nonce is `uncertain` (`REPLAY_DETECTED`) instead of merely being caught by the ledger
+ * @param {number} [options.maxResultBytes] bound on the DECODED result bytes (GM-58.4)
  * @param {number} [options.maxForwardedChars] bound on the forwarded payload string
  * @param {object} [options.store] result store seam `{ get(key), set(key, value) }`
  * @returns {Readonly<object>} `{ sinkKind, ingestResult, resultFor, size, ledger }`
@@ -268,22 +329,28 @@ function createResultSink(options = {}) {
     verifier === null ||
     verifier === undefined ||
     typeof verifier !== 'object' ||
-    typeof verifier.verifySignature !== 'function'
+    typeof verifier.verifyResultSignature !== 'function'
   ) {
     throw sinkFailure(
       'SINK_SEAM_INVALID',
-      'the result sink requires the injected verifier from createEnvelopeVerifier(); it never pins a key itself and never signs',
+      'the result sink requires the injected verifier from createResultFrameVerifier(); it never pins a key itself and never signs',
       { field: 'verifier' },
     );
   }
   if (clock === null || typeof clock.now !== 'function') {
-    throw sinkFailure('CLOCK_UNUSABLE', 'the result sink requires a now() clock', { field: 'clock' });
+    throw sinkFailure('CLOCK_UNUSABLE', 'the result sink requires a now() clock', {
+      field: 'clock',
+    });
   }
   if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < 1) {
-    throw sinkFailure('SINK_SEAM_INVALID', 'maxResultBytes must be an integer >= 1', { field: 'maxResultBytes' });
+    throw sinkFailure('SINK_SEAM_INVALID', 'maxResultBytes must be an integer >= 1', {
+      field: 'maxResultBytes',
+    });
   }
   if (!Number.isSafeInteger(maxForwardedChars) || maxForwardedChars < 1) {
-    throw sinkFailure('SINK_SEAM_INVALID', 'maxForwardedChars must be an integer >= 1', { field: 'maxForwardedChars' });
+    throw sinkFailure('SINK_SEAM_INVALID', 'maxForwardedChars must be an integer >= 1', {
+      field: 'maxForwardedChars',
+    });
   }
   if (
     store === null ||
@@ -291,15 +358,22 @@ function createResultSink(options = {}) {
     typeof store.get !== 'function' ||
     typeof store.set !== 'function'
   ) {
-    throw sinkFailure('SINK_SEAM_INVALID', 'the result store seam requires { get(key), set(key, value) }', {
-      field: 'store',
-    });
+    throw sinkFailure(
+      'SINK_SEAM_INVALID',
+      'the result store seam requires { get(key), set(key, value) }',
+      {
+        field: 'store',
+      },
+    );
   }
 
   function nowMs() {
     const value = clock.now();
     if (!Number.isSafeInteger(value) || value < 0) {
-      throw sinkFailure('CLOCK_UNUSABLE', 'the result sink clock did not return epoch milliseconds');
+      throw sinkFailure(
+        'CLOCK_UNUSABLE',
+        'the result sink clock did not return epoch milliseconds',
+      );
     }
     return value;
   }
@@ -307,8 +381,9 @@ function createResultSink(options = {}) {
   /**
    * Ingests ONE forwarded result and classifies it under the outcome law.
    *
-   * Never throws for a malformed, forged, stale, replayed or contradictory input: every one of those is
-   * a typed verdict, so a caller cannot accidentally turn a parsing failure into a success.
+   * Never throws for a malformed, forged, stale, replayed, mis-correlated or self-reported-uncertain
+   * input: every one of those is a typed verdict, so a caller cannot accidentally turn a parsing
+   * failure into a success.
    *
    * @param {object} forwarded the relay's transport envelope for one result
    * @returns {Promise<object>} a frozen verdict
@@ -321,7 +396,8 @@ function createResultSink(options = {}) {
     }
     const { callId, payload, resultSeq } = shape;
 
-    // 2. CORRELATION — the call must exist and must not already be completed.
+    // 2. CORRELATION — the call must exist and must not already be completed. This is the platform's
+    // OWN call state, and it is the first thing `succeeded` is compared against below.
     const entry = await ledger.get(callId);
     if (entry === null || entry === undefined) {
       return refused('RESULT_UNKNOWN_CALL_ID', callId);
@@ -338,25 +414,34 @@ function createResultSink(options = {}) {
     try {
       frame = JSON.parse(payload);
     } catch {
-      return uncertain('RESULT_MALFORMED', callId, 'the forwarded payload is not a parseable frame');
+      return uncertain(
+        'RESULT_MALFORMED',
+        callId,
+        'the forwarded payload is not a parseable frame',
+      );
     }
     if (!isPlainRecord(frame)) {
       return uncertain('RESULT_MALFORMED', callId, 'the forwarded payload is not a frame object');
     }
-    // The frame's own transport callId must agree with the envelope the relay delivered it under:
-    // otherwise the correlation itself is in doubt, which is exactly what "uncertain" means.
+    // The frame's signed `callId` must agree with the envelope the relay delivered it under:
+    // otherwise the correlation itself is in doubt, which is exactly what "uncertain" means. This is
+    // a refusal-only comparison: it can never make a frame more believed than the chain below.
     if (frame.callId !== callId) {
-      return uncertain('RESULT_CALL_MISMATCH', callId, 'the frame names a different call than the one it was forwarded under');
+      return uncertain(
+        'RESULT_CALL_MISMATCH',
+        callId,
+        'the frame names a different call than the one it was forwarded under',
+      );
     }
 
-    // 4. THE ACCEPTED ADMISSION CHAIN — structure, signature, pin, audience, freshness, args digest, replay.
-    const verified = await verifyEnvelope({
-      signed: frame,
+    // 4. THE RESULT-FRAME CHAIN (GM-80 §4.1-4.6) — structure, signature against the PINNED DEVICE
+    // key, keyId pin, audience, freshness/deadline, sha256(result bytes) and the replay ring.
+    const verified = await verifyResultFrame({
+      frame,
       verifier,
       expectedAudience: RESULT_AUDIENCE,
       now: nowMs(),
       replayWindow,
-      requireArgsBytes: true,
     });
     if (verified.ok !== true) {
       return uncertain(verified.error.code, callId, verified.error.message);
@@ -373,36 +458,41 @@ function createResultSink(options = {}) {
       );
     }
 
-    // 6. THE RESULT BYTES — re-hashed as received (GM-47/GM-29); never re-serialized.
-    const args = verifyArgsBytes({ argsB64u: frame.argsB64u, argsDigestHex: core.argsDigestHex });
-    if (args.ok !== true) {
-      // verifyEnvelope already ran this check inside the chain; keeping it here makes the byte source
-      // for step 7 impossible to reach without the equality having held.
-      return uncertain(args.error.code, callId, args.error.message);
-    }
-    if (args.argsBytes.length > maxResultBytes) {
-      return uncertain('RESULT_TOO_LARGE', callId, `the result document exceeds ${maxResultBytes} bytes`);
-    }
-    let document;
-    try {
-      document = JSON.parse(args.argsBytes.toString('utf8'));
-    } catch (err) {
-      return uncertain('RESULT_MALFORMED', callId, 'the authenticated result bytes are not a parseable document');
-    }
-    if (!isPlainRecord(document)) {
-      return uncertain('RESULT_MALFORMED', callId, 'the authenticated result bytes are not a document object');
-    }
-    if (document.callId !== undefined && document.callId !== null && document.callId !== callId) {
-      return uncertain('RESULT_CALL_MISMATCH', callId, 'the authenticated result document names a different call');
-    }
-    const outcome = document.outcome;
-    if (typeof outcome !== 'string' || !DEVICE_RESULT_OUTCOMES.includes(outcome)) {
-      // An unknown word is NOT success and NOT failure: the platform cannot say what the device meant.
-      return uncertain('RESULT_MALFORMED', callId, 'the authenticated result document does not report a known outcome');
+    // 6. THE RESULT BYTES — re-hashed as received inside the chain (GM-47/GM-29), never re-serialized
+    // and never parsed: their meaning is the endpoint's, and the platform's bound is on their size.
+    if (verified.resultBytes.length > maxResultBytes) {
+      return uncertain(
+        'RESULT_TOO_LARGE',
+        callId,
+        `the result bytes exceed ${maxResultBytes} bytes`,
+      );
     }
 
-    // 7. COMPLETE THE CALL — exactly once, against the ledger.
-    const completion = await ledger.complete(callId, { outcome, resultSeq });
+    // 7. THE OUTCOME MAPPING (GM-80 §4.7) — explicit, and the only place success can be produced.
+    const reportedOutcome = core.outcome;
+    if (reportedOutcome === RESULT_OUTCOMES.UNCERTAIN) {
+      // The endpoint says it cannot prove what happened. The call STAYS OPEN and nothing is stored.
+      return uncertain(
+        'RESULT_OUTCOME_UNCERTAIN',
+        callId,
+        'the device reported an uncertain outcome; the call stays open and nothing is stored',
+        { reportedOutcome },
+      );
+    }
+    if (!RESULT_OUTCOME_VOCABULARY.includes(reportedOutcome)) {
+      // An unrecognised word is NOT success and NOT failure: the platform cannot say what it meant.
+      return uncertain(
+        'RESULT_OUTCOME_UNRECOGNISED',
+        callId,
+        'the authenticated frame reports an outcome this platform does not recognise',
+        { reportedOutcome },
+      );
+    }
+
+    // 8. COMPLETE THE CALL — exactly once, against the ledger, and only here. `succeeded` becomes
+    // `success: true` only because the platform's own state agreed at steps 2 and 5 and because this
+    // atomic conditional completion wins the call; a concurrent or already-recorded result loses here.
+    const completion = await ledger.complete(callId, { outcome: reportedOutcome, resultSeq });
     if (completion.ok !== true) {
       const code =
         completion.error.code === 'DISPATCH_CALL_ALREADY_COMPLETED'
@@ -415,18 +505,22 @@ function createResultSink(options = {}) {
       });
     }
 
-    // 8. STORE THE ACCEPTED OUTCOME. `success` is true only for a device-reported `success`.
+    // 9. STORE THE ACCEPTED OUTCOME. `success` is true only for a device-signed `succeeded`.
     const record = Object.freeze({
       callId,
-      outcome,
-      success: outcome === SUCCESS_OUTCOME,
+      outcome: reportedOutcome,
+      success: reportedOutcome === SUCCESS_OUTCOME,
+      // The device-signed identity of the frame...
       deviceId: core.deviceId,
-      tenantId: core.tenantId,
       grantId: core.grantId,
       epoch: core.epoch,
-      toolName: core.toolName,
       requestId: core.requestId,
+      // ...and the PLATFORM's own record of the call. `tenantId` and `toolName` are not fields of the
+      // result core, so they come from the ledger entry, never from the frame.
+      tenantId: entry.tenantId,
+      toolName: entry.toolName,
       keyId: verified.keyId,
+      windowMs: verified.windowMs,
       resultSeq,
       recordedAt: nowMs(),
     });
@@ -436,10 +530,10 @@ function createResultSink(options = {}) {
       code: null,
       callId,
       success: record.success,
-      outcome,
+      outcome: reportedOutcome,
       extra: {
         duplicate: false,
-        recordedOutcome: outcome,
+        recordedOutcome: reportedOutcome,
         deviceId: record.deviceId,
         toolName: record.toolName,
         requestId: record.requestId,
@@ -485,7 +579,9 @@ module.exports = {
   RESULT_SINK_KIND,
   FORWARDED_RESULT_KEYS,
   RESULT_STATUS,
-  DEVICE_RESULT_OUTCOMES,
+  RESULT_OUTCOME_VOCABULARY,
+  RESULT_BINDING_FIELDS,
+  RESULT_BINDING_FIELDS_NOT_CARRIED,
   SUCCESS_OUTCOME,
   RESULT_AUDIENCE,
   DEFAULT_MAX_FORWARDED_CHARS,

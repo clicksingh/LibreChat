@@ -8,6 +8,11 @@
  * The Ed25519 keypair generated here exists ONLY inside a test process. It is never written to disk,
  * never read from the environment and never asserted to be a deployment key: it stands in for the
  * owner's undecided custody choice so the seam can be exercised end to end.
+ *
+ * Two independent frame builders live here, and neither imports a production layout module:
+ * `WORKED_EXAMPLE_CANONICAL` for the 15-field COMMAND core, and `resultCanonicalFor()` for the
+ * 12-field `CBHR-RPC-RESULT-V2` core (GM-80). A spec that passes therefore shows two independent
+ * readings of a frozen format agree, not that a module agrees with itself.
  */
 
 const nodeCrypto = require('node:crypto');
@@ -56,11 +61,56 @@ const WORKED_EXAMPLE_CANONICAL_BYTES = 325;
 const T0 = 1761200000000;
 
 /**
+ * The RESULT document's own domain tag (GM-80 §2). Written out as a literal, exactly as W7's frozen
+ * result core writes it, so a spec cannot inherit the sink's idea of the tag.
+ */
+const RESULT_FRAME_TAG = 'CBHR-RPC-RESULT-V2';
+
+/**
+ * The twelve signed fields of `CBHR-RPC-RESULT-V2`, in canonical order, as a LITERAL. `argsDigestHex`
+ * is the contract's `sha256(result bytes)`.
+ */
+const RESULT_FIXTURE_FIELD_ORDER = Object.freeze([
+  'tag',
+  'requestId',
+  'callId',
+  'nonce',
+  'issuedAt',
+  'deadlineMs',
+  'grantId',
+  'epoch',
+  'deviceId',
+  'deviceKeyId',
+  'outcome',
+  'argsDigestHex',
+]);
+
+/**
+ * The INDEPENDENT join of a result core: literal 0x1F, literal field order, no shared code with
+ * `../resultFrame.js`. A frame signed over these bytes is signed over bytes a second reading of the
+ * frozen contract produced.
+ * @param {object} core a core carrying all twelve result fields
+ * @returns {Buffer}
+ */
+function resultCanonicalFor(core) {
+  const parts = RESULT_FIXTURE_FIELD_ORDER.map((property) => {
+    const value = core[property];
+    if (typeof value !== 'string') {
+      throw new TypeError(`fixture result core.${property} must be a string`);
+    }
+    if (value.includes('\u001f')) {
+      throw new TypeError(`fixture result core.${property} must not contain 0x1F`);
+    }
+    return value;
+  });
+  return Buffer.from(parts.join('\u001f'), 'utf8');
+}
+
+/**
  * The published golden vector: the fixed-seed key's SPKI, and the exact Ed25519 signature over
  * `WORKED_EXAMPLE_CANONICAL`. Reproducible on any machine; see `makeDeterministicKeypair`.
  */
-const GOLDEN_PUBLIC_KEY_SPKI_B64U =
-  'MCowBQYDK2VwAyEAebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ';
+const GOLDEN_PUBLIC_KEY_SPKI_B64U = 'MCowBQYDK2VwAyEAebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ';
 const GOLDEN_SIGNATURE_B64U =
   'Zq8MZuROHEygKRQQmiXTWU80omRN4zPfaMYGt2NIBQot3pApk4_v92ljRvsblHar0nyGhoD2dsKrks20hsonAw';
 
@@ -130,8 +180,7 @@ function makeCustodySeam(keypair, keyId = 'test-custody-key-1') {
  * @returns {{transport: Function, calls: object[]}}
  */
 function makeTransport(response) {
-  const scripted =
-    arguments.length === 0 ? { status: 200, body: { accepted: true } } : response;
+  const scripted = arguments.length === 0 ? { status: 200, body: { accepted: true } } : response;
   const calls = [];
   return {
     calls,
@@ -179,29 +228,31 @@ function deepText(value) {
 }
 
 /**
- * Builds a jest-side stand-in for the future endpoint agent: it authenticates reply frames with a
- * throwaway device keypair, through the one audited signing primitive plus the named GM-56 opt-in
- * that exists for exactly this caller (the endpoint-side reply path). The device signs; nothing on
- * the backend path ever reaches `allowRelayAudience`.
+ * Builds a jest-side stand-in for the endpoint agent's RESULT half (GM-80).
  *
- * The verifier the sink must pin is built from the same throwaway keypair, so a test that witnesses a
- * sink-accepted success has witnessed the device's own authentication, not the test's.
+ * It authenticates `CBHR-RPC-RESULT-V2` frames with a throwaway DEVICE keypair, and it does NOT
+ * import `../resultFrame.js`: the twelve-field order below and the 0x1F join are written out as
+ * LITERALS here, the same way W7's own `test/_fixtures.js` builds them. So a spec that witnesses the
+ * sink accepting one of these frames has witnessed a signature over bytes THIS FILE produced, not a
+ * module agreeing with itself — which is the whole point of the W6/W7 evidence standard.
+ *
+ * The verifier the sink must pin is built from the same throwaway public key, so a test that
+ * witnesses a sink-accepted success has witnessed the device's own authentication, not the test's.
  * @param {object} relayModule the relay layer (`..`)
  * @param {object} [options]
- * @param {string} [options.keyId] opaque device signing-key label
+ * @param {string} [options.keyId] opaque device signing-key label (the transport `keyId`)
  * @param {() => number} [options.now] injected clock (epoch-ms)
- * @returns {{keypair, keyId, minter, deviceAuthority: (overrides) => object}}
+ * @returns {{keypair, keyId, minter, deviceAuthority: object}}
  */
-function makeDeviceResultMinter(relayModule, { keyId = 'test-device-key-1', now = () => Date.now() } = {}) {
+function makeDeviceResultMinter(
+  relayModule,
+  { keyId = 'test-device-key-1', now = () => Date.now() } = {},
+) {
   const keypair = makeTestKeypair();
-  const signer = relayModule.createEnvelopeSigner(
-    { sign: async (canonicalBytes) => keypair.signBytes(canonicalBytes), keyId },
-    { allowRelayAudience: true },
-  );
 
   /**
    * The device's own identity as the backend observed it: the frozen fixture authority with the
-   * deviceKeyId of THIS throwaway keypair. Ledger reservations and reply frames both use it, so the
+   * deviceKeyId of THIS throwaway keypair. Ledger reservations and result frames both use it, so the
    * sink's binding check compares like with like — the signer and the named key are the same key.
    */
   const deviceAuthority = Object.freeze({
@@ -210,49 +261,86 @@ function makeDeviceResultMinter(relayModule, { keyId = 'test-device-key-1', now 
   });
 
   /**
-   * Mints a result frame for one call: the result DOCUMENT bytes travel in `argsB64u`, and their
-   * sha256 is the signed field 15, so the outcome is bound by the device's own Ed25519 authentication.
+   * Mints one `CBHR-RPC-RESULT-V2` frame. Every parameter exists for a hostile case a spec must be
+   * able to express WITHOUT touching the production reader.
    * @param {object} params
-   * @param {string} params.callId
-   * @param {string} params.outcome one of the device-reported outcome words
-   * @param {string} [params.toolName]
-   * @param {Buffer} [params.bytes] exact result bytes; defaults to the document JSON
-   * @param {object} [params.core] per-field overrides for hostile cases (a different device, audience, epoch...)
-   * @param {string} [params.argsB64u] transported-bytes override (a digest disagreement, hostile case)
-   * @param {string} [params.frameCallId] the frame's own transport callId override (hostile case)
+   * @param {string} params.callId the call this result is for (the SIGNED core field 3)
+   * @param {string} [params.outcome] `succeeded` | `refused` | `uncertain`, or any word (hostile)
+   * @param {Buffer} [params.bytes] exact result bytes; defaults to a report document
+   * @param {object} [params.core] per-field core overrides (identity, clock, tag, outcome...)
+   * @param {string} [params.argsB64u] transported-bytes override (a digest disagreement)
+   * @param {string} [params.signatureB64u] signature override (a forgery shape)
+   * @param {string} [params.audience] transport audience override
+   * @param {object} [params.transport] further transport-field overrides
+   * @param {string[]} [params.droppedKeys] core fields to omit (missing-field cases)
+   * @param {object} [params.extraKeys] non-core keys to smuggle in (extra-field cases)
    * @param {string} [params.nonce] fixed nonce override (replay cases)
-   * @returns {Promise<{payload: string, frame: object, bytes: Buffer, document: object|null}>}
+   * @param {string} [params.requestId] fixed requestId override
+   * @returns {object} `{payload, frame, core, bytes, canonical}`
    */
-  async function mintResultFrame({ callId, outcome, toolName = 'read_file', bytes = null, core = {}, argsB64u, frameCallId, nonce = null }) {
-    const document = bytes === null ? { callId, outcome, toolName } : null;
-    const resultBytes = bytes === null ? Buffer.from(JSON.stringify(document), 'utf8') : bytes;
+  function mintResultFrame({
+    callId,
+    outcome = 'succeeded',
+    bytes = null,
+    core = {},
+    argsB64u,
+    signatureB64u,
+    audience,
+    transport = {},
+    droppedKeys = [],
+    extraKeys = {},
+    nonce = null,
+    requestId = null,
+  }) {
+    const resultBytes =
+      bytes === null
+        ? Buffer.from(
+            JSON.stringify({ status: outcome, toolName: 'read_file', callId, reportedAtMs: now() }),
+            'utf8',
+          )
+        : bytes;
     const issuedAt = now();
-    const signed = await signer.signCore({
-      requestId: nodeCrypto.randomUUID(),
+    const coreFields = {
+      tag: RESULT_FRAME_TAG,
+      requestId: requestId ?? nodeCrypto.randomUUID(),
+      callId,
       nonce: nonce ?? nodeCrypto.randomBytes(16).toString('base64url'),
       issuedAt: String(issuedAt),
       deadlineMs: String(issuedAt + 120000),
-      epoch: String(deviceAuthority.epoch),
       grantId: deviceAuthority.grantId,
-      ownerPrincipalId: deviceAuthority.ownerPrincipalId,
-      tenantId: deviceAuthority.tenantId,
+      epoch: String(deviceAuthority.epoch),
       deviceId: deviceAuthority.deviceId,
       deviceKeyId: deviceAuthority.deviceKeyId,
-      toolName,
-      opKind: 'command',
-      audience: 'relay',
+      outcome,
       argsDigestHex: nodeCrypto.createHash('sha256').update(resultBytes).digest('hex'),
       ...core,
-    });
-    const frame = relayModule.toWireFrame({
-      signed,
+    };
+    const signedCore = { ...coreFields };
+    for (const key of droppedKeys) {
+      delete signedCore[key];
+    }
+    const canonical = resultCanonicalFor(signedCore);
+    const frame = {
+      ...coreFields,
+      signatureB64u: signatureB64u ?? keypair.signBytes(canonical),
+      keyId,
       argsB64u: argsB64u !== undefined ? argsB64u : resultBytes.toString('base64url'),
-      callId: frameCallId !== undefined ? frameCallId : callId,
-    });
-    return { payload: JSON.stringify(frame), frame, bytes: resultBytes, document };
+      audience: audience ?? 'relay',
+      direction: 'endpoint-to-relay',
+      correlation: 'verified',
+      ...transport,
+      ...extraKeys,
+    };
+    return {
+      payload: JSON.stringify(frame),
+      frame,
+      core: Object.freeze(signedCore),
+      bytes: resultBytes,
+      canonical,
+    };
   }
 
-  return { keypair, keyId, minter: { mintResultFrame }, signer, deviceAuthority };
+  return { keypair, keyId, minter: { mintResultFrame }, deviceAuthority };
 }
 
 module.exports = {
@@ -266,6 +354,9 @@ module.exports = {
   GOLDEN_PUBLIC_KEY_SPKI_B64U,
   GOLDEN_SIGNATURE_B64U,
   AUTHORITY,
+  RESULT_FRAME_TAG,
+  RESULT_FIXTURE_FIELD_ORDER,
+  resultCanonicalFor,
   makeTestKeypair,
   makeDeterministicKeypair,
   makeCustodySeam,
@@ -273,4 +364,3 @@ module.exports = {
   makeDeviceResultMinter,
   deepText,
 };
-

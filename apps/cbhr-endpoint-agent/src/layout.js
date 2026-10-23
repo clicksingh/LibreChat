@@ -28,7 +28,7 @@ const V2_TAG = 'CBHR-RPC-V2';
 const RESULT_TAG = 'CBHR-RPC-RESULT-V2';
 
 /** The one separator byte of the canonical law. Never appears inside a field value. */
-const UNIT_SEPARATOR = ' ';
+const UNIT_SEPARATOR = '\u001f';
 
 /** Fifteen core properties, in the exact fixed canonical order. Written from the contract text. */
 const FIELD_ORDER = Object.freeze([

@@ -389,6 +389,10 @@ describe('C. no key material is even reachable from the production modules', () 
       './replayWindow',
       './argsDigest',
       './relayDispatchClient',
+      // GM-80: the CBHR-RPC-RESULT-V2 frame's own reader/verifier (resultFrame.js), required by the
+      // adapted sink. It is a layout+verification module like envelopeCore/envelopeVerifier: it pins
+      // a DEVICE public key, never signs, and holds no key material.
+      './resultFrame',
       '../crypto',
     ]);
     const unexpected = requires.filter((entry) => !allowed.has(entry.specifier));
