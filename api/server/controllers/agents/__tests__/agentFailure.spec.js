@@ -26,6 +26,21 @@ describe('Model failure -> durable, truthful, non-replaying SSE errors', () => {
   });
 });
 
+describe('safe application validation errors', () => {
+  it('publishes a bounded MCP-tool configuration error without exposing arbitrary provider text', () => {
+    expect(
+      normalizeAgentFailure({
+        code: 'AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE',
+        status: 503,
+        message:
+          'Agent "user-controlled-name" is configured to use MCP tools, but none are available.',
+      }),
+    ).toBe(
+      'AGENT_TOOL_CONFIGURATION: This agent is configured to use MCP tools, but none are available. Verify that the MCP server is connected and this agent can access its selected tools, then try again.',
+    );
+  });
+});
+
 describe('live error lifecycle: save error even when SSE transport is unavailable', () => {
   const forced400 = {
     status: 400,
