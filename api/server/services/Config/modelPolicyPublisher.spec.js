@@ -1,27 +1,57 @@
-const { digestProjection, publishModelPolicyProjection } = require('./modelPolicyPublisher');
+const { commitManagedModelPolicy } = require('./modelPolicyPublisher');
+
+const AUDIENCES = {
+  USER: 'locked-current-default',
+  ADMIN: 'managed-catalog',
+};
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function fakeDeps(seed) {
+function makeInput({
+  expectedVersion = 0,
+  defaultDeploymentId = 'deployment-b',
+  deployments = [
+    { deploymentId: 'deployment-b', model: 'model-b' },
+    { deploymentId: 'deployment-a', model: 'model-a' },
+  ],
+} = {}) {
+  return {
+    expectedVersion,
+    endpointName: 'CBHR AI',
+    actor: 'admin@example.invalid',
+    source: 'cbhr-admin',
+    policy: {
+      companyDefaultDeploymentId: defaultDeploymentId,
+      deployments,
+      audiences: AUDIENCES,
+    },
+  };
+}
+
+function fakeDeps(seed = {}) {
   let docs = clone(seed);
-  let publication = null;
+  let headVersion = 0;
+  let revision = null;
   const writes = [];
   let invalidations = 0;
 
   function makeSession() {
     let snapshotDocs;
-    let snapshotPublication;
+    let snapshotHeadVersion;
+    let snapshotRevision;
     return {
       async withTransaction(fn) {
         snapshotDocs = clone(docs);
-        snapshotPublication = publication ? { ...publication } : null;
+        snapshotHeadVersion = headVersion;
+        snapshotRevision = revision ? clone(revision) : null;
         try {
           await fn();
         } catch (error) {
           docs = snapshotDocs;
-          publication = snapshotPublication;
+          headVersion = snapshotHeadVersion;
+          revision = snapshotRevision;
           throw error;
         }
       },
@@ -33,8 +63,11 @@ function fakeDeps(seed) {
     get docs() {
       return docs;
     },
-    get publication() {
-      return publication;
+    get headVersion() {
+      return headVersion;
+    },
+    get revision() {
+      return revision;
     },
     writes,
     invalidations: () => invalidations,
@@ -57,32 +90,35 @@ function fakeDeps(seed) {
       writes.push({ id, fields, priority });
       return doc;
     },
-    claimModelPolicyPublication: async ({ policyVersion, digest }, session) => {
+    commitModelPolicyRevision: async (candidate, options, session) => {
       if (!session) throw Error('session required');
-      if (!publication) {
-        if (policyVersion !== 1) {
-          const error = Error('First publication must be revision 1');
-          error.code = 'MODEL_POLICY_PUBLICATION_CONFLICT';
-          throw error;
-        }
-        publication = { key: 'managed-models', policyVersion, digest };
-        return { publication, transition: 'create' };
-      }
-      if (policyVersion === publication.policyVersion) {
-        if (digest !== publication.digest) {
-          const error = Error('Revision replayed with different content');
-          error.code = 'MODEL_POLICY_PUBLICATION_CONFLICT';
-          throw error;
-        }
-        return { publication, transition: 'noop' };
-      }
-      if (policyVersion !== publication.policyVersion + 1) {
-        const error = Error('Revision gap');
-        error.code = 'MODEL_POLICY_PUBLICATION_CONFLICT';
+      if (options.expectedVersion !== headVersion) {
+        const error = Error('Managed-model policy changed; reload and retry');
+        error.code = 'MODEL_POLICY_REVISION_CONFLICT';
+        error.status = 409;
         throw error;
       }
-      publication = { ...publication, policyVersion, digest };
-      return { publication, transition: 'advance' };
+
+      if (
+        revision &&
+        revision.companyDefaultDeploymentId === candidate.companyDefaultDeploymentId &&
+        JSON.stringify(revision.activeDeploymentIds) ===
+          JSON.stringify(candidate.activeDeploymentIds) &&
+        revision.audiences.USER === candidate.audiences.USER &&
+        revision.audiences.ADMIN === candidate.audiences.ADMIN
+      ) {
+        return { version: headVersion, revision, noop: true };
+      }
+
+      headVersion += 1;
+      revision = {
+        ...clone(candidate),
+        version: headVersion,
+        parentVersion: options.expectedVersion,
+        publishedBy: options.actor,
+        source: options.source,
+      };
+      return { version: headVersion, revision, noop: false };
     },
     invalidateConfigCaches: async () => {
       invalidations += 1;
@@ -97,29 +133,8 @@ function fakeDeps(seed) {
   };
 }
 
-const firstInput = {
-  policyVersion: 1,
-  endpointName: 'CBHR AI',
-  companyDefault: 'model-b',
-  adminModels: ['model-b', 'model-a'],
-};
-
 describe('transactional model policy publisher', () => {
-  test('digest is deterministic and excludes policy version', () => {
-    const a = digestProjection({
-      ...firstInput,
-      roles: { a: 1 },
-    });
-    const b = digestProjection({
-      ...firstInput,
-      policyVersion: 99,
-      roles: { a: 1 },
-    });
-    expect(a).toBe(b);
-    expect(a).toMatch(/^[a-f0-9]{64}$/);
-  });
-
-  test('preserves unrelated config and writes all managed role projection in one transaction', async () => {
+  test('commits canonical deployment policy and preserves unrelated LibreChat config', async () => {
     const deps = fakeDeps({
       __base__: {
         priority: 10,
@@ -154,16 +169,23 @@ describe('transactional model policy publisher', () => {
       },
     });
 
-    const result = await publishModelPolicyProjection(firstInput, deps);
-    expect(result.transition).toBe('create');
-    expect(result.noop).toBe(false);
+    const result = await commitManagedModelPolicy(makeInput(), deps);
+
+    expect(result).toMatchObject({
+      policyVersion: 1,
+      transition: 'create',
+      policyNoop: false,
+      noop: false,
+    });
     expect(result.writes).toHaveLength(3);
-    expect(deps.publication.policyVersion).toBe(1);
+    expect(deps.headVersion).toBe(1);
+    expect(deps.revision.companyDefaultDeploymentId).toBe('deployment-b');
+    expect(deps.revision.activeDeploymentIds).toEqual(['deployment-b', 'deployment-a']);
     expect(deps.invalidations()).toBe(1);
 
     const baseList = deps.docs.__base__.overrides.endpoints.custom;
-    expect(baseList.find((x) => x.name === 'Other API').baseURL).toBe('internal-other');
-    const baseManaged = baseList.find((x) => x.name === 'CBHR AI');
+    expect(baseList.find((item) => item.name === 'Other API').baseURL).toBe('internal-other');
+    const baseManaged = baseList.find((item) => item.name === 'CBHR AI');
     expect(baseManaged.baseURL).toBe('internal-bridge');
     expect(baseManaged.tokenConfig).toEqual({ old: true });
     expect(baseManaged.models.default).toEqual(['model-b']);
@@ -175,57 +197,69 @@ describe('transactional model policy publisher', () => {
     expect(deps.docs.ADMIN.overrides.interface.modelSelect).toBe(true);
   });
 
-  test('same revision and digest is an idempotent no-op without cache invalidation', async () => {
+  test('same canonical policy at the current expected version is a complete no-op', async () => {
     const deps = fakeDeps({});
-    await publishModelPolicyProjection(firstInput, deps);
+    await commitManagedModelPolicy(makeInput(), deps);
     expect(deps.invalidations()).toBe(1);
     deps.writes.length = 0;
 
-    const second = await publishModelPolicyProjection(firstInput, deps);
-    expect(second.transition).toBe('noop');
-    expect(second.noop).toBe(true);
-    expect(second.writes).toEqual([]);
+    const second = await commitManagedModelPolicy(makeInput({ expectedVersion: 1 }), deps);
+
+    expect(second).toMatchObject({
+      policyVersion: 1,
+      transition: 'noop',
+      policyNoop: true,
+      noop: true,
+      writes: [],
+    });
+    expect(deps.headVersion).toBe(1);
     expect(deps.writes).toHaveLength(0);
     expect(deps.invalidations()).toBe(1);
   });
 
-  test('failed config write rolls back publication revision and earlier config writes', async () => {
+  test('failed config projection rolls back canonical revision and earlier role writes together', async () => {
     const deps = fakeDeps({});
     deps.failPatchFor('ADMIN');
 
-    await expect(publishModelPolicyProjection(firstInput, deps)).rejects.toThrow(
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toThrow(
       'synthetic config write failure',
     );
 
-    expect(deps.publication).toBeNull();
+    expect(deps.headVersion).toBe(0);
+    expect(deps.revision).toBeNull();
     expect(deps.docs).toEqual({});
     expect(deps.invalidations()).toBe(0);
   });
 
-  test('next exact revision advances and stale/gapped replay is rejected', async () => {
+  test('next exact revision advances while stale or gapped expected versions are rejected', async () => {
     const deps = fakeDeps({});
-    await publishModelPolicyProjection(firstInput, deps);
+    await commitManagedModelPolicy(makeInput(), deps);
 
-    const next = {
-      ...firstInput,
-      policyVersion: 2,
-      companyDefault: 'model-a',
-      adminModels: ['model-a', 'model-b'],
-    };
-    const advanced = await publishModelPolicyProjection(next, deps);
+    const next = makeInput({
+      expectedVersion: 1,
+      defaultDeploymentId: 'deployment-a',
+      deployments: [
+        { deploymentId: 'deployment-a', model: 'model-a' },
+        { deploymentId: 'deployment-b', model: 'model-b' },
+      ],
+    });
+    const advanced = await commitManagedModelPolicy(next, deps);
+
     expect(advanced.transition).toBe('advance');
-    expect(deps.publication.policyVersion).toBe(2);
+    expect(advanced.policyVersion).toBe(2);
+    expect(deps.headVersion).toBe(2);
+    expect(deps.revision.companyDefaultDeploymentId).toBe('deployment-a');
     expect(deps.docs.__base__.overrides.endpoints.custom[0].models.default).toEqual(['model-a']);
 
     await expect(
-      publishModelPolicyProjection({ ...firstInput, policyVersion: 1 }, deps),
-    ).rejects.toMatchObject({ code: 'MODEL_POLICY_PUBLICATION_CONFLICT' });
+      commitManagedModelPolicy(makeInput({ expectedVersion: 1 }), deps),
+    ).rejects.toMatchObject({ code: 'MODEL_POLICY_REVISION_CONFLICT' });
     await expect(
-      publishModelPolicyProjection({ ...next, policyVersion: 4 }, deps),
-    ).rejects.toMatchObject({ code: 'MODEL_POLICY_PUBLICATION_CONFLICT' });
+      commitManagedModelPolicy(makeInput({ expectedVersion: 4 }), deps),
+    ).rejects.toMatchObject({ code: 'MODEL_POLICY_REVISION_CONFLICT' });
   });
 
-  test('invalid projection fails before opening persistence transaction', async () => {
+  test('invalid commit payload fails before a Mongo session is opened', async () => {
     const deps = fakeDeps({});
     let sessions = 0;
     deps.startSession = async () => {
@@ -233,9 +267,10 @@ describe('transactional model policy publisher', () => {
       throw Error('must not start');
     };
 
-    await expect(
-      publishModelPolicyProjection({ ...firstInput, companyDefault: 'not-in-catalogue' }, deps),
-    ).rejects.toMatchObject({ code: 'MODEL_POLICY_PROJECTION_INVALID' });
+    const invalid = makeInput({ defaultDeploymentId: 'missing' });
+    await expect(commitManagedModelPolicy(invalid, deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_PROJECTION_INVALID',
+    });
     expect(sessions).toBe(0);
     expect(deps.invalidations()).toBe(0);
   });
