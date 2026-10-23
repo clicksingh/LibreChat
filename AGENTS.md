@@ -24,3 +24,5 @@ The target architecture is documented in companion Admin PR #1 at `docs/model-po
 - Any new config mutation path must use LibreChat's validated config service and its cache invalidation hooks; do not introduce new sidecar/direct Mongo writes.
 - Reasoning/thinking controls are canonical capability data plus reviewed adapters. React must never contain model/vendor-specific wire syntax.
 - Do not claim model-policy completion without normal-chat USER and ADMIN Playwright tests that verify the actual upstream model/control request.
+
+- For CBHR managed models, the internal publisher is the runtime transaction boundary: canonical policy revision and owned role projections commit in one Mongo transaction. Do not add a second publication/replay collection or let CBHR Admin pre-commit the revision before calling LibreChat.
