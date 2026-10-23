@@ -1,3 +1,7 @@
+import { createDeviceTenantPolicyDefaultModel } from './deviceTenantPolicyDefault';
+import { createDevicePolicyAssignmentModel } from './devicePolicyAssignment';
+import { createDeviceToolScopeModel } from './deviceToolScope';
+import { createAuditLogModel, createAuditLogCounterModel } from './auditLog';
 import { createSkillSyncCredentialModel } from './skillSyncCredential';
 import { createSkillSyncStatusModel } from './skillSyncStatus';
 import { createConversationTagModel } from './conversationTag';
@@ -52,6 +56,11 @@ export function createModels(mongoose: typeof import('mongoose')): {
   ChatProject: ReturnType<typeof createChatProjectModel>;
   Workspace: ReturnType<typeof createWorkspaceModel>;
   QuotaPolicy: ReturnType<typeof createQuotaPolicyModel>;
+  DeviceToolScope: ReturnType<typeof createDeviceToolScopeModel>;
+  DevicePolicyAssignment: ReturnType<typeof createDevicePolicyAssignmentModel>;
+  DeviceTenantPolicyDefault: ReturnType<typeof createDeviceTenantPolicyDefaultModel>;
+  AuditLog: ReturnType<typeof createAuditLogModel>;
+  AuditLogCounter: ReturnType<typeof createAuditLogCounterModel>;
   DeviceAuthority: ReturnType<typeof createDeviceAuthorityModel>;
   PairingSession: ReturnType<typeof createPairingSessionModel>;
   Challenge: ReturnType<typeof createChallengeModel>;
@@ -95,6 +104,11 @@ export function createModels(mongoose: typeof import('mongoose')): {
     ChatProject: createChatProjectModel(mongoose),
     Workspace: createWorkspaceModel(mongoose),
     QuotaPolicy: createQuotaPolicyModel(mongoose),
+    DeviceToolScope: createDeviceToolScopeModel(mongoose),
+    DevicePolicyAssignment: createDevicePolicyAssignmentModel(mongoose),
+    DeviceTenantPolicyDefault: createDeviceTenantPolicyDefaultModel(mongoose),
+    AuditLog: createAuditLogModel(mongoose),
+    AuditLogCounter: createAuditLogCounterModel(mongoose),
     DeviceAuthority: createDeviceAuthorityModel(mongoose),
     PairingSession: createPairingSessionModel(mongoose),
     Challenge: createChallengeModel(mongoose),

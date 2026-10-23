@@ -35,6 +35,8 @@ import { createConversationMethods, type ConversationMethods } from './conversat
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
 import { createWorkspaceMethods, type WorkspaceMethods } from './workspace';
 import { createQuotaPolicyMethods, type WorkspaceQuotaMethods } from './quotaPolicy';
+import { createDevicePolicyMethods, type DevicePolicyStorageMethods } from './devicePolicy';
+import { createAuditLogMethods, computeAuditEntryHash, type AuditLogMethods } from './auditLog';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -91,6 +93,7 @@ import { createAgentMethods, type AgentMethods, type AgentDeps } from './agent';
 import { createConfigMethods, type ConfigMethods } from './config';
 
 export { RoleConflictError, DEFAULT_REFRESH_TOKEN_EXPIRY, DEFAULT_SESSION_EXPIRY };
+export { computeAuditEntryHash };
 export { tokenValues, cacheTokenValues, premiumTokenValues, defaultRate, createTxMethods };
 export { permissionBitSupersets };
 export {
@@ -132,6 +135,8 @@ export type AllMethods = UserMethods &
   ChatProjectMethods &
   WorkspaceMethods &
   WorkspaceQuotaMethods &
+  DevicePolicyStorageMethods &
+  AuditLogMethods &
   TxMethods &
   TransactionMethods &
   SpendTokensMethods &
@@ -262,6 +267,9 @@ export function createMethods(
     ...createChatProjectMethods(mongoose),
     ...createWorkspaceMethods(mongoose),
     ...createQuotaPolicyMethods(mongoose),
+    /* Admin policy plane (W10b): the device-policy storage seam and the audit recorder (GM-81) */
+    ...createDevicePolicyMethods(mongoose),
+    ...createAuditLogMethods(mongoose),
     /* Tier 3 */
     ...txMethods,
     ...transactionMethods,
@@ -305,6 +313,8 @@ export type {
   ChatProjectMethods,
   WorkspaceMethods,
   WorkspaceQuotaMethods,
+  DevicePolicyStorageMethods,
+  AuditLogMethods,
   TxMethods,
   TransactionMethods,
   SpendTokensMethods,
