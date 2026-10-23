@@ -22,6 +22,7 @@ async function main() {
   if (!process.env.MONGO_URI) throw new Error('MONGO_URI is required');
   await mongoose.connect(process.env.MONGO_URI);
   createModels(mongoose);
+  await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
   const db = createMethods(mongoose);
   let invalidations = 0;
   const deps = {
