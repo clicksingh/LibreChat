@@ -1,0 +1,23 @@
+{
+  "name": "cbhr-endpoint-agent",
+  "version": "0.1.0-lab",
+  "private": true,
+  "description": "CBHR RDC endpoint agent core (W7): envelope verification against a pinned backend key, tool dispatch under GM-72 (server ceiling \u2229 device floor), and device-signed result frames. LAB ARTIFACT for the owner's own machine (GM-73); NOT the employee deliverable, and it claims no graphical control.",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "main": "src/agent.js",
+  "bin": {
+    "cbhr-endpoint-agent": "run-agent.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test/run-tests.js",
+    "init": "node run-agent.js init",
+    "describe": "node run-agent.js describe",
+    "tools": "node run-agent.js tools",
+    "check": "node -e \"const fs=require('fs'),p=require('path'),{execFileSync}=require('child_process');const walk=(d)=>fs.readdirSync(d,{withFileTypes:true}).flatMap((e)=>e.name==='node_modules'?[]:e.isDirectory()?walk(p.join(d,e.name)):[p.join(d,e.name)]);const files=walk(__dirname).filter((f)=>/\\.(js|cjs)$/.test(f));for(const f of files){execFileSync(process.execPath,['--check',f],{stdio:'inherit'});}console.log('node --check: '+files.length+' files OK');\""
+  },
+  "dependencies": {}
+}

@@ -42,6 +42,18 @@
  * not freeze a relay URL path: the relay (workstream W1) has not defined its route yet, and inventing
  * one here would be a format invention, not a contract. L (integration) wires the transport; the
  * frame shape below is what crosses that seam.
+ *
+ * THE DISPATCH LEDGER SEAM (W6 / GM-43) — OPTIONAL, AND OFF BY DEFAULT
+ * A result can only be correlated to a call the platform knows it dispatched. When a
+ * `createDispatchLedger()` is supplied, this client RESERVES the call (`callId`) immediately before
+ * the frame leaves, so the ledger contains exactly the calls that reached the wire:
+ *   - the relay REFUSED the frame (4xx / `{accepted:false}`)  -> the reservation is RELEASED, because
+ *     no result can legitimately arrive for it;
+ *   - the outcome is UNKNOWN (5xx, throw, malformed answer)   -> the reservation is KEPT, because the
+ *     frame may have been delivered and its result must still be correlatable;
+ *   - nothing was signed or sent                              -> nothing was reserved.
+ * With no ledger the client behaves exactly as before (this seam is additive); with one, a call id
+ * that is already live is refused before anything is sent, so one call id never denotes two calls.
  */
 
 const nodeCrypto = require('node:crypto');
@@ -444,6 +456,8 @@ function failureResult(error, { delivered, requestId, deviceId }) {
  * @param {{verifySignature: Function}} [options.verifier] optional pre-dispatch self-check
  * @param {(authority: object) => (boolean|Promise<boolean>)} [options.assertAuthorityCurrent]
  *   optional I-0 re-check inside the dispatch window
+ * @param {object} [options.ledger] optional `createDispatchLedger()` surface `{ reserve(call), release(callId) }`:
+ *   the correlation memory for the W6 uplink. Off by default; see the module header.
  * @param {object} [options.logger] fixed-message-only warn sink
  * @param {() => string} [options.nonceFactory] 128-bit CSPRNG nonce minter (injectable for tests)
  * @param {() => string} [options.requestIdFactory] UUIDv4 minter (injectable for tests)
@@ -453,6 +467,7 @@ function failureResult(error, { delivered, requestId, deviceId }) {
 function createRelayDispatchClient(options = {}) {
   const { transport, signer, replayWindow = null, verifier = null, assertAuthorityCurrent = null } =
     options;
+  const ledger = options.ledger ?? null;
   const clock = options.clock ?? { now: () => Date.now() };
   const logger = options.logger ?? null;
   const cryptoModule = options.crypto ?? deviceCrypto;
@@ -511,6 +526,18 @@ function createRelayDispatchClient(options = {}) {
       'SIGNER_SEAM_INVALID',
       'assertAuthorityCurrent must be a function when supplied',
       { field: 'assertAuthorityCurrent' },
+    );
+  }
+  if (
+    ledger !== null &&
+    (typeof ledger !== 'object' ||
+      typeof ledger.reserve !== 'function' ||
+      typeof ledger.release !== 'function')
+  ) {
+    throw relayFailure(
+      'DISPATCH_LEDGER_ENTRY_INVALID',
+      'the dispatch ledger seam must expose { reserve(call), release(callId) } when supplied',
+      { field: 'ledger' },
     );
   }
   if (typeof nonceFactory !== 'function' || typeof requestIdFactory !== 'function') {
@@ -640,6 +667,39 @@ function createRelayDispatchClient(options = {}) {
       return failureResult(err, { delivered: 'no', requestId });
     }
 
+    // W6/GM-43: reserve the call BEFORE it can reach the wire, so the ledger holds
+    // exactly the calls a result may legitimately be correlated to.
+    let reserved = false;
+    if (ledger !== null && callId !== null) {
+      try {
+        const reservation = await ledger.reserve({
+          callId,
+          deviceId: authority.deviceId,
+          deviceKeyId: authority.deviceKeyId,
+          tenantId: authority.tenantId,
+          grantId: authority.grantId,
+          epoch: authority.epoch,
+          requestId,
+          toolName,
+          opKind,
+        });
+        if (reservation.ok !== true) {
+          return failureResult(reservation.error, { delivered: 'no', requestId, deviceId: authority.deviceId });
+        }
+        reserved = true;
+      } catch (err) {
+        warnFixed(logger, 'dispatch ledger reservation failed');
+        return failureResult(
+          relayFailure(
+            'DISPATCH_LEDGER_ENTRY_INVALID',
+            'the dispatch ledger could not record this call, so no result could ever be correlated to it; nothing was sent',
+            { cause: err },
+          ),
+          { delivered: 'no', requestId, deviceId: authority.deviceId },
+        );
+      }
+    }
+
     let response;
     try {
       response = await transport({ deviceId: authority.deviceId, frame });
@@ -657,6 +717,15 @@ function createRelayDispatchClient(options = {}) {
 
     const verdict = interpretRelayResponse(response);
     if (verdict.accepted !== true) {
+      if (reserved === true && verdict.delivered === 'refused' && ledger !== null) {
+        // The relay did not forward it, so no result can legitimately arrive: withdraw the call so a
+        // stray result for that call id is refused as unknown instead of completing a call never sent.
+        try {
+          await ledger.release(callId, 'relay-refused');
+        } catch {
+          warnFixed(logger, 'dispatch ledger release failed');
+        }
+      }
       if (verdict.delivered === 'unknown') {
         warnFixed(logger, 'relay dispatch outcome uncertain');
       }

@@ -1,0 +1,29 @@
+# The device tool configuration (GM-72 tier 2) — the file the OWNER edits.
+#
+# This is a COPY for reference. The live file is `tools.json` in the agent root, which is
+# `%USERPROFILE%\.cbhr\endpoint-agent\tools.json` by default, written on first use by
+# `node run-agent.js init` and never placed inside this repository.
+#
+# The rule, in one line: EFFECTIVE = SERVER CEILING ∩ THIS FILE, and this file may only NARROW.
+#
+# * A tool listed here that the server ceiling does not permit makes the WHOLE file invalid
+#   (`ENDPOINT_DEVICE_CONFIG_INVALID`) and the agent refuses to start. It is NOT silently dropped:
+#   GM-72 requires that a capability be visibly off "and by whose choice", and a silent drop would
+#   leave you seeing a tool as on while the platform refuses it.
+# * A tool inside the ceiling that you leave out here is simply OFF on this PC. The platform is told
+#   so, and the panel shows it as your choice. Turning it back on happens HERE, on the PC — never in
+#   the browser (the same principle as renewal, GM-12/R5).
+# * Two names can never be enabled, whatever this file says: `track_ui_event` (internal handler,
+#   always relay-denied 403) and `give_feedback_to_desktop_commander` (third-party egress, denied for
+#   the pilot). The four approval-gated tools stay approval-gated even when listed.
+#
+# The shipped default below is the NARROWEST useful set: the three read-only tools this lab agent
+# actually implements. Everything else in the ceiling would be refused at dispatch anyway with
+# `ENDPOINT_TOOL_NOT_IMPLEMENTED`, so leaving them out keeps the effective set honest.
+#
+# Check what each side thinks with:  node run-agent.js tools
+
+{
+  "version": 1,
+  "enabled": ["get_file_info", "list_directory", "read_file"]
+}

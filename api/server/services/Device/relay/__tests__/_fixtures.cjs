@@ -178,6 +178,83 @@ function deepText(value) {
   return parts.join('\n');
 }
 
+/**
+ * Builds a jest-side stand-in for the future endpoint agent: it authenticates reply frames with a
+ * throwaway device keypair, through the one audited signing primitive plus the named GM-56 opt-in
+ * that exists for exactly this caller (the endpoint-side reply path). The device signs; nothing on
+ * the backend path ever reaches `allowRelayAudience`.
+ *
+ * The verifier the sink must pin is built from the same throwaway keypair, so a test that witnesses a
+ * sink-accepted success has witnessed the device's own authentication, not the test's.
+ * @param {object} relayModule the relay layer (`..`)
+ * @param {object} [options]
+ * @param {string} [options.keyId] opaque device signing-key label
+ * @param {() => number} [options.now] injected clock (epoch-ms)
+ * @returns {{keypair, keyId, minter, deviceAuthority: (overrides) => object}}
+ */
+function makeDeviceResultMinter(relayModule, { keyId = 'test-device-key-1', now = () => Date.now() } = {}) {
+  const keypair = makeTestKeypair();
+  const signer = relayModule.createEnvelopeSigner(
+    { sign: async (canonicalBytes) => keypair.signBytes(canonicalBytes), keyId },
+    { allowRelayAudience: true },
+  );
+
+  /**
+   * The device's own identity as the backend observed it: the frozen fixture authority with the
+   * deviceKeyId of THIS throwaway keypair. Ledger reservations and reply frames both use it, so the
+   * sink's binding check compares like with like — the signer and the named key are the same key.
+   */
+  const deviceAuthority = Object.freeze({
+    ...AUTHORITY,
+    deviceKeyId: relayModule.keyIdForPublicKey(keypair.publicKeySpkiB64u),
+  });
+
+  /**
+   * Mints a result frame for one call: the result DOCUMENT bytes travel in `argsB64u`, and their
+   * sha256 is the signed field 15, so the outcome is bound by the device's own Ed25519 authentication.
+   * @param {object} params
+   * @param {string} params.callId
+   * @param {string} params.outcome one of the device-reported outcome words
+   * @param {string} [params.toolName]
+   * @param {Buffer} [params.bytes] exact result bytes; defaults to the document JSON
+   * @param {object} [params.core] per-field overrides for hostile cases (a different device, audience, epoch...)
+   * @param {string} [params.argsB64u] transported-bytes override (a digest disagreement, hostile case)
+   * @param {string} [params.frameCallId] the frame's own transport callId override (hostile case)
+   * @param {string} [params.nonce] fixed nonce override (replay cases)
+   * @returns {Promise<{payload: string, frame: object, bytes: Buffer, document: object|null}>}
+   */
+  async function mintResultFrame({ callId, outcome, toolName = 'read_file', bytes = null, core = {}, argsB64u, frameCallId, nonce = null }) {
+    const document = bytes === null ? { callId, outcome, toolName } : null;
+    const resultBytes = bytes === null ? Buffer.from(JSON.stringify(document), 'utf8') : bytes;
+    const issuedAt = now();
+    const signed = await signer.signCore({
+      requestId: nodeCrypto.randomUUID(),
+      nonce: nonce ?? nodeCrypto.randomBytes(16).toString('base64url'),
+      issuedAt: String(issuedAt),
+      deadlineMs: String(issuedAt + 120000),
+      epoch: String(deviceAuthority.epoch),
+      grantId: deviceAuthority.grantId,
+      ownerPrincipalId: deviceAuthority.ownerPrincipalId,
+      tenantId: deviceAuthority.tenantId,
+      deviceId: deviceAuthority.deviceId,
+      deviceKeyId: deviceAuthority.deviceKeyId,
+      toolName,
+      opKind: 'command',
+      audience: 'relay',
+      argsDigestHex: nodeCrypto.createHash('sha256').update(resultBytes).digest('hex'),
+      ...core,
+    });
+    const frame = relayModule.toWireFrame({
+      signed,
+      argsB64u: argsB64u !== undefined ? argsB64u : resultBytes.toString('base64url'),
+      callId: frameCallId !== undefined ? frameCallId : callId,
+    });
+    return { payload: JSON.stringify(frame), frame, bytes: resultBytes, document };
+  }
+
+  return { keypair, keyId, minter: { mintResultFrame }, signer, deviceAuthority };
+}
+
 module.exports = {
   relay,
   nodeCrypto,
@@ -193,6 +270,7 @@ module.exports = {
   makeDeterministicKeypair,
   makeCustodySeam,
   makeTransport,
+  makeDeviceResultMinter,
   deepText,
 };
 
