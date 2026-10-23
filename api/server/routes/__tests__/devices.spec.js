@@ -29,8 +29,14 @@ const mockCreateHandler = jest.fn((deps) => {
 // Creation records and handlers for the pairing / current-device endpoints (task T7).
 const mockPairingCreationCalls = [];
 const mockCurrentCreationCalls = [];
+const mockCompleteCreationCalls = [];
 const mockPairingChallengeHandler = jest.fn((req, res) =>
   res.status(200).json({ ok: true, endpoint: 'pairing-challenge', userId: req.user?.id ?? null }),
+);
+// Device-authenticated completion (GM-2). It reports the SESSION it saw so Suite A can prove the
+// route never runs requireJwtAuth: with the gate bypassed there is no `req.user`.
+const mockPairingCompleteHandler = jest.fn((req, res) =>
+  res.status(200).json({ ok: true, endpoint: 'pairing-complete', userId: req.user?.id ?? null }),
 );
 const mockPairingIssueHandler = jest.fn((req, res) =>
   res.status(200).json({ ok: true, endpoint: 'pairing-issue', userId: req.user?.id ?? null }),
@@ -81,13 +87,23 @@ jest.mock('~/server/services/Device/pairingHttpHandler', () => ({
   }),
 }));
 
+jest.mock('~/server/services/Device/pairingCompleteHttpHandler', () => ({
+  createPairingCompleteHandler: jest.fn((deps) => {
+    mockCompleteCreationCalls.push({ kind: 'complete', deps });
+    return mockPairingCompleteHandler;
+  }),
+}));
+
 jest.mock('~/server/services/Device/currentDeviceHttpHandler', () => ({
   createCurrentDeviceStatusHandler: jest.fn((deps) => {
     mockCurrentCreationCalls.push({ kind: 'status', deps });
     return mockCurrentStatusHandler;
   }),
-  createCurrentDeviceRenewHandler: jest.fn((deps) => {
-    mockCurrentCreationCalls.push({ kind: 'renew', deps });
+}));
+
+jest.mock('~/server/services/Device/currentDeviceRenewEnvelopeHandler', () => ({
+  createCurrentDeviceRenewEnvelopeHandler: jest.fn((deps) => {
+    mockCurrentCreationCalls.push({ kind: 'renew-envelope', deps });
     return mockCurrentRenewHandler;
   }),
 }));
@@ -226,9 +242,14 @@ describe('Device pairing and current-device routes', () => {
       'issue',
       'approve',
     ]);
-    expect(mockCurrentCreationCalls.map((entry) => entry.kind)).toEqual(['status', 'renew']);
+    expect(mockCurrentCreationCalls.map((entry) => entry.kind)).toEqual(['status', 'renew-envelope']);
+    expect(mockCompleteCreationCalls.map((entry) => entry.kind)).toEqual(['complete']);
 
-    for (const { deps } of [...mockPairingCreationCalls, ...mockCurrentCreationCalls]) {
+    for (const { deps } of [
+      ...mockPairingCreationCalls,
+      ...mockCurrentCreationCalls,
+      ...mockCompleteCreationCalls,
+    ]) {
       expect(deps).toHaveProperty('db');
       expect(deps).toHaveProperty('tenantContext');
       expect(typeof deps.tenantContext.getActiveTenantId).toBe('function');
@@ -248,6 +269,53 @@ describe('Device pairing and current-device routes', () => {
     expect(issue.domainTag).toBe('cbhr:device:pairing-open:v1');
     expect(typeof issue.requestSource).toBe('string');
     expect(issue.requestSource.length).toBeGreaterThan(0);
+
+    // GM-2: the claim pickup gets its own frozen domain tag.
+    expect(mockCompleteCreationCalls[0].deps.domainTag).toBe('cbhr:device:pairing-complete:v1');
+
+    // GM-3 / GM-12: the renewal route is the device-signed envelope, not the session adapter.
+    const renew = mockCurrentCreationCalls.find((entry) => entry.kind === 'renew-envelope').deps;
+    expect(renew.domainTag).toBe('cbhr:device:renew:v1');
+  });
+});
+
+describe('Device-authenticated pairing completion route (GM-2)', () => {
+  it('does NOT run JWT auth before POST /pairing/complete', async () => {
+    const res = await request(createApp())
+      .post('/api/devices/pairing/complete')
+      .send({ devicePublicKey: 'endpoint-key' });
+
+    expect(res.status).toBe(200);
+    // The handler saw no authenticated user: the device route is outside the session gate.
+    expect(res.body).toEqual({ ok: true, endpoint: 'pairing-complete', userId: null });
+    expect(mockRequireJwtAuth).not.toHaveBeenCalled();
+    expect(mockPairingCompleteHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps requireJwtAuth on every other device route', async () => {
+    const GATED = [
+      ['post', '/api/devices/current/retire'],
+      ['get', '/api/devices/current'],
+      ['post', '/api/devices/current/renew'],
+      ['post', '/api/devices/pairing/challenge'],
+      ['post', '/api/devices/pairing/issue'],
+      ['post', '/api/devices/pairing/approve'],
+    ];
+    for (const [method, path] of GATED) {
+      mockRequireJwtAuth.mockClear();
+      const res = await request(createApp())[method](path).send({});
+      expect(res.status).toBe(200);
+      expect(mockRequireJwtAuth).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('is the only device route outside the session gate', async () => {
+    // A GET on the completion path falls through to the gated router and matches no route.
+    mockRequireJwtAuth.mockClear();
+    const get = await request(createApp()).get('/api/devices/pairing/complete');
+    expect(get.status).toBe(404);
+    expect(mockPairingCompleteHandler).not.toHaveBeenCalled();
+    expect(mockRequireJwtAuth).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -272,10 +340,15 @@ const USER_A = 'user-t7-owner-a';
 const USER_B = 'user-t7-owner-b';
 const BASE_NOW = 1792000000000;
 const PAIRING_OPEN_DOMAIN = 'cbhr:device:pairing-open:v1';
+/** GM-2: the frozen device-authenticated claim-pickup domain tag. */
+const PAIRING_COMPLETE_DOMAIN = 'cbhr:device:pairing-complete:v1';
+/** GM-3 / GM-12: the frozen CBHR-RENEW-V1 domain tag. */
+const RENEWAL_DOMAIN = 'cbhr:device:renew:v1';
 const PAIRING_ISSUE_SOURCE = 'local-lab:device-pairing-issue';
 const LAB_PEPPER = Buffer.from('t7-lab-only-lookup-pepper-0001', 'utf8');
 const LEASE_TTL_MS = 172800000;
 const CODE_TTL_MS = 300000;
+const CHALLENGE_TTL_MS = 120000;
 
 function defineModels() {
   const deviceAuthoritySchema = new mongoose.Schema({
@@ -576,6 +649,66 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
     return { challenge, issued };
   }
 
+  /** Signs the exact server-returned canonical preimage bytes (never a client-built message). */
+  function signPreimageBytes(key, signingMessageB64u) {
+    const message = Buffer.from(signingMessageB64u, 'base64url');
+    return sign(null, message, key.privateKey).toString('base64url');
+  }
+
+  /**
+   * One full real ceremony through the HTTP surface: issue -> browser approve (LP-2) ->
+   * device-authenticated complete (LP-3 + LP-4). Returns every envelope for assertions.
+   */
+  async function runPairingToLease(key, seeded, { tenantId = TENANT } = {}) {
+    const { issued } = await issueCode(key, seeded, tenantId);
+    expect(issued.status).toBe(200);
+    const approved = await request(app)
+      .post('/api/devices/pairing/approve')
+      .send({ code: issued.body.code });
+    expect(approved.status).toBe(200);
+    const armed = await request(app)
+      .post('/api/devices/pairing/complete')
+      .send({ devicePublicKey: key.spkiB64u });
+    expect(armed.status).toBe(200);
+    const signatureB64u = signPreimageBytes(key, armed.body.signingMessageB64u);
+    const completed = await request(app)
+      .post('/api/devices/pairing/complete')
+      .send({
+        devicePublicKey: key.spkiB64u,
+        challengeHash: armed.body.challengeHash,
+        signatureB64u,
+      });
+    return { issued, approved, armed, signatureB64u, completed };
+  }
+
+  /** Mints one CBHR-RENEW-V1 challenge and signs the returned canonical preimage. */
+  async function mintRenewalEnvelope(key) {
+    const minted = await request(app)
+      .post('/api/devices/current/renew')
+      .send({ devicePublicKey: key.spkiB64u });
+    if (minted.status !== 200) {
+      return { minted, signatureB64u: null, completed: null };
+    }
+    const signatureB64u = signPreimageBytes(key, minted.body.signingMessageB64u);
+    return { minted, signatureB64u };
+  }
+
+  /** Full device-signed renewal: mint leg + signed complete leg. */
+  async function runRenewal(key) {
+    const { minted, signatureB64u } = await mintRenewalEnvelope(key);
+    if (signatureB64u === null) {
+      return { minted, signatureB64u: null, completed: null };
+    }
+    const completed = await request(app)
+      .post('/api/devices/current/renew')
+      .send({
+        devicePublicKey: key.spkiB64u,
+        challengeHash: minted.body.challengeHash,
+        signatureB64u,
+      });
+    return { minted, signatureB64u, completed };
+  }
+
   beforeAll(async () => {
     mongo = await MongoMemoryServer.create({ binary: { version: '7.0.14' } });
     await mongoose.connect(mongo.getUri(), { dbName: 'cbhr_rdc_phase1_t7_http' });
@@ -589,7 +722,13 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
     counting = makeCountingDb(models);
 
     const pairingHttp = jest.requireActual('~/server/services/Device/pairingHttpHandler');
+    const completeHttp = jest.requireActual(
+      '~/server/services/Device/pairingCompleteHttpHandler',
+    );
     const currentHttp = jest.requireActual('~/server/services/Device/currentDeviceHttpHandler');
+    const renewEnvelope = jest.requireActual(
+      '~/server/services/Device/currentDeviceRenewEnvelopeHandler',
+    );
     handlers = {
       challenge: pairingHttp.createPairingChallengeHandler({
         db: counting.db,
@@ -612,15 +751,22 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
         clock,
         pepperLookup: LAB_PEPPER,
       }),
+      complete: completeHttp.createPairingCompleteHandler({
+        db: counting.db,
+        tenantContext,
+        clock,
+        domainTag: PAIRING_COMPLETE_DOMAIN,
+      }),
       status: currentHttp.createCurrentDeviceStatusHandler({
         db: counting.db,
         tenantContext,
         clock,
       }),
-      renew: currentHttp.createCurrentDeviceRenewHandler({
+      renew: renewEnvelope.createCurrentDeviceRenewEnvelopeHandler({
         db: counting.db,
         tenantContext,
         clock,
+        domainTag: RENEWAL_DOMAIN,
       }),
     };
 
@@ -636,6 +782,7 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
     app.post('/api/devices/pairing/challenge', handlers.challenge);
     app.post('/api/devices/pairing/issue', handlers.issue);
     app.post('/api/devices/pairing/approve', handlers.approve);
+    app.post('/api/devices/pairing/complete', handlers.complete);
   });
 
   afterAll(async () => {
@@ -684,6 +831,26 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
       expect(counting.calls).toEqual([]);
     });
 
+    it.each(INJECTIONS)(
+      'POST /pairing/complete rejects %j with zero model calls',
+      async (body) => {
+        const res = await request(app).post('/api/devices/pairing/complete').send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('REQUEST_SUPPLIED_IDENTITY_REJECTED');
+        expect(counting.calls).toEqual([]);
+      },
+    );
+
+    it.each(INJECTIONS)(
+      'POST /current/renew rejects %j with zero model calls',
+      async (body) => {
+        const res = await request(app).post('/api/devices/current/renew').send(body);
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('REQUEST_SUPPLIED_IDENTITY_REJECTED');
+        expect(counting.calls).toEqual([]);
+      },
+    );
+
     it('rejects identity injection in the body of challenge, current and renew', async () => {
       const challenge = await request(app)
         .post('/api/devices/pairing/challenge')
@@ -724,6 +891,14 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
       const approve = await request(app).post('/api/devices/pairing/approve?grantId=x');
       expect(approve.status).toBe(400);
       expect(approve.body.code).toBe('REQUEST_SUPPLIED_IDENTITY_REJECTED');
+
+      const completeQ = await request(app).post('/api/devices/pairing/complete?deviceId=injected');
+      expect(completeQ.status).toBe(400);
+      expect(completeQ.body.code).toBe('REQUEST_SUPPLIED_IDENTITY_REJECTED');
+
+      const renewQ = await request(app).post('/api/devices/current/renew?epoch=99');
+      expect(renewQ.status).toBe(400);
+      expect(renewQ.body.code).toBe('REQUEST_SUPPLIED_IDENTITY_REJECTED');
 
       expect(counting.calls).toEqual([]);
     });
@@ -1105,7 +1280,399 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
     });
   });
 
-  describe('POST /api/devices/current/renew', () => {
+  describe('POST /api/devices/pairing/complete (GM-2 device-authenticated claim pickup)', () => {
+    it('uniformly rejects malformed key material with no session and no write', async () => {
+      currentUser = undefined;
+      const res = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: 'not-a-base64url-key!' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OR_EXPIRED_CODE');
+      expect(await models.Challenge.countDocuments({})).toBe(0);
+      expect(await models.PairingSession.countDocuments({})).toBe(0);
+    });
+
+    it('reports UNKNOWN_DEVICE for a well-formed key with no registered identity', async () => {
+      currentUser = undefined;
+      const key = makeDeviceKey();
+      const res = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('UNKNOWN_DEVICE');
+      expect(await models.Challenge.countDocuments({})).toBe(0);
+    });
+
+    it('refuses a retired identity', async () => {
+      const key = makeDeviceKey();
+      await seedDevice({ key, identityState: 'retired', leaseState: 'revoked' });
+      const res = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('DEVICE_IDENTITY_REVOKED');
+      expect(await models.Challenge.countDocuments({})).toBe(0);
+    });
+
+    it('requires no session at all: a device-only poll arms the claim challenge', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued } = await issueCode(key, seeded);
+      expect(issued.status).toBe(200);
+      const approved = await request(app)
+        .post('/api/devices/pairing/approve')
+        .send({ code: issued.body.code });
+      expect(approved.status).toBe(200);
+
+      // The endpoint is the device: no user, no cookie, no bearer token.
+      currentUser = undefined;
+      const armed = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+
+      expect(armed.status).toBe(200);
+      expect(armed.body.state).toBe('claim_ready');
+      expect(armed.body.deviceId).toBe(seeded.deviceId);
+      expect(armed.body.challengeHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(armed.body).not.toHaveProperty('challenge');
+      expect(armed.body).not.toHaveProperty('code');
+      expect(armed.body).not.toHaveProperty('lookupTag');
+
+      // The returned bytes are exactly the frozen claim preimage under the GM-2 domain tag.
+      const session = await models.PairingSession.findOne({ tenantId: TENANT }).lean();
+      const expected = deviceCrypto.canonicalEncode({
+        domainTag: PAIRING_COMPLETE_DOMAIN,
+        fields: [
+          'pairing-claim',
+          TENANT,
+          USER_A,
+          seeded.deviceId,
+          seeded.deviceKeyId,
+          armed.body.challengeHash,
+          String(session._id),
+          armed.body.issuedAt,
+        ],
+      });
+      expect(Buffer.from(armed.body.signingMessageB64u, 'base64url')).toEqual(expected);
+      expect(new Date(armed.body.challengeExpiresAt).getTime()).toBe(
+        Math.min(currentNow + CHALLENGE_TTL_MS, new Date(session.expiresAt).getTime()),
+      );
+    });
+
+    it('answers awaiting_approval and writes nothing while the browser has not approved', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued } = await issueCode(key, seeded);
+      expect(issued.status).toBe(200);
+
+      currentUser = undefined;
+      const res = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        ok: true,
+        state: 'awaiting_approval',
+        deviceId: seeded.deviceId,
+        epoch: 0,
+        expiresAt: null,
+        leaseState: 'never',
+      });
+      expect(await models.Challenge.countDocuments({ purpose: 'pairing-claim' })).toBe(0);
+      const session = await models.PairingSession.findOne({ tenantId: TENANT }).lean();
+      expect(session.state).toBe('open');
+    });
+
+    it('re-reports the same armed challenge instead of minting a second one', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued } = await issueCode(key, seeded);
+      await request(app).post('/api/devices/pairing/approve').send({ code: issued.body.code });
+
+      currentUser = undefined;
+      const first = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+      const second = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.body.state).toBe('claim_ready');
+      expect(second.body.challengeHash).toBe(first.body.challengeHash);
+      expect(second.body.issuedAt).toBe(first.body.issuedAt);
+      expect(await models.Challenge.countDocuments({ purpose: 'pairing-claim' })).toBe(1);
+    });
+
+    it('completes LP-3 + LP-4 and grants exactly the 48h lease', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued, approved, armed, completed } = await runPairingToLease(key, seeded);
+
+      expect(approved.body.state).toBe('claim_pending');
+      expect(armed.body.state).toBe('claim_ready');
+
+      expect(completed.status).toBe(200);
+      expect(completed.body).toEqual({
+        ok: true,
+        state: 'active',
+        deviceId: seeded.deviceId,
+        epoch: 1,
+        expiresAt: new Date(currentNow + LEASE_TTL_MS).toISOString(),
+        leaseState: 'active',
+      });
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.identityState).toBe('active');
+      expect(row.leaseState).toBe('active');
+      expect(row.epoch).toBe(1);
+      expect(row.ownerId).toBe(USER_A);
+      expect(typeof row.grantId).toBe('string');
+      expect(row.grantId).toHaveLength(22);
+      expect(row.expiresAt.getTime() - row.activatedAt.getTime()).toBe(LEASE_TTL_MS);
+
+      const session = await models.PairingSession.findOne({ tenantId: TENANT }).lean();
+      expect(session.state).toBe('consumed');
+      expect(session.grantedGrantId).toBe(row.grantId);
+      expect(session.pendingOwnerId).toBe(USER_A);
+
+      const audit = await models.AuditEvent.findOne({
+        tenantId: TENANT,
+        deviceId: seeded.deviceId,
+        kind: 'grant',
+      }).lean();
+      expect(audit).not.toBeNull();
+      expect(audit.epoch).toBe(1);
+      expect(audit.ownerId).toBe(USER_A);
+
+      // Never leaked: key material, lookup tag, grant proof or the plaintext code. (The issue
+      // envelope legitimately returns the six-digit code ONCE to the endpoint; it must appear in
+      // no other response and nowhere in durable state.)
+      expect(issued.body.code).toMatch(/^\d{6}$/);
+      const published = JSON.stringify([approved.body, armed.body, completed.body]);
+      for (const secretField of [
+        'devicePublicKey',
+        'lookupTag',
+        'grantProof',
+        'localApprovalNonceHash',
+      ]) {
+        expect(published).not.toContain(secretField);
+      }
+      expect(published).not.toContain(issued.body.code);
+    });
+
+    it('drives the same LP-3 / LP-4 product calls the E1 c3/c4 crash fixtures wrap', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      counting.calls.length = 0;
+      const { completed } = await runPairingToLease(key, seeded);
+      expect(completed.status).toBe(200);
+
+      // LP-3: the accepted pairing service's `claim_pending -> consumed` CAS. This is the exact
+      // call `tests/device/e1/product/crash.cjs` crash point c3 wraps.
+      expect(counting.calls).toContain('PairingSession.findOneAndUpdate');
+      // LP-4: the accepted authority claim CAS that c4 wraps.
+      expect(counting.calls).toContain('DeviceAuthority.updateOne');
+      // The single-use claim-challenge spend (G-4) that guards both.
+      expect(counting.calls).toContain('Challenge.updateOne');
+      // The audit sink write for the committed grant.
+      expect(counting.calls).toContain('AuditEvent.create');
+    });
+
+    it('is idempotent: a double-complete returns the live lease, never an error', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { armed, signatureB64u, completed } = await runPairingToLease(key, seeded);
+      expect(completed.status).toBe(200);
+
+      const challengesAfter = await models.Challenge.countDocuments({});
+      const sessionsAfter = await models.PairingSession.countDocuments({});
+      const auditsAfter = await models.AuditEvent.countDocuments({});
+
+      // The identical signed request replayed (a flaky network retry).
+      const replay = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({
+          devicePublicKey: key.spkiB64u,
+          challengeHash: armed.body.challengeHash,
+          signatureB64u,
+        });
+      // A fresh poll with no proof while already paired.
+      const poll = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+
+      for (const res of [replay, poll]) {
+        expect(res.status).toBe(200);
+        expect(res.body.ok).toBe(true);
+        expect(res.body.state).toBe('active');
+        expect(res.body.deviceId).toBe(seeded.deviceId);
+        expect(res.body.epoch).toBe(1);
+        expect(res.body.leaseState).toBe('active');
+        expect(new Date(res.body.expiresAt).getTime()).toBe(currentNow + LEASE_TTL_MS);
+      }
+
+      // Idempotent means no extra writes: nothing new was minted, consumed or granted.
+      expect(await models.Challenge.countDocuments({})).toBe(challengesAfter);
+      expect(await models.PairingSession.countDocuments({})).toBe(sessionsAfter);
+      expect(await models.AuditEvent.countDocuments({})).toBe(auditsAfter);
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.epoch).toBe(1);
+    });
+
+    it('resolves the owner from the server-recorded approval, never from the caller session', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued } = await issueCode(key, seeded);
+      const approved = await request(app)
+        .post('/api/devices/pairing/approve')
+        .send({ code: issued.body.code });
+      expect(approved.status).toBe(200);
+
+      // The polls carry a DIFFERENT authenticated principal: it must be ignored entirely.
+      currentUser = { id: USER_B, tenantId: TENANT };
+      const armed = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+      const completed = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({
+          devicePublicKey: key.spkiB64u,
+          challengeHash: armed.body.challengeHash,
+          signatureB64u: signPreimageBytes(key, armed.body.signingMessageB64u),
+        });
+
+      expect(completed.status).toBe(200);
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.ownerId).toBe(USER_A);
+      expect(completed.body).not.toHaveProperty('ownerId');
+    });
+
+    it('refuses a forged signature and commits no lease', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued } = await issueCode(key, seeded);
+      await request(app).post('/api/devices/pairing/approve').send({ code: issued.body.code });
+
+      const armed = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+      expect(armed.status).toBe(200);
+
+      const attacker = makeDeviceKey();
+      const res = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({
+          devicePublicKey: key.spkiB64u,
+          challengeHash: armed.body.challengeHash,
+          signatureB64u: signPreimageBytes(attacker, armed.body.signingMessageB64u),
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OR_EXPIRED_CODE');
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.leaseState).toBe('never');
+      expect(row.identityState).toBe('pending');
+      expect(row.epoch).toBe(0);
+      expect(row.grantId).toBeNull();
+      const session = await models.PairingSession.findOne({ tenantId: TENANT }).lean();
+      expect(session.state).toBe('claim_pending');
+      const challenge = await models.Challenge.findOne({
+        challengeHash: armed.body.challengeHash,
+      }).lean();
+      expect(challenge.consumedAt).toBeNull();
+    });
+
+    it('rejects a half-supplied proof without touching a model', async () => {
+      const key = makeDeviceKey();
+      await seedDevice({ key });
+      counting.calls.length = 0;
+
+      const res = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u, challengeHash: 'abc' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OR_EXPIRED_CODE');
+      expect(counting.calls).toEqual([]);
+    });
+
+    it('never persists the plaintext six-digit code on the complete path', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued, completed } = await runPairingToLease(key, seeded);
+
+      expect(issued.body.code).toMatch(/^\d{6}$/);
+      expect(completed.status).toBe(200);
+      expect(JSON.stringify(completed.body)).not.toContain(issued.body.code);
+
+      const dump = await Promise.all([
+        models.DeviceAuthority.find({}).lean(),
+        models.PairingSession.find({}).lean(),
+        models.Challenge.find({}).lean(),
+        models.AuditEvent.find({}).lean(),
+      ]);
+      const serialized = JSON.stringify(dump);
+      expect(serialized).not.toContain(issued.body.code);
+      // Only the tenant-bound HMAC lookup tag is stored, and it is not the code.
+      const session = await models.PairingSession.findOne({ tenantId: TENANT }).lean();
+      expect(session.lookupTag).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(session.lookupTag).not.toContain(issued.body.code);
+      for (const collection of dump) {
+        for (const doc of collection) {
+          expect(doc).not.toHaveProperty('code');
+          expect(doc).not.toHaveProperty('pairingCode');
+        }
+      }
+    });
+
+    it('resolves the tenant from server truth when no ALS tenant is active, and fails closed on ambiguity', async () => {
+      const key = makeDeviceKey();
+      const seeded = await seedDevice({ key });
+      const { issued } = await issueCode(key, seeded);
+      await request(app).post('/api/devices/pairing/approve').send({ code: issued.body.code });
+
+      currentTenant = null;
+      currentUser = undefined;
+      const armed = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+      const completed = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({
+          devicePublicKey: key.spkiB64u,
+          challengeHash: armed.body.challengeHash,
+          signatureB64u: signPreimageBytes(key, armed.body.signingMessageB64u),
+        });
+
+      expect(armed.status).toBe(200);
+      expect(completed.status).toBe(200);
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.ownerId).toBe(USER_A);
+      expect(row.tenantId).toBe(TENANT);
+
+      // The same key registered in a second tenant makes the ALS-free lookup ambiguous: fail closed.
+      const other = makeDeviceKey();
+      const otherSeeded = await seedDevice({ key: other, tenantId: OTHER_TENANT });
+      await models.DeviceAuthority.updateOne(
+        { _id: otherSeeded.deviceId },
+        { $set: { deviceKeyId: deviceCrypto.thumbprintB64u(key.spkiB64u) } },
+      );
+      const ambiguous = await request(app)
+        .post('/api/devices/pairing/complete')
+        .send({ devicePublicKey: key.spkiB64u });
+      expect(ambiguous.status).toBe(404);
+      expect(ambiguous.body.code).toBe('UNKNOWN_DEVICE');
+    });
+  });
+
+  describe('POST /api/devices/current/renew (CBHR-RENEW-V1 device-signed envelope)', () => {
     async function seedLiveLease({ expiresInMs = 10 * 3600000, epoch = 5 } = {}) {
       const key = makeDeviceKey();
       const seeded = await seedDevice({
@@ -1124,21 +1691,69 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
     it('renews strictly before expiry and extends the lease by exactly 48 hours', async () => {
       const seeded = await seedLiveLease({ expiresInMs: 10 * 3600000, epoch: 5 });
 
-      const res = await request(app).post('/api/devices/current/renew');
+      const { minted } = await mintRenewalEnvelope(seeded.key);
+      expect(minted.status).toBe(200);
+      expect(minted.body.ok).toBe(true);
+      expect(minted.body.state).toBe('challenge');
+      expect(minted.body.deviceId).toBe(seeded.deviceId);
+      expect(minted.body.epoch).toBe(5);
+      // The grant id is not echoed (the frozen status projection withholds it).
+      expect(minted.body).not.toHaveProperty('grantId');
+      expect(minted.body.challengeHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(minted.body.challengeExpiresAt).toBe(
+        new Date(currentNow + CHALLENGE_TTL_MS).toISOString(),
+      );
+      // The returned bytes are exactly the frozen CBHR-RENEW-V1 preimage, bound to server truth.
+      const expected = deviceCrypto.canonicalEncode({
+        domainTag: RENEWAL_DOMAIN,
+        fields: [
+          TENANT,
+          USER_A,
+          seeded.deviceId,
+          'grant-5',
+          '5',
+          String(currentNow + 10 * 3600000),
+          minted.body.challengeHash,
+        ],
+      });
+      expect(Buffer.from(minted.body.signingMessageB64u, 'base64url')).toEqual(expected);
 
-      expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
-      expect(res.body.renewed).toBe(true);
-      expect(res.body.deviceId).toBe(seeded.deviceId);
-      expect(res.body.epoch).toBe(6);
-      expect(res.body.renewalCount).toBe(1);
-      expect(new Date(res.body.expiresAt).getTime()).toBe(currentNow + LEASE_TTL_MS);
+      // The persisted challenge row carries only the hash and the server-observed binding.
+      const challengeRow = await models.Challenge.findOne({
+        challengeHash: minted.body.challengeHash,
+      }).lean();
+      expect(challengeRow.purpose).toBe('renewal');
+      expect(challengeRow.deviceId).toBe(seeded.deviceId);
+      expect(challengeRow.boundOwnerId).toBe(USER_A);
+      expect(challengeRow.boundGrantId).toBe('grant-5');
+      expect(challengeRow.boundEpoch).toBe(5);
+      expect(challengeRow.consumedAt).toBeNull();
+      expect(challengeRow.expiresAt.getTime() - challengeRow.issuedAt.getTime()).toBe(
+        CHALLENGE_TTL_MS,
+      );
+
+      const completed = await request(app)
+        .post('/api/devices/current/renew')
+        .send({
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: minted.body.challengeHash,
+          signatureB64u: signPreimageBytes(seeded.key, minted.body.signingMessageB64u),
+        });
+
+      expect(completed.status).toBe(200);
+      expect(completed.body.ok).toBe(true);
+      expect(completed.body.renewed).toBe(true);
+      expect(completed.body.deviceId).toBe(seeded.deviceId);
+      expect(completed.body.epoch).toBe(6);
+      expect(completed.body.renewalCount).toBe(1);
+      expect(new Date(completed.body.expiresAt).getTime()).toBe(currentNow + LEASE_TTL_MS);
 
       const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
       expect(row.epoch).toBe(6);
       expect(row.leaseState).toBe('active');
       expect(row.renewalCount).toBe(1);
       expect(row.grantId).not.toBe('grant-5');
+      expect(row.grantId).toHaveLength(22);
       expect(row.expiresAt.getTime()).toBe(currentNow + LEASE_TTL_MS);
       expect(row.ownerId).toBe(USER_A);
 
@@ -1150,12 +1765,20 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
       expect(audit).not.toBeNull();
       expect(audit.epoch).toBe(6);
       expect(audit.ownerId).toBe(USER_A);
+
+      // The challenge is single-use: it was spent exactly once by the accepted CAS.
+      const spent = await models.Challenge.findOne({
+        challengeHash: minted.body.challengeHash,
+      }).lean();
+      expect(spent.consumedAt).toBeInstanceOf(Date);
     });
 
     it('refuses a renewal inside the frozen five-second margin and commits nothing', async () => {
       const seeded = await seedLiveLease({ expiresInMs: 2000, epoch: 7 });
 
-      const res = await request(app).post('/api/devices/current/renew');
+      const res = await request(app)
+        .post('/api/devices/current/renew')
+        .send({ devicePublicKey: seeded.key.spkiB64u });
 
       expect(res.status).toBe(409);
       expect(res.body).toEqual({
@@ -1172,12 +1795,16 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
       expect(row.epoch).toBe(7);
       expect(row.renewalCount).toBe(0);
       expect(row.grantId).toBe('grant-7');
+      // No write at all inside the margin: not even a renewal challenge row.
+      expect(await models.Challenge.countDocuments({ purpose: 'renewal' })).toBe(0);
     });
 
     it('refuses a renewal after expiry and commits nothing', async () => {
       const seeded = await seedLiveLease({ expiresInMs: -1000, epoch: 8 });
 
-      const res = await request(app).post('/api/devices/current/renew');
+      const res = await request(app)
+        .post('/api/devices/current/renew')
+        .send({ devicePublicKey: seeded.key.spkiB64u });
 
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('LEASE_EXPIRED');
@@ -1186,6 +1813,37 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
       const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
       expect(row.epoch).toBe(8);
       expect(row.renewalCount).toBe(0);
+      expect(await models.Challenge.countDocuments({ purpose: 'renewal' })).toBe(0);
+    });
+
+    it('refuses the same margin refusal on the signed leg too, with no write', async () => {
+      const seeded = await seedLiveLease({ expiresInMs: 10 * 3600000, epoch: 9 });
+      const { minted, signatureB64u } = await mintRenewalEnvelope(seeded.key);
+      expect(minted.status).toBe(200);
+
+      // The lease crosses into the frozen margin between the mint and the signed leg.
+      currentNow += 10 * 3600000 - 2000;
+      const completed = await request(app)
+        .post('/api/devices/current/renew')
+        .send({
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: minted.body.challengeHash,
+          signatureB64u,
+        });
+
+      expect(completed.status).toBe(409);
+      expect(completed.body.code).toBe('LEASE_EXPIRED');
+      expect(completed.body.committed).toBe(false);
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.epoch).toBe(9);
+      expect(row.renewalCount).toBe(0);
+      expect(row.grantId).toBe('grant-9');
+      // The challenge was not spent: the refusal happened before any write.
+      const spent = await models.Challenge.findOne({
+        challengeHash: minted.body.challengeHash,
+      }).lean();
+      expect(spent.consumedAt).toBeNull();
     });
 
     it('reports UNKNOWN_DEVICE when the caller holds no current device', async () => {
@@ -1206,14 +1864,136 @@ describe('Device pairing and current-device HTTP handlers (real services, real M
         expiresAt: new Date(currentNow + 10 * 3600000),
       });
 
-      const res = await request(app).post('/api/devices/current/renew');
+      const res = await request(app)
+        .post('/api/devices/current/renew')
+        .send({ devicePublicKey: key.spkiB64u });
 
       expect(res.status).toBe(404);
       expect(res.body.code).toBe('UNKNOWN_DEVICE');
+      expect(JSON.stringify(res.body)).not.toContain(seeded.deviceId);
       const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
       expect(row.epoch).toBe(3);
       expect(row.renewalCount).toBe(0);
       expect(row.ownerId).toBe(USER_B);
+    });
+
+    it('cannot be renewed by the browser session alone: the device signature is the authorization', async () => {
+      const seeded = await seedLiveLease({ expiresInMs: 10 * 3600000, epoch: 11 });
+
+      // A fully authenticated session with no device proof, and with a forged proof, is refused.
+      const withoutProof = await request(app).post('/api/devices/current/renew').send({});
+      expect(withoutProof.status).toBe(404);
+      expect(withoutProof.body.code).toBe('UNKNOWN_DEVICE');
+
+      const forged = await request(app)
+        .post('/api/devices/current/renew')
+        .send({
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: deviceCrypto.challengeHash(deviceCrypto.newChallengeNonce()),
+          signatureB64u: 'A'.repeat(86),
+        });
+      expect(forged.status).toBe(400);
+      expect(forged.body.code).toBe('INVALID_OR_EXPIRED_CODE');
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.epoch).toBe(11);
+      expect(row.renewalCount).toBe(0);
+      expect(row.grantId).toBe('grant-11');
+      expect(await models.AuditEvent.countDocuments({ kind: 'renew' })).toBe(0);
+    });
+
+    it('rejects a tampered signature and commits nothing', async () => {
+      const seeded = await seedLiveLease({ expiresInMs: 10 * 3600000, epoch: 12 });
+      const { minted } = await mintRenewalEnvelope(seeded.key);
+      expect(minted.status).toBe(200);
+
+      const attacker = makeDeviceKey();
+      const res = await request(app)
+        .post('/api/devices/current/renew')
+        .send({
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: minted.body.challengeHash,
+          signatureB64u: signPreimageBytes(attacker, minted.body.signingMessageB64u),
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_OR_EXPIRED_CODE');
+      expect(res.body.committed).toBe(false);
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.epoch).toBe(12);
+      expect(row.renewalCount).toBe(0);
+      const spent = await models.Challenge.findOne({
+        challengeHash: minted.body.challengeHash,
+      }).lean();
+      expect(spent.consumedAt).toBeNull();
+    });
+
+    it('is single-use: a replayed signed envelope cannot renew twice', async () => {
+      const seeded = await seedLiveLease({ expiresInMs: 10 * 3600000, epoch: 13 });
+      const { minted, signatureB64u } = await mintRenewalEnvelope(seeded.key);
+      const first = await request(app)
+        .post('/api/devices/current/renew')
+        .send({
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: minted.body.challengeHash,
+          signatureB64u,
+        });
+      expect(first.status).toBe(200);
+      expect(first.body.epoch).toBe(14);
+
+      const replay = await request(app)
+        .post('/api/devices/current/renew')
+        .send({
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: minted.body.challengeHash,
+          signatureB64u,
+        });
+      expect(replay.status).toBe(400);
+      expect(replay.body.code).toBe('INVALID_OR_EXPIRED_CODE');
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.epoch).toBe(14);
+      expect(row.renewalCount).toBe(1);
+      expect(await models.AuditEvent.countDocuments({ kind: 'renew' })).toBe(1);
+    });
+
+    it('reports 500 committed:true when the committed renewal audit is undeliverable', async () => {
+      const seeded = await seedLiveLease({ expiresInMs: 10 * 3600000, epoch: 15 });
+      const { minted, signatureB64u } = await mintRenewalEnvelope(seeded.key);
+      expect(minted.status).toBe(200);
+
+      const renewEnvelope = jest.requireActual(
+        '~/server/services/Device/currentDeviceRenewEnvelopeHandler',
+      );
+      const failingAuditHandler = renewEnvelope.createCurrentDeviceRenewEnvelopeHandler({
+        db: counting.db,
+        tenantContext,
+        clock,
+        domainTag: RENEWAL_DOMAIN,
+        audit: async () => {
+          throw new Error('LAB_INJECTED_AUDIT_SINK_FAILURE');
+        },
+      });
+      const res = makeMockRes();
+      await failingAuditHandler(
+        { params: {}, query: {}, body: {
+          devicePublicKey: seeded.key.spkiB64u,
+          challengeHash: minted.body.challengeHash,
+          signatureB64u,
+        }, user: currentUser },
+        res,
+      );
+
+      expect(res.statusCode).toBe(500);
+      expect(res.body.code).toBe('AUDIT_DELIVERY_UNCERTAIN');
+      expect(res.body.committed).toBe(true);
+      expect(res.body.epoch).toBe(16);
+
+      const row = await models.DeviceAuthority.findOne({ _id: seeded.deviceId }).lean();
+      expect(row.epoch).toBe(16);
+      expect(row.renewalCount).toBe(1);
+      expect(row.expiresAt.getTime()).toBe(currentNow + LEASE_TTL_MS);
     });
   });
 });

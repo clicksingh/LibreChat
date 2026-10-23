@@ -11,9 +11,14 @@ const {
   createPairingApproveHandler,
 } = require('~/server/services/Device/pairingHttpHandler');
 const {
+  createPairingCompleteHandler,
+} = require('~/server/services/Device/pairingCompleteHttpHandler');
+const {
   createCurrentDeviceStatusHandler,
-  createCurrentDeviceRenewHandler,
 } = require('~/server/services/Device/currentDeviceHttpHandler');
+const {
+  createCurrentDeviceRenewEnvelopeHandler,
+} = require('~/server/services/Device/currentDeviceRenewEnvelopeHandler');
 
 const router = express.Router();
 
@@ -27,6 +32,10 @@ const tenantContext = Object.freeze({
  * services never hard-code them. Values mirror the accepted E1 ceremony constants.
  */
 const PAIRING_OPEN_DOMAIN = 'cbhr:device:pairing-open:v1';
+/** GM-2: the device-authenticated claim pickup (LP-3 + LP-4). */
+const PAIRING_COMPLETE_DOMAIN = 'cbhr:device:pairing-complete:v1';
+/** GM-3 / GM-12: the device-signed renewal envelope (CBHR-RENEW-V1). */
+const RENEWAL_DOMAIN = 'cbhr:device:renew:v1';
 /** Server-derived issuance source descriptor; the service hashes it and never persists an IP. */
 const PAIRING_ISSUE_SOURCE = 'local-lab:device-pairing-issue';
 
@@ -53,15 +62,32 @@ const pairingApprove = createPairingApproveHandler({
   tenantContext,
 });
 
+const pairingComplete = createPairingCompleteHandler({
+  db,
+  tenantContext,
+  domainTag: PAIRING_COMPLETE_DOMAIN,
+});
+
 const currentDeviceStatus = createCurrentDeviceStatusHandler({
   db,
   tenantContext,
 });
 
-const currentDeviceRenew = createCurrentDeviceRenewHandler({
+const currentDeviceRenew = createCurrentDeviceRenewEnvelopeHandler({
   db,
   tenantContext,
+  domainTag: RENEWAL_DOMAIN,
 });
+
+/**
+ * `POST /api/devices/pairing/complete` is DEVICE-authenticated, not session-authenticated: the
+ * caller is the enrolled endpoint proving possession of its own Ed25519 key over a server-minted
+ * single-use challenge, and the accepted LP-3/LP-4 legs resolve tenant, owner and device identity
+ * server-side from that key's thumbprint. It therefore must be registered BEFORE the router-level
+ * `requireJwtAuth` gate, and it must stay the ONLY route outside that gate: the browser/panel
+ * endpoints below keep it.
+ */
+router.post('/pairing/complete', pairingComplete);
 
 router.use(requireJwtAuth);
 router.post('/current/retire', retireCurrentOwnedDevice);
