@@ -36,7 +36,7 @@
  *
  * ACTION NAMESPACE: `device_policy.*`, category `config`.
  * Upstream's `AUDIT_ACTIONS` registry is exactly `['grant.assigned', 'grant.removed']` and the
- * action is a Mongoose enum, so the rebase must add these five names to that registry (one line,
+ * action is a Mongoose enum, so the rebase must add these six names to that registry (one line,
  * in the same commit that wires this module). They are exported as a frozen constant here so the
  * integration edits one authoritative list. Until then the recorder dependency is unwired and the
  * write paths are closed — the failure mode is "cannot edit policy", never "edited un-audited".

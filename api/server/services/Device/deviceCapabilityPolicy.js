@@ -79,6 +79,15 @@ const CAPABILITY_STAGES = Object.freeze(['A', 'B', 'C', 'full']);
 /** Stage rank: a tool is admissible at stage S when its rank is <= rank(S). */
 const STAGE_RANK = Object.freeze({ A: 0, B: 1, C: 2, full: 3 });
 
+/**
+ * Exported because a consumer OUTSIDE this module needs the authoritative rank to decide
+ * "the stricter of two stages" (the admin device-policy resolver narrows a server stage by a
+ * scope's declared stage). Previously it had to infer the rank from `CAPABILITY_STAGES` order,
+ * which happens to agree today but is an assumption rather than the source of truth — and when
+ * that inference was absent entirely, stage narrowing silently did nothing and a scope declaring
+ * stage A could still enable stage B/C tools it named. Exporting the map removes the assumption.
+ */
+
 /** The four tools that require explicit owner approval. Constant at every stage. */
 const OWNER_APPROVAL_TOOLS = Object.freeze([
   'set_config_value',
@@ -821,6 +830,7 @@ module.exports = {
   CEILING_REFUSAL_CODE,
   CEILING_DENY_SCOPES,
   CAPABILITY_STAGES,
+  STAGE_RANK,
   CONSENT_CLASSES,
   DECISION_CODES,
   TOOL_CATALOG,

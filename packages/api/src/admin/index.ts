@@ -1,3 +1,4 @@
+export * from './devicePolicy';
 export { createAdminConfigHandlers } from './config';
 export { createAdminGrantsHandlers } from './grants';
 export { createAdminGroupsHandlers } from './groups';

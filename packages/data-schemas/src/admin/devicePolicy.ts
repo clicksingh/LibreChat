@@ -227,7 +227,15 @@ export type DevicePolicyLevelOutcome =
   | 'no-assignment'
   | 'not-requested'
   | 'scope-missing'
-  | 'scope-inactive';
+  | 'scope-inactive'
+  /**
+   * A scope that exists but does not satisfy its own shape. The resolver has always emitted this
+   * (it is how a malformed narrow scope STOPS the walk instead of falling through to a wider level),
+   * but the member was missing from this union — so a consumer switching on the published type would
+   * silently mishandle the single most security-relevant outcome. Added to make the type match
+   * runtime.
+   */
+  | 'scope-malformed';
 
 /** One row of the resolution trace: which level was consulted, and what it decided. */
 export type DevicePolicyLevelTrace = {

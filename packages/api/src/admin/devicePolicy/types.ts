@@ -49,10 +49,22 @@ export const DEVICE_POLICY_RESOLUTION_SCHEMA = 'cbhr.rdc.device-policy-resolutio
  *
  * Namespaced `<domain>.<verb>` under the `config` audit category. Upstream's `AUDIT_ACTIONS`
  * registry currently knows only `grant.assigned` and `grant.removed` and the action is a Mongoose
- * enum, so the rebase adds these five names in the same commit that wires the recorder — see
+ * enum, so the rebase adds these six names in the same commit that wires the recorder — see
  * `audit.ts` for why the write paths are closed until then.
+ *
+ * The explicit annotation is required by this package's declaration build
+ * (`isolatedDeclarations`, enforced by tsdown's dts pass): the W10 barrel export puts this module
+ * in the package's declaration graph, so every exported value here must carry its own type. The
+ * literal keys are kept so the rebase's registry edit is key-checked.
  */
-export const DEVICE_POLICY_AUDIT_ACTIONS = Object.freeze({
+export const DEVICE_POLICY_AUDIT_ACTIONS: Readonly<{
+  SCOPE_CREATED: 'device_policy.scope_created';
+  SCOPE_UPDATED: 'device_policy.scope_updated';
+  SCOPE_DELETED: 'device_policy.scope_deleted';
+  ASSIGNMENT_SET: 'device_policy.assignment_set';
+  ASSIGNMENT_REMOVED: 'device_policy.assignment_removed';
+  TENANT_DEFAULT_SET: 'device_policy.tenant_default_set';
+}> = Object.freeze({
   SCOPE_CREATED: 'device_policy.scope_created',
   SCOPE_UPDATED: 'device_policy.scope_updated',
   SCOPE_DELETED: 'device_policy.scope_deleted',
@@ -75,7 +87,14 @@ export const DEVICE_POLICY_AUDIT_ACTIONS = Object.freeze({
  *   DEVICE_POLICY_SCOPE_MALFORMED     — the stored scope could not be read as a scope
  *   DEVICE_POLICY_TOOL_NOT_IN_CATALOG — a scope listed a name that is not a tool
  */
-export const DEVICE_POLICY_CODES = Object.freeze({
+export const DEVICE_POLICY_CODES: Readonly<{
+  SCOPE_NOT_GRANTED: 'DEVICE_POLICY_SCOPE_NOT_GRANTED';
+  NOT_CONFIGURED: 'DEVICE_POLICY_NOT_CONFIGURED';
+  SCOPE_INACTIVE: 'DEVICE_POLICY_SCOPE_INACTIVE';
+  SCOPE_UNKNOWN: 'DEVICE_POLICY_SCOPE_UNKNOWN';
+  SCOPE_MALFORMED: 'DEVICE_POLICY_SCOPE_MALFORMED';
+  TOOL_NOT_IN_CATALOG: 'DEVICE_POLICY_TOOL_NOT_IN_CATALOG';
+}> = Object.freeze({
   SCOPE_NOT_GRANTED: 'DEVICE_POLICY_SCOPE_NOT_GRANTED',
   NOT_CONFIGURED: 'DEVICE_POLICY_NOT_CONFIGURED',
   SCOPE_INACTIVE: 'DEVICE_POLICY_SCOPE_INACTIVE',
@@ -85,7 +104,16 @@ export const DEVICE_POLICY_CODES = Object.freeze({
 });
 
 /** Who answered "why is this tool off?" — the four levels, plus law and the absence of data. */
-export const DEVICE_POLICY_DENIED_BY = Object.freeze({
+export const DEVICE_POLICY_DENIED_BY: Readonly<{
+  USER: 'user';
+  GROUP: 'group';
+  ROLE: 'role';
+  TENANT: 'tenant';
+  /** Server law: the stage ladder, the always/pilot hard denies, the approval tier. */
+  LAW: 'law';
+  /** No level answered at all: fail closed. */
+  NONE: 'none';
+}> = Object.freeze({
   USER: 'user',
   GROUP: 'group',
   ROLE: 'role',
@@ -97,7 +125,7 @@ export const DEVICE_POLICY_DENIED_BY = Object.freeze({
 });
 
 /** Fixed explanation per scope-layer code. No payload, no caller-supplied text. */
-export const DEVICE_POLICY_DETAILS = Object.freeze({
+export const DEVICE_POLICY_DETAILS: Readonly<Record<string, string>> = Object.freeze({
   [DEVICE_POLICY_CODES.SCOPE_NOT_GRANTED]:
     'Not granted by the tool scope that resolves for this principal. A scope only ever narrows what the server permits, so adding a tool here is an admin action, not a user one.',
   [DEVICE_POLICY_CODES.NOT_CONFIGURED]:

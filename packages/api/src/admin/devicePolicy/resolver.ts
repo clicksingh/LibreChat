@@ -56,11 +56,13 @@ import {
 import type {
   DevicePolicyDeniedBy,
   DevicePolicyPrimitivesLike,
+  NormalizedToolScope,
+} from './internal';
+import type {
   DevicePolicyResolution,
   DevicePolicyResolutionInput,
   DevicePolicyToolDecision,
-  NormalizedToolScope,
-} from './internal';
+} from './types';
 import {
   DEVICE_POLICY_CODES,
   DEVICE_POLICY_DENIED_BY,
