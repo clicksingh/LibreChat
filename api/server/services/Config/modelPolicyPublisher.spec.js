@@ -12,8 +12,17 @@ function clone(value) {
 function makeInput({
   expectedVersion = 0,
   defaultDeploymentId = 'deployment-b',
+  refreshConfigCaches = false,
   deployments = [
-    { deploymentId: 'deployment-b', model: 'model-b' },
+    {
+      deploymentId: 'deployment-b',
+      model: 'model-b',
+      reasoning: {
+        transport: 'chat.completions.reasoning_effort',
+        options: ['low', 'high', 'max'],
+        default: 'high',
+      },
+    },
     { deploymentId: 'deployment-a', model: 'model-a' },
   ],
 } = {}) {
@@ -22,6 +31,7 @@ function makeInput({
     endpointName: 'CBHR AI',
     actor: 'admin@example.invalid',
     source: 'cbhr-admin',
+    refreshConfigCaches,
     policy: {
       companyDefaultDeploymentId: defaultDeploymentId,
       deployments,
@@ -160,7 +170,7 @@ describe('transactional model policy publisher', () => {
             custom: [
               {
                 name: 'CBHR AI',
-                customParams: { reasoningProfiles: { legacy: {} } },
+                customParams: { unrelatedFlag: true, reasoningProfiles: { legacy: {} } },
                 models: { default: ['old'] },
               },
             ],
@@ -192,7 +202,16 @@ describe('transactional model policy publisher', () => {
     expect(deps.docs.USER.overrides.interface).toEqual({ modelSelect: false, fileSearch: true });
 
     const adminManaged = deps.docs.ADMIN.overrides.endpoints.custom[0];
-    expect(adminManaged.customParams).toEqual({ reasoningProfiles: { legacy: {} } });
+    expect(adminManaged.customParams).toEqual({
+      unrelatedFlag: true,
+      reasoningProfiles: {
+        'model-b': {
+          transport: 'chat.completions.reasoning_effort',
+          options: ['low', 'high', 'max'],
+          default: 'high',
+        },
+      },
+    });
     expect(adminManaged.models.default).toEqual(['model-b', 'model-a']);
     expect(deps.docs.ADMIN.overrides.interface.modelSelect).toBe(true);
   });
@@ -215,6 +234,27 @@ describe('transactional model policy publisher', () => {
     expect(deps.headVersion).toBe(1);
     expect(deps.writes).toHaveLength(0);
     expect(deps.invalidations()).toBe(1);
+  });
+
+  test('explicit cache refresh invalidates even when canonical policy and projection are unchanged', async () => {
+    const deps = fakeDeps({});
+    await commitManagedModelPolicy(makeInput(), deps);
+    expect(deps.invalidations()).toBe(1);
+
+    const second = await commitManagedModelPolicy(
+      makeInput({ expectedVersion: 1, refreshConfigCaches: true }),
+      deps,
+    );
+
+    expect(second).toMatchObject({
+      policyVersion: 1,
+      transition: 'noop',
+      policyNoop: true,
+      noop: true,
+      refreshConfigCaches: true,
+    });
+    expect(second.writes).toEqual([]);
+    expect(deps.invalidations()).toBe(2);
   });
 
   test('failed config projection rolls back canonical revision and earlier role writes together', async () => {
