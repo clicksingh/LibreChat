@@ -379,6 +379,8 @@ function createAgentRuntime(params = {}) {
   /** @type {any} */
   let socket = null;
   let reconnectTimer = null;
+  /** Sockets this runtime asked to close itself: their late `close` events are expected, not outages. */
+  const closingSockets = new Set();
   let stopping = false;
   let stopped = false;
   let giveUp = false;
@@ -799,11 +801,12 @@ function createAgentRuntime(params = {}) {
    * @param {{via: string, code: number|null, reason: string}} detail
    */
   function writeOffSocket(ws, detail) {
+    const requestedByUs = closingSockets.delete(ws) || stopping;
     if (ws !== socket) {
       return;
     }
     socket = null;
-    if (stopping) {
+    if (requestedByUs) {
       emit('info', 'relay.closed', { ...detail, expected: true });
       return;
     }
@@ -887,7 +890,12 @@ function createAgentRuntime(params = {}) {
     awaitingVerdict.clear();
 
     if (socket !== null) {
+      // Say it BEFORE doing it: the echo (`relay.closed`) depends on the relay answering a close
+      // handshake the process may not wait around for, so the intent line is the evidence an operator
+      // (and a test) can rely on: the socket was closed deliberately, with a normal code.
+      emit('info', 'relay.closing', { code: 1000, reason: `agent shutdown: ${reason}` });
       try {
+        closingSockets.add(socket);
         socket.close(1000, `agent shutdown: ${reason}`);
       } catch {
         // Already gone.

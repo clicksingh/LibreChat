@@ -3,3 +3,7 @@
 # everywhere else (see the long note at the top of `test/_relay-harness.cjs`). Everything it creates
 # is confined to this directory and removed when the relay stops.
 .runtime-e2e-state/
+
+# Miniflare keeps its own scratch under `$CWD/.wrangler/tmp`; the suite clears the per-run directory
+# when the relay stops, and this is the empty parent it leaves behind.
+.wrangler/

@@ -152,7 +152,9 @@ function startRuntime({ root, relayBase, extraArgs = [] }) {
 
 /** Creates an initialised agent root (real CLI, real key, real pin) plus a workspace with one file. */
 function makeRoot({ deviceId, backend, tools, file = { name: 'hello.txt', content: 'the quick brown fox' } }) {
-  const root = fixtures.makeTempRoot('cbhr-runtime-e2e-');
+  // Deliberately NOT `fixtures.makeTempRoot()`: this suite's TMP points at workerd's scratch tree, so
+  // the agent root goes under ROOTS_DIR (the real OS temp directory) instead.
+  const root = fs.mkdtempSync(path.join(ROOTS_DIR, 'root-'));
   runCli(['init', '--root', root, '--device-id', deviceId]);
   const spkiFile = path.join(root, 'lab-backend-spki.txt');
   fs.writeFileSync(spkiFile, backend.publicKeySpkiB64u, 'utf8');
@@ -215,6 +217,11 @@ describe('the runtime is a live participant: real relay, real socket, real child
       socket.close();
     }
     await relay.stop();
+    try {
+      fs.rmSync(ROOTS_DIR, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // Best effort, like `fixtures.removeTempRoot`.
+    }
   });
 
   async function platformSocket(deviceId) {
@@ -464,9 +471,12 @@ describe('the runtime is a live participant: real relay, real socket, real child
       assert.equal(resultFrame.outcome, 'succeeded');
       const exit = await first.stop();
       assert.equal(exit.code, 0);
-      assert.ok(first.found('relay.closed'), 'the socket close is reported as expected, not as a failure');
-      const closed = first.events().find((line) => line.event === 'relay.closed');
-      assert.equal(closed.fields.expected, true);
+      // A clean shutdown says so: the socket is closed deliberately with a normal code, and at no
+      // point does the runtime report the socket as LOST.
+      const closing = first.events().find((line) => line.event === 'relay.closing');
+      assert.ok(closing, 'a clean shutdown must report the deliberate socket close');
+      assert.equal(closing.fields.code, 1000);
+      assert.equal(first.found('relay.socket.lost'), false, 'a deliberate close is not an outage');
     } finally {
       if (first.child.exitCode === null && first.child.signalCode === null) {
         first.child.kill();
@@ -619,14 +629,25 @@ describe('the runtime is a live participant: real relay, real socket, real child
       }
       assert.deepEqual(contents, { 'w13-call-conc-a': 'first', 'w13-call-conc-b': 'second' });
 
-      // Exactly one ack per frame, and the relay's ledger shows two completed calls.
+      // Both deliveries are acknowledged and gone; the relay's ledger shows two reported calls (the
+      // platform completes a call when it acks the held result, which this test does not do).
       await runtime.waitForEvent('frame.acked', 2);
       const acks = runtime.events().filter((line) => line.event === 'frame.acked');
       assert.deepEqual(acks.map((line) => line.fields.seq).sort((left, right) => left - right), [1, 2]);
       const state = await relay.state(deviceId);
       assert.equal(state.body.storage.callLedger.length, 2);
-      assert.deepEqual(state.body.storage.callLedger.map((entry) => entry.state).sort(), ['dispatched', 'dispatched']);
+      assert.deepEqual(state.body.storage.callLedger.map((entry) => entry.state).sort(), ['reported', 'reported']);
       assert.deepEqual(state.body.storage.pending, [], 'both deliveries are acknowledged and gone');
+
+      // And when the platform does ack them, the calls complete with the honest outcomes it saw.
+      const pending = await relay.pendingResults(deviceId);
+      const acked = await relay.ackResults(
+        deviceId,
+        pending.body.pending.map((entry) => entry.resultSeq),
+      );
+      assert.equal(acked.body.remaining, 0);
+      const completed = await relay.state(deviceId);
+      assert.deepEqual(completed.body.storage.callLedger.map((entry) => entry.state), ['completed', 'completed']);
 
       await runtime.stop();
     } finally {

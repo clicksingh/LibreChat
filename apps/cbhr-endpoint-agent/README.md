@@ -281,6 +281,11 @@ node run-agent.js handle --in tampered.json     # -> refused, ENDPOINT_ARGS_DIGE
 
 # 8. and replaying the first frame is refused too
 node run-agent.js handle --in frame.json        # -> refused, ENDPOINT_REPLAY_DETECTED
+
+# 9. or leave it RUNNING against a relay (W13). It stays, reconnects with backoff, and shuts down
+#    cleanly on SIGINT/SIGTERM. See §7 for the handshake, the options and what it reports.
+#    (Served process, not one-shot: the relay must be reachable, or it retries loudly.)
+node run-agent.js serve --relay http://127.0.0.1:8787
 ```
 
 `test/cli.test.js` runs this exact sequence as **real processes** and asserts the FILES the tools claim
@@ -318,10 +323,105 @@ requires that decision to be made first.
 
 ---
 
-## 7. Layout
+## 7. The runtime — `serve` (W13): the agent as a LIVE participant
+
+Everything above is one frame per process invocation. That is enough to prove the endpoint's logic and
+useless for leaving an agent on a PC: nothing connects to the relay, nothing waits for frames, nothing
+answers them. `serve` is that participant, and it is deliberately a **thin, transparent shell**: the
+socket, the reconnect and the shutdown are new, and *verification, policy, execution and the outcome
+are the existing path* (`src/agent.js` → `verify` → `dispatch` → `tools` → `resultFrame`). A runtime
+that re-implemented any of those would leave two endpoint verifiers and only one of them tested.
+
+```powershell
+cd apps/cbhr-endpoint-agent
+node run-agent.js serve --relay http://127.0.0.1:8787
+```
+
+| Option | Meaning |
+|---|---|
+| `--relay <url>` | relay base URL. Path-less URLs get `/d/<deviceId>/ws?tag=device` appended; a URL with a path is used as the device route. |
+| `--no-replay-on-connect` | pass `replay=0` (do not take the frames the relay held while the agent was down) |
+| `--backoff-initial-ms` / `--backoff-max-ms` | reconnect backoff (default 500 ms doubling to 30 s, no jitter, capped) |
+| `--max-reconnects N` | give up after N consecutive failures and **exit 1** (default: retry forever) |
+| `--verdict-timeout-ms` | how long to wait for the relay's verdict on one result (default 15 000) |
+| `--drain-ms` | how long a shutdown waits for in-flight frames (default 5 000) |
+| `--shutdown-on-stdin-eof` | also stop cleanly when stdin reaches EOF (a signal-free control channel) |
+| `--print-url` | print the device socket URL, then serve |
+
+### The handshake, read from the relay's own code (not invented)
+
+1. **Connect.** The relay's Worker maps `/d/<deviceId>/...` onto `DEVICE_RELAY.idFromName(deviceId)`
+   (`src/worker.js`), so the device opens a WebSocket to `<relay>/d/<deviceId>/ws`. The Durable Object
+   checks the upgrade header first and reads its role from the query string:
+   `acceptSocket` does `url.searchParams.get('tag') ?? 'device'`. A platform-side reader uses
+   `?tag=platform`; **this runtime always sends `tag=device` and cannot be told otherwise** — claiming
+   the platform role would put the endpoint's own results on the platform's reader socket.
+2. **Replay on connect.** `acceptSocket` calls `resync('connect')` unless `?replay=0`, so every unacked
+   frame in the DO's durable `pending` list is redelivered as `{t:'frame', seq, payload, replay:true}`
+   the moment a device reconnects. That is the production path and the runtime keeps it ON.
+3. **Commands.** `{t:'frame', seq, payload, replay}` — `payload` is the opaque JSON text of a flat
+   `CBHR-RPC-V2` frame. `seq` is the relay's delivery number; **acking it is the only way the frame
+   stops being redelivered** (GM-21: the relay is the delivery guarantee).
+4. **Results.** The runtime sends `{t:'result', callId, payload}` with the `CBHR-RPC-RESULT-V2` frame as
+   the opaque payload. The relay checks shape, non-emptiness, its 65 536-character bound and that
+   `callId` names a call it dispatched and has not already handed on; it never decodes the payload.
+5. **Verdict + ack.** `{t:'result-ok', resultSeq, callId}` or `{t:'result-refused', code, ...}` comes
+   back on the same socket, and only then is `{t:'ack', seq}` sent. `RESULT_OUTBOX_SATURATED` is the one
+   retryable refusal, so that frame is deliberately **left unacked** for redelivery. `{t:'error',
+   reason}` is logged, never fatal.
+
+### How results travel back, and what the runtime refuses to decide
+
+`callId` is unsigned transport metadata (GM-31) and is the relay's ledger key, so the result envelope
+correlates on the **transport** `callId` of the frame that arrived — never on a value the signed core
+happens to carry. The core's own `callId` is signed and is what the platform re-verifies. (An observed
+wrinkle, recorded rather than papered over: a *policy* refusal raised after verification carries the
+literal `unknown` in its signed core, exactly as `src/agent.js` already did; the transport field is what
+still lets the relay correlate it.)
+
+The runtime sends the frame `agent.handleFrame` returned and nothing else. It never upgrades an outcome,
+never synthesises one, and when the core cannot assemble a result frame at all it sends **nothing** and
+says so loudly: an unanswered call can be released and retried, a fabricated `uncertain` cannot be taken
+back.
+
+### Reconnect and shutdown are LOUD, because a silently dead agent is the failure mode
 
 ```
-run-agent.js                 runnable entry point (init / describe / tools / pin-backend / handle / verify-only)
+2026-10-24T00:04:30.063Z ERROR relay.error          {"detail":"Received network error or non-101 status code."}
+2026-10-24T00:04:30.063Z ERROR relay.socket.lost    {"via":"error", "expected":false}
+2026-10-24T00:04:30.063Z WARN  relay.reconnect.scheduled {"attempt":1,"delayMs":200}
+2026-10-24T00:04:30.264Z INFO  relay.connected      {"connections":2, ...}
+```
+
+Measured behaviour worth knowing: on a **refused** connection Node 22's global `WebSocket` fires `error`
+and then *never fires `close`* (`readyState` stays CONNECTING forever). The runtime therefore retires the
+socket from **both** events — a reconnect driven only by `close` would leave the agent dead after its
+first outage. `SIGINT`/`SIGTERM` and (opt-in) stdin EOF all route to one shutdown path: stop accepting
+frames, drain in-flight work with a stated ceiling, close the socket with code 1000, prune-and-persist
+the replay window, report the counters, exit 0. **Shutdown deletes nothing** — the device key and the
+durable replay window are left for the next start.
+
+Windows note, measured: a Node parent cannot deliver a signal to a child at all —
+`child.kill('SIGINT')` terminates it unconditionally and the handler never runs (asserted in
+`test/runtime.test.js`). The end-to-end proof therefore drives the same shutdown path through
+`--shutdown-on-stdin-eof`, and the signal wiring is proven separately by routing both signals to that
+one handler.
+
+### The durable replay window across a restart
+
+`serve` never resets the window: `createEndpointAgent` loads `replay-window.json` from the agent root and
+`checkAndRemember` persists a spent `(grantId, nonce)` **before** execution is allowed. The end-to-end
+suite proves it with two real processes on one root: process 1 executes a frame and is stopped cleanly;
+process 2 logs `replayWindowLoadedEntries: 1` at start and, when the *same signed core* is dispatched
+again under a new transport `callId`, answers `refused` / `ENDPOINT_REPLAY_DETECTED` with
+`executed:false` — never a second execution.
+
+---
+
+## 8. Layout
+
+```
+run-agent.js                 runnable entry point (init / describe / tools / pin-backend / handle / verify-only / serve)
 src/errors.js                refusal taxonomy + leak-free EndpointRefusal
 src/layout.js                the frozen 15-field document, read independently from the contract
 src/vendoredCrypto.js        the accepted primitives (canonicalEncode / verifyEd25519 / thumbprintB64u)
@@ -337,19 +437,49 @@ src/dispatch.js              ceiling -> floor -> implementation -> execution
 src/tools.js                 list_directory / read_file / get_file_info, contained and bounded
 src/resultFrame.js           device-signed audience:'relay' result frames
 src/agent.js                 the whole loop: verify -> dispatch -> execute -> sign
+src/runtime.js               the RESIDENT participant (W13): device socket, results, ack, reconnect, shutdown
 config/server-ceiling.json   generated snapshot of the SERVER's ceiling document
 tools/generate-ceiling-snapshot.cjs   regenerate the snapshot from the server policy module
 tools/lab-backend.cjs        a lab signer/tamperer for the owner's own try (NOT the deployment signer)
 test/                        golden / verification / durability / dispatch / keystore / loop / cli
+                             + runtime (unit, scripted socket) and runtime-relay (real relay end to end)
+test/_relay-harness.cjs      boots the REAL relay artifact (Miniflare/workerd, in process) for the e2e suite
 ```
 
-## 8. What this does NOT do
+### Running the end-to-end suite (it needs the relay checkout)
+
+`test/runtime-relay.test.js` boots the audited relay artifact in-process — real HTTP, real WebSockets, a
+real `run-agent.js serve` child process, a real platform reader socket — and **refuses to run without
+it** (a skipped end-to-end proof reads as a passing one). It needs the sibling checkout
+`../cbhr-rdc/apps/cbhr-relay` with `dist/worker.js` built and `miniflare` installed
+(`CBHR_RELAY_ROOT` overrides the path).
+
+Two host facts it encodes, both measured here rather than assumed:
+
+* **The boot must happen from the relay root.** Miniflare's converter and worker bootstrap resolve
+  relative to the process CWD, and booting this artifact from anywhere else fails with the misleading
+  *"A DurableObjectNamespace in the config referenced the class DeviceRelay, but no such Durable Object
+  class is exported from the worker"* — the artifact exports it; the real failure is an internal workerd
+  error during module-service initialisation. The harness `chdir`s into the relay root for the boot and
+  restores the directory in a `finally` (the same discipline `tests/device/e2e/relay.cjs` documents).
+* **workerd's scratch must live inside this worktree.** On a sandboxed host workerd's writes are denied
+  everywhere else (`CreateDirectory: #5 Access is denied`, then `SQLITE_READONLY`), which is why the
+  relay's own runners call `ensureProbeTemp` and keep their state under the repository. The harness keeps
+  Miniflare's persistence and temp under `apps/cbhr-endpoint-agent/.runtime-e2e-state/` (gitignored,
+  removed when the relay stops) and pre-creates the two storage directories Miniflare expects.
+
+Nothing about it can hang: `Miniflare ready` has a 90 s ceiling, every HTTP call has a 15 s ceiling
+(`fetch` has no default timeout), the relay must **accept a device socket within 10 s**, and blowing any
+of them is a named failure — *"the relay did not accept a DEVICE SOCKET within 10000ms"* — never a test
+waiting for a socket that is not coming. All three ceilings are overridable
+(`CBHR_W13_BOOT_TIMEOUT_MS`, `CBHR_W13_CALL_TIMEOUT_MS`, `CBHR_W13_SOCKET_TIMEOUT_MS`).
+
+## 9. What this does NOT do
 
 * **No Tauri packaging** — Phase 3 (GM-73), and no Node prerequisite for employees until then.
 * **No graphical control of any kind**, and none claimed.
 * **No 26-tool Desktop Commander wiring** — three read-only tools, deliberately.
-* **No relay uplink** — `produce a result frame` is implemented and tested against the device public
-  key; *sending* it is W6's `apps/cbhr-relay` work (with the backend sink). The contract for the
-  result core is documented in §4 above so the two halves can be reconciled without guessing.
+* **No deployment, no Cloudflare, no production relay.** `serve` talks to whatever URL it is given; the
+  only relay it has ever been proven against is the local artifact booted by the test harness.
 * **No live device enrollment** — `deviceId`, the pinned backend key and the device key are all
   supplied locally by the operator, which is what makes this a lab artifact.

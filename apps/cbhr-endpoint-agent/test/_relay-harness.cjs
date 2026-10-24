@@ -89,6 +89,36 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * BOUNDED EVERYTHING. A fixture that can hang is a fixture that WILL hang — in CI, on a laptop, and
+ * during the owner's try — and it hangs while looking like progress. Every await that touches the
+ * relay in this harness therefore has a stated ceiling, and blowing it is a NAMED failure:
+ *
+ *   `Miniflare ready did not complete within 90000ms`
+ *
+ * rather than a test that waits forever for a socket a dead object will never accept. Overridable so
+ * a slow machine can raise the ceiling without editing code.
+ */
+const BOOT_TIMEOUT_MS = Number(process.env.CBHR_W13_BOOT_TIMEOUT_MS ?? 90000);
+const CALL_TIMEOUT_MS = Number(process.env.CBHR_W13_CALL_TIMEOUT_MS ?? 15000);
+const SOCKET_TIMEOUT_MS = Number(process.env.CBHR_W13_SOCKET_TIMEOUT_MS ?? 10000);
+
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} did not complete within ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function waitFor(predicate, { timeout = 8000, interval = 20 } = {}) {
   const started = Date.now();
   for (;;) {
@@ -252,14 +282,19 @@ async function startRelay(options = {}) {
         port: 0,
       }),
     );
-    await mf.ready;
+    await withTimeout(mf.ready, BOOT_TIMEOUT_MS, 'Miniflare ready (relay artifact boot)');
   } finally {
     process.chdir(previousCwd);
   }
   const base = (await mf.ready).toString();
 
   const call = async (pathname, init) => {
-    const response = await fetch(new URL(pathname, base), init);
+    // `fetch` has NO default timeout in Node: a Durable Object that never answers would hang the
+    // caller forever. Every call to the relay is bounded here, once, for every caller.
+    const response = await fetch(new URL(pathname, base), {
+      ...(init ?? {}),
+      signal: init?.signal ?? AbortSignal.timeout(CALL_TIMEOUT_MS),
+    });
     const text = await response.text();
     let body;
     try {
@@ -306,6 +341,43 @@ async function startRelay(options = {}) {
         'The usual cause is booting the artifact from the wrong working directory, which surfaces as a ' +
         'misleading "no such Durable Object class is exported from the worker" while the real failure ' +
         'is an internal workerd error during module-service initialisation.',
+    );
+  }
+
+  /**
+   * SOCKET GUARD — the relay must ACCEPT A DEVICE SOCKET within a stated timeout, or this harness
+   * fails HERE rather than letting a test wait for a connection that is never coming. This is the
+   * check whose absence turned a boot failure into a thirteen-minute hang.
+   */
+  const socketProbeUrl = new URL(
+    `/d/${encodeURIComponent(probeDeviceId)}/ws?tag=${encodeURIComponent('device')}`,
+    base,
+  );
+  socketProbeUrl.protocol = socketProbeUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  try {
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        const ws = new WebSocket(socketProbeUrl);
+        ws.addEventListener('open', () => {
+          try {
+            ws.close(1000, 'boot probe');
+          } catch {
+            // The accept is what matters; closing is best effort.
+          }
+          resolve();
+        });
+        ws.addEventListener('error', () => reject(new Error('the device socket reported an error')));
+        ws.addEventListener('close', () => reject(new Error('the device socket closed before it opened')));
+      }),
+      SOCKET_TIMEOUT_MS,
+      `the relay accepting a device socket at ${socketProbeUrl.pathname}`,
+    );
+  } catch (error) {
+    await mf?.dispose?.().catch(() => {});
+    throw new Error(
+      `the relay did not accept a DEVICE SOCKET within ${SOCKET_TIMEOUT_MS}ms (${socketProbeUrl.pathname}): ` +
+        `${error && error.message ? error.message : String(error)}. A relay that cannot accept a device ` +
+        'socket cannot run this suite, and waiting for one is not a test.',
     );
   }
 
