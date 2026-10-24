@@ -16,6 +16,10 @@ function normalizeAgentFailure(error) {
     'max_tokens_exceeded',
     'context_overflow',
   ].includes(rawCode);
+  if (rawCode === 'agent_expected_mcp_tools_unavailable') {
+    return 'AGENT_TOOL_CONFIGURATION: This agent is configured to use MCP tools, but none are available. Verify that the MCP server is connected and this agent can access its selected tools, then try again.';
+  }
+
   const messageOverflow =
     /context (?:length|window|limit)|maximum context|prompt (?:is )?too long|too many (?:input )?tokens|exceed(?:s|ed)? (?:the )?model.*(?:token|context)/i.test(
       rawMessage,

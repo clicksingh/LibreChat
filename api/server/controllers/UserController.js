@@ -24,6 +24,9 @@ const { verifyEmail, resendVerificationEmail } = require('~/server/services/Auth
 const { getMCPManager, getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { invalidateCachedTools } = require('~/server/services/Config/getCachedTools');
 const { processDeleteRequest } = require('~/server/services/Files/process');
+const {
+  reconcileOwnedWorkspacesForDeletedUser,
+} = require('~/server/services/Workspace/userDeletion');
 const { getAppConfig } = require('~/server/services/Config');
 const { getLogStores } = require('~/cache');
 const db = require('~/models');
@@ -394,6 +397,11 @@ const deleteUserController = async (req, res) => {
       logger.error('[deleteUserController] Error deleting user convos, likely no convos', error);
     }
     await deleteUserPluginAuth(user.id, null, true);
+    await reconcileOwnedWorkspacesForDeletedUser({
+      Workspace: mongoose.models.Workspace,
+      AclEntry: mongoose.models.AclEntry,
+      userId: user.id,
+    });
     await db.deleteUserById(user.id);
     await deleteAllSharedLinksWithCleanup(user.id);
     await deleteUserFiles(req);

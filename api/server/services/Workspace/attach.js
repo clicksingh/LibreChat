@@ -10,9 +10,7 @@
  */
 const { v4 } = require('uuid');
 const path = require('path');
-const { getStorageMetadata } = require('@librechat/api');
 const { FileContext, inferMimeType } = require('librechat-data-provider');
-const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { getRetentionExpiry } = require('~/server/services/Files/retention');
 const db = require('~/models');
 const proxy = require('./proxy');

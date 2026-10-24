@@ -1016,6 +1016,7 @@ export default function useStepHandler({
               phasedContentPart,
               false,
               getStepMetadata(runStep),
+              runStep.id,
             );
             hasUpdate = true;
           }

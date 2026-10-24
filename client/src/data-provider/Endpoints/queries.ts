@@ -13,10 +13,14 @@ export const useGetEndpointsQuery = <TData = t.TEndpointsConfig>(
     [QueryKeys.endpoints],
     () => dataService.getAIEndpoints(),
     {
-      staleTime: Infinity,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      refetchOnMount: false,
+      // Managed endpoint/config overrides may change while the employee remains signed in.
+      // A visible tab refetches periodically rather than requiring logout/login.
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchOnMount: true,
       ...config,
       enabled: (config?.enabled ?? true) === true && queriesEnabled,
     },
@@ -62,10 +66,14 @@ export const useGetStartupConfig = (
     startupConfigKey(!!user, options?.context),
     () => dataService.getStartupConfig({ context: options?.context }),
     {
-      staleTime: Infinity,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      refetchOnMount: false,
+      // Managed endpoint/config overrides may change while the employee remains signed in.
+      // A visible tab refetches periodically rather than requiring logout/login.
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchOnMount: true,
       ...config,
       enabled: (config?.enabled ?? true) === true && queriesEnabled,
     },

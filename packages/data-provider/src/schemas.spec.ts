@@ -8,6 +8,7 @@ import {
   compactGoogleSchema,
   eAnthropicEffortSchema,
   eReasoningEffortSchema,
+  managedReasoningEffortSchema,
   eReasoningModeSchema,
   eReasoningContextSchema,
 } from './schemas';
@@ -588,6 +589,22 @@ describe('ReasoningEffort', () => {
 
   it('still rejects unknown effort values', () => {
     expect(() => eReasoningEffortSchema.parse('ultra')).toThrow();
+  });
+});
+
+describe('Managed model reasoning-effort input', () => {
+  it('accepts model-declared safe custom effort levels', () => {
+    expect(managedReasoningEffortSchema.parse('ultra-custom')).toBe('ultra-custom');
+    expect(managedReasoningEffortSchema.parse('per_model:deep')).toBe('per_model:deep');
+  });
+  it('keeps the existing builtin unset/standard values', () => {
+    expect(managedReasoningEffortSchema.parse(ReasoningEffort.max)).toBe('max');
+    expect(managedReasoningEffortSchema.parse(ReasoningEffort.unset)).toBe('');
+  });
+  it('rejects malformed, unsafe, and oversized effort identifiers', () => {
+    for (const invalid of ['<script>', '/invalid', 'a'.repeat(65), 'two words']) {
+      expect(() => managedReasoningEffortSchema.parse(invalid)).toThrow();
+    }
   });
 });
 

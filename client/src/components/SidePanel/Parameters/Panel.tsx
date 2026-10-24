@@ -10,17 +10,21 @@ import {
   SettingDefinition,
   tConvoUpdateSchema,
   applyModelAwareDefaults,
+  SystemRoles,
 } from 'librechat-data-provider';
 import type { TPreset } from 'librechat-data-provider';
+import { resolveModelReasoningControls } from '~/utils/modelReasoningControls';
 import { useChatContext, useLiveAnnouncer } from '~/Providers';
 import { SaveAsPresetDialog } from '~/components/Endpoints';
 import { useSetIndexOptions, useLocalize } from '~/hooks';
 import { useGetEndpointsQuery } from '~/data-provider';
+import { useAuthContext } from '~/hooks/AuthContext';
 import { componentMapping } from './components';
 import { logger, cn } from '~/utils';
 
 export default function Parameters() {
   const localize = useLocalize();
+  const { user } = useAuthContext();
   const { conversation, setConversation } = useChatContext();
   const { announcePolite } = useLiveAnnouncer();
   const { setOption } = useSetIndexOptions();
@@ -55,10 +59,16 @@ export default function Parameters() {
       overriddenEndpointKey,
       model,
     );
-    return modelAwareParams.map(
+    const normalized = modelAwareParams.map(
       (param) => (overriddenParamsMap[param.key] as SettingDefinition) ?? param,
     );
-  }, [endpointType, endpointsConfig, model, provider]);
+    return resolveModelReasoningControls(
+      normalized,
+      customParams.reasoningProfiles,
+      model,
+      user?.role === SystemRoles.ADMIN,
+    );
+  }, [endpointType, endpointsConfig, model, provider, user?.role]);
 
   useEffect(() => {
     if (!parameters) {
@@ -77,12 +87,20 @@ export default function Parameters() {
     const paramKeys = new Set(
       parameters.filter((setting) => setting != null).map((setting) => setting.key),
     );
+    const effort = parameters.find((setting) => setting.key === 'reasoning_effort');
     setConversation((prev) => {
       if (!prev) {
         return prev;
       }
 
       const updatedConversation = { ...prev };
+      if (
+        effort?.options &&
+        prev.reasoning_effort != null &&
+        !effort.options.includes(prev.reasoning_effort)
+      ) {
+        updatedConversation.reasoning_effort = effort.default as typeof prev.reasoning_effort;
+      }
 
       const conversationKeys = Object.keys(updatedConversation);
       const updatedKeys: string[] = [];
@@ -108,6 +126,9 @@ export default function Parameters() {
         }
       });
 
+      if (updatedConversation.reasoning_effort !== prev.reasoning_effort) {
+        return updatedConversation;
+      }
       if (updatedKeys.length === 0) {
         return prev;
       }

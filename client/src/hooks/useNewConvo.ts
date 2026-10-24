@@ -36,16 +36,21 @@ import {
   requestChatFocus,
   logger,
 } from '~/utils';
+import {
+  getManagedNewChatPreset,
+  applyManagedNewChatPreset,
+  reconcileManagedDraftModel,
+  MANAGED_ENDPOINT,
+} from '~/utils/managedDefault';
 import { useDeleteFilesMutation, useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import useGetConversation from './Conversations/useGetConversation';
 import useAssistantListMap from './Assistants/useAssistantListMap';
+import { useAuthContext, useHasAccess } from '~/hooks';
 import { useResetChatBadges } from './useChatBadges';
 import { useApplyModelSpecEffects } from './Agents';
 import { useAgentsMapContext } from '~/Providers';
 import { usePauseGlobalAudio } from './Audio';
-import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
-import { getManagedNewChatPreset, applyManagedNewChatPreset } from '~/utils/managedDefault';
 
 const useNewConvo = (index = 0) => {
   const navigate = useNavigate();
@@ -466,6 +471,34 @@ const useNewConvo = (index = 0) => {
       applyModelSpecEffects,
     ],
   );
+
+  // Keep an already-open blank USER draft in sync after Admin changes the
+  // company model. The live config queries refresh without logging out;
+  // do not overwrite saved conversations, text drafts or ADMIN selections.
+  useEffect(() => {
+    if (
+      !isManagedUser ||
+      !activeConversation ||
+      String(activeConversation.endpoint ?? '') !== MANAGED_ENDPOINT
+    )
+      return;
+    const managedPreset = getManagedNewChatPreset({
+      isManagedUser,
+      conversationId: activeConversation.conversationId,
+      startupConfig,
+      endpointsConfig,
+      modelsConfig: modelsQuery.data,
+    });
+    const changed = reconcileManagedDraftModel(activeConversation, managedPreset, isManagedUser);
+    if (changed && changed !== activeConversation) setConversation(changed);
+  }, [
+    activeConversation,
+    endpointsConfig,
+    isManagedUser,
+    modelsQuery.data,
+    setConversation,
+    startupConfig,
+  ]);
 
   useEffect(() => {
     if (

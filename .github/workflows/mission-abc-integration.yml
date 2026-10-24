@@ -55,7 +55,7 @@ jobs:
           ../node_modules/.bin/jest --ci --runInBand --coverage=false             server/services/Files/Code/process.spec.js
       - name: Semantic provenance and syntax
         run: |
-          node --test api/app/clients/tools/util/fileSearchResults.test.js
+          node --test api/app/clients/tools/util/fileSearchResults.contract.cjs
           node --check api/app/clients/tools/util/fileSearch.js
           node --check api/server/services/Files/Code/process.js
           node --check api/server/controllers/agents/client.js

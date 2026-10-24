@@ -170,11 +170,11 @@ export function expandImplications(directCaps: string[]): string[] {
 
 /**
  * Maps each ACL ResourceType to the SystemCapability that grants
- * unrestricted management access. Typed as `Record<ResourceType, …>`
- * so adding a new ResourceType variant causes a compile error until a
- * capability is assigned here.
+ * unrestricted management access. This map is intentionally partial:
+ * resource types without a system-wide bypass (for example WORKSPACE)
+ * remain governed only by their resource ACL and fail closed when absent.
  */
-export const ResourceCapabilityMap: Record<ResourceType, SystemCapability> = {
+export const ResourceCapabilityMap: Partial<Record<ResourceType, SystemCapability>> = {
   [ResourceType.AGENT]: SystemCapabilities.MANAGE_AGENTS,
   [ResourceType.PROMPTGROUP]: SystemCapabilities.MANAGE_PROMPTS,
   [ResourceType.MCPSERVER]: SystemCapabilities.MANAGE_MCP_SERVERS,

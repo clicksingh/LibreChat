@@ -67,7 +67,9 @@ describe('fileSearch.js - tuple return validation', () => {
 
       expect(Array.isArray(result)).toBe(true);
       expect(result).toHaveLength(2);
-      expect(result[0]).toBe('No files to search. Instruct the user to add files for the search.');
+      expect(result[0]).toBe(
+        'No indexed/searchable files are available to file_search in this conversation. Uploaded or attached documents may still be accessible through authorized direct-file or code tools without embeddings. Check those tools before asking for a reupload.',
+      );
       expect(result[1]).toBeUndefined();
     });
 

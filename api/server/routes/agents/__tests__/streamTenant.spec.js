@@ -505,6 +505,7 @@ describe('SSE stream tenant isolation', () => {
       mockGenerationJobManager.getJob.mockResolvedValue({
         metadata: { userId: 'owner-a', tenantId: 'tenant-a' },
         status: 'running',
+        createdAt: 1234,
       });
       const reference = {
         file_id: 'out-0123456789abcdef0123',

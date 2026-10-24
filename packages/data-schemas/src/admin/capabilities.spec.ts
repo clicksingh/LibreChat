@@ -1,4 +1,5 @@
-import { SystemCapabilities, isValidCapability } from './capabilities';
+import { ResourceType } from 'librechat-data-provider';
+import { ResourceCapabilityMap, SystemCapabilities, isValidCapability } from './capabilities';
 
 describe('isValidCapability', () => {
   it.each(Object.values(SystemCapabilities))('accepts base capability: %s', (cap) => {
@@ -34,5 +35,11 @@ describe('isValidCapability', () => {
     'read:configs:end points',
   ])('rejects invalid capability: "%s"', (cap) => {
     expect(isValidCapability(cap)).toBe(false);
+  });
+});
+
+describe('ResourceCapabilityMap', () => {
+  it('keeps WORKSPACE fail-closed with no system-wide capability bypass', () => {
+    expect(ResourceCapabilityMap[ResourceType.WORKSPACE]).toBeUndefined();
   });
 });

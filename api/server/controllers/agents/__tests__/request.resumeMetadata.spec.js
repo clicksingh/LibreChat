@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const { normalizeAgentFailure } = require('../agentFailure');
 
 const mockLogger = {
   debug: jest.fn(),
@@ -1736,7 +1737,7 @@ describe('ResumableAgentController resume metadata', () => {
 
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({
-      error: 'create failed before return',
+      error: normalizeAgentFailure(new Error('create failed before return')),
       generationProtocolVersion: 1,
     });
     expect(mockGenerationJobManager.emitError).not.toHaveBeenCalled();
@@ -2002,7 +2003,7 @@ describe('ResumableAgentController resume metadata', () => {
     expect(mockGenerationJobManager.steering.consumeRecovered).not.toHaveBeenCalled();
     expect(mockGenerationJobManager.completeJob).toHaveBeenCalledWith(
       'conversation-123',
-      'provider init failed',
+      normalizeAgentFailure(new Error('provider init failed')),
       1000,
     );
   });
@@ -2038,7 +2039,7 @@ describe('ResumableAgentController resume metadata', () => {
     expect(mockGenerationJobManager.steering.consumeRecovered).not.toHaveBeenCalled();
     expect(mockGenerationJobManager.completeJob).toHaveBeenCalledWith(
       'conversation-123',
-      'Recovered steer cannot skip user message persistence',
+      normalizeAgentFailure(new Error('Recovered steer cannot skip user message persistence')),
       1000,
     );
   });
@@ -2598,7 +2599,7 @@ describe('ResumableAgentController resume metadata', () => {
 
     expect(mockGenerationJobManager.completeJob).toHaveBeenCalledWith(
       'conversation-123',
-      'init boom after res.json',
+      normalizeAgentFailure(new Error('init boom after res.json')),
       1000,
     );
     expect(mockGenerationJobManager.releaseGeneration).toHaveBeenCalledWith(
@@ -2713,7 +2714,7 @@ describe('ResumableAgentController resume metadata', () => {
 
     expect(mockGenerationJobManager.completeJob).toHaveBeenCalledWith(
       'conversation-123',
-      generationError.message,
+      normalizeAgentFailure(generationError),
       1000,
     );
     expect(mockGenerationJobManager.completeJob.mock.invocationCallOrder[0]).toBeLessThan(

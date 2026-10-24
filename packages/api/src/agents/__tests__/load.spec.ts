@@ -1,8 +1,8 @@
 import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { Constants, FileSources } from 'librechat-data-provider';
 import { agentSchema, createMethods } from '@librechat/data-schemas';
+import { Constants, FileSources, Tools } from 'librechat-data-provider';
 import type {
   Agent as LibreChatAgent,
   AgentModelParameters,
@@ -297,7 +297,7 @@ describe('loadAgent', () => {
     );
 
     if (result) {
-      expect(result.tools).toEqual([]);
+      expect(result.tools).toEqual([Tools.agent_management]);
       expect(result.instructions).toBe('Simple instructions');
     } else {
       expect(result).toBeFalsy();
@@ -1030,7 +1030,7 @@ describe('loadAgent', () => {
     );
 
     if (result) {
-      expect(result.tools).toEqual([]);
+      expect(result.tools).toEqual([Tools.agent_management]);
     } else {
       expect(result).toBeFalsy();
     }
@@ -1163,7 +1163,7 @@ describe('loadAgent', () => {
       );
 
       if (result) {
-        expect(result.tools).toEqual(['tool_mcp_server1']);
+        expect(result.tools).toEqual([Tools.agent_management, 'tool_mcp_server1']);
         expect(result.tools).not.toContain('malformed_tool_name');
         expect(result.tools).not.toContain('tool__server1');
         expect(result.tools).not.toContain('tool_mcp_server2');

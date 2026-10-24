@@ -1,7 +1,7 @@
 const client = require('openid-client');
 const { logger } = require('@librechat/data-schemas');
 const { CacheKeys } = require('librechat-data-provider');
-const { getOpenIdConfig } = require('~/strategies/openidStrategy');
+const { getOpenIdConfig } = require('~/strategies/openidConfigState');
 const getLogStores = require('~/cache/getLogStores');
 
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);

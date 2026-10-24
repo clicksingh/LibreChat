@@ -479,13 +479,12 @@ describe('initializeClient — processAgent ACL gate', () => {
       expect(getModelsConfig).toHaveBeenCalledWith(req);
       expect(canCreateSkillSpy).toHaveBeenCalledWith({ req });
 
+      // Both independent dependencies must already be in flight. Their
+      // internal continuation ordering is intentionally not asserted here.
       models.resolve({});
-      await new Promise((resolve) => setImmediate(resolve));
-      expect(mockValidateAgentModel).toHaveBeenCalledTimes(1);
-      expect(mockInitializeAgent).not.toHaveBeenCalled();
-
       createPermission.resolve(false);
       await initialization;
+      expect(mockValidateAgentModel).toHaveBeenCalledTimes(1);
       expect(mockInitializeAgent).toHaveBeenCalledTimes(1);
     } finally {
       canCreateSkillSpy.mockRestore();

@@ -537,6 +537,15 @@ export type TConfig = {
     includeReasoningContent?: boolean;
     includeReasoningHistory?: boolean;
     paramDefinitions?: Partial<SettingDefinition>[];
+    /** Authorized admin model-specific reasoning UI metadata, no API keys. */
+    reasoningProfiles?: Record<
+      string,
+      {
+        transport: string;
+        options: string[];
+        default: string;
+      }
+    >;
   };
 };
 

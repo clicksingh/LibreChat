@@ -1,9 +1,9 @@
+import { createModelPolicyHeadModel, createModelPolicyRevisionModel } from './modelPolicy';
 import { createSkillSyncCredentialModel } from './skillSyncCredential';
 import { createSkillSyncStatusModel } from './skillSyncStatus';
 import { createConversationTagModel } from './conversationTag';
 import { createAgentCategoryModel } from './agentCategory';
 import { createChatProjectModel } from './chatProject';
-import { createWorkspaceModel } from './workspace';
 import { createQuotaPolicyModel } from './quotaPolicy';
 import { createAgentApiKeyModel } from './agentApiKey';
 import { createTransactionModel } from './transaction';
@@ -13,6 +13,7 @@ import { createPluginAuthModel } from './pluginAuth';
 import { createSharedLinkModel } from './sharedLink';
 import { createAccessRoleModel } from './accessRole';
 import { createToolFavoriteModel } from './favorite';
+import { createWorkspaceModel } from './workspace';
 import { createMCPServerModel } from './mcpServer';
 import { createAssistantModel } from './assistant';
 import { createSkillFileModel } from './skillFile';
@@ -82,6 +83,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
   AuditLog: ReturnType<typeof createAuditLogModel>;
   Group: ReturnType<typeof createGroupModel>;
   Config: ReturnType<typeof createConfigModel>;
+  ModelPolicyHead: ReturnType<typeof createModelPolicyHeadModel>;
+  ModelPolicyRevision: ReturnType<typeof createModelPolicyRevisionModel>;
 } {
   const models = {
     User: createUserModel(mongoose),
@@ -123,6 +126,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
     AuditLog: createAuditLogModel(mongoose),
     Group: createGroupModel(mongoose),
     Config: createConfigModel(mongoose),
+    ModelPolicyHead: createModelPolicyHeadModel(mongoose),
+    ModelPolicyRevision: createModelPolicyRevisionModel(mongoose),
   };
   /**
    * Background index builds fail silently unless an 'index' listener is

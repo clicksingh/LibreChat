@@ -106,6 +106,17 @@ import { createAgentMethods, type AgentMethods, type AgentDeps } from './agent';
 /* Config */
 import { createConfigMethods, type ConfigMethods } from './config';
 import {
+  createModelPolicyMethods,
+  ModelPolicyRevisionConflictError,
+  ModelPolicyInvalidError,
+  MODEL_POLICY_KEY,
+  MODEL_POLICY_SCHEMA_VERSION,
+  MODEL_POLICY_AUDIENCES,
+  normalizeModelPolicyCandidate,
+  sameModelPolicyCandidate,
+  type ModelPolicyMethods,
+} from './modelPolicy';
+import {
   createMCPAuthorityMethods,
   MCPAuthorityProofError,
   MAX_MCP_AUTHORITY_TARGETS,
@@ -123,6 +134,13 @@ import {
 export {
   RoleConflictError,
   MCPAuthorityProofError,
+  ModelPolicyRevisionConflictError,
+  ModelPolicyInvalidError,
+  MODEL_POLICY_KEY,
+  MODEL_POLICY_SCHEMA_VERSION,
+  MODEL_POLICY_AUDIENCES,
+  normalizeModelPolicyCandidate,
+  sameModelPolicyCandidate,
   MAX_MCP_AUTHORITY_TARGETS,
   DEFAULT_REFRESH_TOKEN_EXPIRY,
   DEFAULT_SESSION_EXPIRY,
@@ -187,6 +205,7 @@ export type AllMethods = UserMethods &
   SkillSyncMethods &
   AgentMethods &
   ConfigMethods &
+  ModelPolicyMethods &
   MCPAuthorityMethods;
 
 /** Dependencies injected from the api layer into createMethods */
@@ -327,6 +346,7 @@ export function createMethods(
     ...agentMethods,
     /* Config */
     ...createConfigMethods(mongoose),
+    ...createModelPolicyMethods(mongoose),
     /* MCP authority proofs */
     ...createMCPAuthorityMethods(mongoose),
   };
@@ -384,6 +404,7 @@ export type {
   SkillSyncMethods,
   AgentMethods,
   ConfigMethods,
+  ModelPolicyMethods,
   MCPAuthorityMethods,
   MCPAuthorityMethodHooks,
   MCPAuthorityConfigSourceDocument,

@@ -104,6 +104,13 @@ type TestRunAgent = ReturnType<typeof makeAgent> & {
   subagentAgentConfigs?: TestRunAgent[];
 };
 
+type CapturedRunAgent = TestRunAgent & {
+  summarizationEnabled: boolean;
+  summarizationConfig: Record<string, unknown>;
+  maxContextTokens: number;
+  contextPruningConfig: Record<string, unknown>;
+};
+
 function makeSubagentChain(hops: number): TestRunAgent {
   const agents = Array.from({ length: hops + 1 }, (_, index) =>
     makeAgent({
@@ -178,7 +185,7 @@ async function callAndCapture(
   const createMock = Run.create as jest.Mock;
   expect(createMock).toHaveBeenCalledTimes(1);
   const callArgs = createMock.mock.calls[0][0];
-  return callArgs.graphConfig.agents as Array<Record<string, unknown>>;
+  return callArgs.graphConfig.agents as CapturedRunAgent[];
 }
 
 /** Minimal AppConfig with a single custom endpoint for testing provider resolution. */

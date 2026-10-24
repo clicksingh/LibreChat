@@ -18,11 +18,30 @@ describe('Model failure -> durable, truthful, non-replaying SSE errors', () => {
     ],
     [{ status: 401, message: 'provider api_key=secret' }, 'MODEL_REQUEST_INTERRUPTED'],
     [{ status: 500, message: 'network refused' }, 'MODEL_REQUEST_INTERRUPTED'],
+    [
+      { status: 500, message: 'E2E forced stream error provider-secret-value' },
+      'MODEL_REQUEST_INTERRUPTED',
+    ],
   ])('classifies and sanitizes %j', (failure, code) => {
     const result = normalizeAgentFailure(failure);
     expect(result).toContain(code);
     expect(result).not.toMatch(/provider secret|api_key=secret/);
     expect(result).toMatch(/(?:saved files|Saved files)/);
+  });
+});
+
+describe('safe application validation errors', () => {
+  it('publishes a bounded MCP-tool configuration error without exposing arbitrary provider text', () => {
+    expect(
+      normalizeAgentFailure({
+        code: 'AGENT_EXPECTED_MCP_TOOLS_UNAVAILABLE',
+        status: 503,
+        message:
+          'Agent "user-controlled-name" is configured to use MCP tools, but none are available.',
+      }),
+    ).toBe(
+      'AGENT_TOOL_CONFIGURATION: This agent is configured to use MCP tools, but none are available. Verify that the MCP server is connected and this agent can access its selected tools, then try again.',
+    );
   });
 });
 
