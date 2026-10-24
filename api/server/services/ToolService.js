@@ -82,6 +82,7 @@ const { findPluginAuthsByKeys, getRoleByName } = require('~/models');
 const { getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { getLogStores } = require('~/cache');
 const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
+const { createDeviceCommandDeps } = require('~/server/services/Device/deviceCommandDeps');
 
 const domainSeparatorRegex = new RegExp(actionDomainSeparator, 'g');
 
@@ -1639,6 +1640,7 @@ async function loadToolsForExecution({
         returnMetadata: true,
         mcpAvailableTools,
         requestScopedConnections: mcpRequestScopedConnections,
+        deviceCommand: createDeviceCommandDeps({ logger }),
         [Tools.web_search]: webSearchCallbacks,
       },
       webSearch: appConfig?.webSearch,
