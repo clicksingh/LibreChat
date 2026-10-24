@@ -43,6 +43,7 @@ const {
   resolveConfigServers,
 } = require('~/server/services/MCP');
 const { getMCPRequestContext } = require('~/server/services/MCPRequestContext');
+const { DEVICE_COMMAND_TOOL_NAME, createDeviceCommandTool } = require('../deviceCommand');
 const { createFileSearchTool, primeFiles: primeSearchFiles } = require('./fileSearch');
 const { primeFiles: primeCodeFiles } = require('~/server/services/Files/Code/process');
 const { getUserPluginAuthValue } = require('~/server/services/PluginService');
@@ -189,6 +190,8 @@ const loadTools = async ({
   };
 
   const customConstructors = {
+    [DEVICE_COMMAND_TOOL_NAME]: async () =>
+      createDeviceCommandTool({ ...options.deviceCommand, req: options.req }),
     image_gen_oai: async (_toolContextMap, dynamicToolContextMap) => {
       const authFields = getAuthFields('image_gen_oai');
       const authValues = await loadAuthValues({ userId: user, authFields });
