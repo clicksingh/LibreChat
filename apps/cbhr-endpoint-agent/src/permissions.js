@@ -41,6 +41,38 @@
  * The guarantee delivered is therefore: no account other than the owner (plus SYSTEM and the owner's
  * own session) can read the key file, and no inherited ACE survives. That is the strongest guarantee
  * Windows offers for a file, and it is the guarantee this module claims — nothing more.
+ *
+ * THE FILE AND THE DIRECTORY ARE NOT THE SAME OBJECT AND DO NOT GET THE SAME ACL
+ * `writeOwnerOnlyFile` / `assertOwnerOnlyFile` restrict a FILE. That is the key-file guarantee and it
+ * is unchanged: one explicit grant, inheritance broken, no group.
+ *
+ * `ensureOwnerOnlyDir` restricts a DIRECTORY — the agent root, which also contains `workspace/`, the
+ * containment root that tools read and write and that a harness must provision and inspect. Reducing a
+ * directory to a single owner ACE is NOT "owner-only hardening": it discards the inherited
+ * `NT AUTHORITY\SYSTEM`, `BUILTIN\Administrators` and host sandbox grants, so every process running
+ * under a restricted token — `icacls` included — is locked out of the tree, and a `workspace/` created
+ * before the root was hardened loses its inherited ACEs along with it (GM finding 2026-10-23: the
+ * end-to-end harness provisioned its own scratch file and then could not read it back, EPERM).
+ *
+ * The directory therefore gets the shape Windows itself gives a private directory:
+ *
+ *     <owner>:(OI)(CI)(F)                 the owner, inherited by everything in the tree
+ *     NT AUTHORITY\SYSTEM:(OI)(CI)(F)     granted by well-known SID (*S-1-5-18) below, so the
+ *     BUILTIN\Administrators:(OI)(CI)(F)  principal name is never a locale question
+ *     <host sandbox group>:(OI)(CI)(RX)   ONLY when the host grants it on the PARENT directory
+ *
+ * Inheritance is still broken on the directory — a stale parent ACE naming an unresolvable or broad
+ * principal must not survive — while the host's sandbox grant is RE-APPLIED explicitly, so the confined
+ * token keeps exactly the access the host gave it. `verifyPrivateDirAcl` still refuses FOREIGN
+ * principals, whether they are explicit or inherited, and a directory is never left with fewer
+ * principals than that: the restriction is replaced with the correct ACL, never dropped.
+ *
+ * WHAT THIS DOES NOT WEAKEN
+ * The sandbox grant is read+execute on the DIRECTORY (whatever the host granted, with container and
+ * object inheritance), never on the key file: every file the agent stores (`device-key.json`,
+ * `device.json`, `tools.json`, `backend-keys.json`, the replay window) is written through
+ * `writeOwnerOnlyFile`, which re-breaks inheritance on the file itself and grants only the owner. The
+ * file-level guarantee — and its test — are untouched.
  */
 
 const fs = require('node:fs');
@@ -56,9 +88,47 @@ const OWNER_ONLY_DIR_MODE = 0o700;
 const ACCEPTABLE_NON_OWNER_PRINCIPAL =
   /^(NT AUTHORITY\\(SYSTEM|SERVICE|LOCAL SERVICE|LogonSessionId_.*)|NT SERVICE\\[^\\]+|BUILTIN\\(Administrators|SYSTEM)|S-1-5-18|S-1-5-32-544)$/i;
 
+/**
+ * The HOST SANDBOX principal: the group the host's confined/sandboxed token carries (on this host,
+ * `Tech\CodexSandboxUsers`, granted `(OI)(CI)(RX)` on `~/.cbhr`). It is deliberately NOT part of
+ * `ACCEPTABLE_NON_OWNER_PRINCIPAL` — a second group on a KEY FILE is refused, full stop — and it is
+ * only ever preserved on a DIRECTORY, and only when the parent directory grants it (see
+ * `hostSandboxGrantsOfParent`). The optional domain prefix tolerates whatever `icacls` prints for the
+ * host's own domain; matching is case-insensitive, as `samePrincipal` already is.
+ */
+const HOST_SANDBOX_PRINCIPAL = /^(?:[^\\]+\\)?CodexSandboxUsers$/i;
+
+/**
+ * The two platform principals a private DIRECTORY must not exclude. Granted by well-known SID
+ * (`*S-1-5-18`, `*S-1-5-32-544`) so a non-English install cannot break the grant, and matched by name
+ * OR SID so the read-back classifies however `icacls` renders them.
+ */
+const PRIVATE_DIRECTORY_PLATFORM_GRANTS = Object.freeze([
+  {
+    sid: '*S-1-5-18',
+    label: 'NT AUTHORITY\\SYSTEM',
+    matches: (principal) => /^(NT AUTHORITY\\SYSTEM|S-1-5-18)$/i.test(principal),
+  },
+  {
+    sid: '*S-1-5-32-544',
+    label: 'BUILTIN\\Administrators',
+    matches: (principal) => /^(BUILTIN\\Administrators|S-1-5-32-544)$/i.test(principal),
+  },
+]);
+
 /** True on Windows, where `fs` mode is advisory and an explicit ACL is required. */
 function isWindows() {
   return process.platform === 'win32';
+}
+
+/**
+ * True when the principal is the host's sandbox group — the confined token's own principal, which the
+ * host supplies on the parent directory rather than the agent inventing it.
+ * @param {string} principal
+ * @returns {boolean}
+ */
+function isHostSandboxPrincipal(principal) {
+  return typeof principal === 'string' && HOST_SANDBOX_PRINCIPAL.test(principal.trim());
 }
 
 /**
@@ -231,28 +301,230 @@ function readAclWindows(target) {
   });
 }
 
+/** `icacls` markers that are inheritance flags rather than permissions. */
+const INHERITANCE_FLAG_TOKEN = new Set(['I', 'OI', 'CI', 'IO', 'NP']);
+
 /**
- * Creates a directory only the owner can enter, failing closed when the restriction cannot be applied.
- * Idempotent: an existing directory is re-restricted and re-verified.
+ * Rebuilds a rights string for a DIRECTORY grant: the permission letters the host chose, the `(I)`
+ * inherited marker dropped (the grant is being re-applied explicitly), and container + object
+ * inheritance guaranteed so the whole subtree — `workspace/` included — stays reachable.
+ * @param {string} rights an `icacls` rights string, e.g. `(I)(OI)(CI)(RX)`
+ * @returns {string} e.g. `(OI)(CI)(RX)`
+ */
+function directoryGrantRights(rights) {
+  const tokens = [...String(rights ?? '').matchAll(/\(([^)]*)\)/g)].map((match) => match[1].toUpperCase());
+  const permissions = tokens.filter((token) => token.length > 0 && !INHERITANCE_FLAG_TOKEN.has(token));
+  return `(OI)(CI)(${permissions.length > 0 ? permissions.join('') : 'RX'})`;
+}
+
+/**
+ * The host's own sandbox grants, read from the PARENT directory: these are the grants a freshly created
+ * child would have inherited, which is exactly what breaking inheritance on the child would throw away.
+ * Only principals that match `HOST_SANDBOX_PRINCIPAL` are returned — a broad or unresolvable parent ACE
+ * (a stale `S-1-5-21-…` from another install, `BUILTIN\Users`, `Authenticated Users`) is deliberately
+ * NOT preserved, and would be refused by the verifier if it somehow survived.
+ *
+ * Never throws: an unreadable parent simply supplies nothing.
+ *
+ * @param {string} dir the directory about to be restricted
+ * @returns {Array<{principal: string, rights: string, fromParent: true}>}
+ */
+function hostSandboxGrantsOfParent(dir) {
+  let acl;
+  try {
+    acl = readAclWindows(path.dirname(dir));
+  } catch {
+    return [];
+  }
+  const parsed = parseAcl(acl);
+  const grants = [];
+  const seen = new Set();
+  for (const entry of [...parsed.explicit, ...parsed.inherited]) {
+    if (!isHostSandboxPrincipal(entry.principal)) {
+      continue;
+    }
+    const key = entry.principal.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    grants.push({ principal: entry.principal, rights: directoryGrantRights(entry.rights), fromParent: true });
+  }
+  return grants;
+}
+
+/**
+ * The complete grant list for a private directory: the owner, the two platform principals, and the
+ * host's sandbox grant when — and only when — the parent supplies one.
+ * @param {string} dir
+ * @param {string} owner
+ * @returns {Array<{principal: string, rights: string, reason: string}>}
+ */
+function privateDirectoryGrants(dir, owner) {
+  return [
+    { principal: owner, rights: '(OI)(CI)(F)', reason: 'owner' },
+    ...PRIVATE_DIRECTORY_PLATFORM_GRANTS.map((grant) => ({
+      principal: grant.sid,
+      rights: '(OI)(CI)(F)',
+      reason: 'platform',
+    })),
+    ...hostSandboxGrantsOfParent(dir).map((grant) => ({ ...grant, reason: 'host-sandbox' })),
+  ];
+}
+
+/**
+ * The verdict a private-directory assertion needs, plus the raw evidence behind it.
+ *
+ * Differences from `verifyOwnerOnlyAcl` (which governs FILES and is unchanged): the owner must carry
+ * FULL CONTROL, `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators` must both be present (a directory
+ * that excludes them is the defect this exists to catch), the host's sandbox principal is acceptable
+ * when the caller names it as host-supplied, and an inherited entry is classified rather than refused
+ * outright — refusing every inherited entry is precisely what locked the platform out of the root.
+ * Anything else — explicit or inherited — is FOREIGN and fails the verdict.
+ *
+ * @param {string} aclText raw `icacls` output
+ * @param {string} [owner] the owner's account name; defaults to the current account
+ * @param {object} [options]
+ * @param {string[]} [options.hostSandboxPrincipals] principals the host supplied on the parent
+ * @returns {{ok: boolean, owner: string, explicit: object[], inherited: object[], foreign: string[],
+ *   acceptablePlatformPrincipals: string[], hostSandboxPrincipals: string[],
+ *   requiredPrincipals: Array<{label: string, present: boolean}>, ownerHasFullControl: boolean}}
+ */
+function verifyPrivateDirAcl(aclText, owner = ownerAccountName(), options = {}) {
+  const hostSupplied = new Set(
+    (Array.isArray(options.hostSandboxPrincipals) ? options.hostSandboxPrincipals : []).map((principal) =>
+      String(principal).toLowerCase(),
+    ),
+  );
+  const parsed = parseAcl(aclText);
+  const entries = [...parsed.explicit, ...parsed.inherited];
+  const foreign = [];
+  const acceptablePlatformPrincipals = [];
+  const hostSandboxPrincipals = [];
+  for (const entry of entries) {
+    const principal = entry.principal;
+    if (samePrincipal(principal, owner)) {
+      continue;
+    }
+    if (isHostSandboxPrincipal(principal) && hostSupplied.has(principal.toLowerCase())) {
+      hostSandboxPrincipals.push(principal);
+      continue;
+    }
+    if (isPlatformPrincipal(principal, owner)) {
+      acceptablePlatformPrincipals.push(principal);
+      continue;
+    }
+    foreign.push(principal);
+  }
+  const ownerEntry = entries.find((entry) => samePrincipal(entry.principal, owner)) ?? null;
+  const ownerHasFullControl = ownerEntry !== null && /(^|\()F(\)|$)/.test(ownerEntry.rights.toUpperCase());
+  const requiredPrincipals = PRIVATE_DIRECTORY_PLATFORM_GRANTS.map((grant) => ({
+    label: grant.label,
+    present: entries.some((entry) => grant.matches(entry.principal)),
+  }));
+  const ok =
+    owner.length > 0 &&
+    ownerHasFullControl &&
+    requiredPrincipals.every((entry) => entry.present) &&
+    foreign.length === 0 &&
+    entries.length > 0;
+  return {
+    ok,
+    owner,
+    explicit: parsed.explicit,
+    inherited: parsed.inherited,
+    foreign,
+    acceptablePlatformPrincipals,
+    hostSandboxPrincipals,
+    requiredPrincipals,
+    ownerHasFullControl,
+  };
+}
+
+function privateDirRefusalMessage(verdict) {
+  const missing = verdict.requiredPrincipals
+    .filter((entry) => !entry.present)
+    .map((entry) => entry.label)
+    .join(', ');
+  return `the private-directory ACL on an agent root was not applied (${verdict.foreign.length} foreign principal(s), ${verdict.inherited.length} inherited, owner ${verdict.ownerHasFullControl ? 'granted full control' : 'missing full control'}${missing.length > 0 ? `, missing ${missing}` : ''})`;
+}
+
+/**
+ * Runs `icacls <dir> /inheritance:r /grant:r <owner>:(OI)(CI)(F) /grant:r *S-1-5-18:(OI)(CI)(F)
+ * /grant:r *S-1-5-32-544:(OI)(CI)(F) [/grant:r <host sandbox>:(OI)(CI)(RX)]` and returns the verdict plus
+ * the raw listing. Idempotent: `grant:r` replaces, so a second run produces the same ACL.
+ *
+ * @param {string} dir absolute path to a directory
+ * @param {string} [owner] principal to grant full control; defaults to the current account
+ * @returns {{ok: boolean, owner: string, acl: string, grants: object[], explicit: object[],
+ *   inherited: object[], foreign: string[], acceptablePlatformPrincipals: string[],
+ *   hostSandboxPrincipals: string[], requiredPrincipals: object[], ownerHasFullControl: boolean}}
+ */
+function restrictPrivateDirectoryWindows(dir, owner = ownerAccountName()) {
+  if (owner.length === 0) {
+    throw new Error('cannot determine the owning account for a private-directory ACL');
+  }
+  const grants = privateDirectoryGrants(dir, owner);
+  const args = [dir, '/inheritance:r'];
+  for (const grant of grants) {
+    args.push('/grant:r', `${grant.principal}:${grant.rights}`);
+  }
+  execFileSync('icacls', args, {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const acl = readAclWindows(dir);
+  const verdict = verifyPrivateDirAcl(acl, owner, {
+    hostSandboxPrincipals: grants.filter((grant) => grant.reason === 'host-sandbox').map((grant) => grant.principal),
+  });
+  return { ...verdict, acl, grants };
+}
+
+/**
+ * Creates a directory that the platform can still operate in and that no foreign principal can reach,
+ * failing closed when the restriction cannot be applied. Idempotent: an existing directory is
+ * re-restricted and re-verified.
+ *
+ * The directory keeps the owner with full control, `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators`,
+ * and the host's sandbox grant when the parent supplies one. It is NOT reduced to a single owner ACE —
+ * see the module header: that shape locks out every restricted token, `icacls` included, and takes the
+ * inherited ACEs of a pre-existing `workspace/` with it.
+ *
  * @param {string} dir absolute path
- * @returns {{dir: string, mode: number, acl: string|null}}
+ * @returns {{dir: string, mode: number, acl: string|null, principals: string[], foreign: string[],
+ *   acceptablePlatformPrincipals: string[], hostSandboxPrincipals: string[]}}
  */
 function ensureOwnerOnlyDir(dir) {
   if (typeof dir !== 'string' || dir.length === 0) {
     throw new Error('ensureOwnerOnlyDir requires a directory path');
   }
   fs.mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR_MODE });
-  let acl = null;
   if (isWindows()) {
-    const verdict = restrictToOwnerWindows(dir);
+    const verdict = restrictPrivateDirectoryWindows(dir);
     if (!verdict.ok) {
-      throw new Error(aclRefusalMessage(verdict, 'directory'));
+      throw new Error(privateDirRefusalMessage(verdict));
     }
-    acl = verdict.acl;
-  } else {
-    fs.chmodSync(dir, OWNER_ONLY_DIR_MODE);
+    return {
+      dir,
+      mode: OWNER_ONLY_DIR_MODE,
+      acl: verdict.acl,
+      principals: verdict.explicit.map((entry) => entry.principal),
+      foreign: verdict.foreign,
+      acceptablePlatformPrincipals: verdict.acceptablePlatformPrincipals,
+      hostSandboxPrincipals: verdict.hostSandboxPrincipals,
+    };
   }
-  return { dir, mode: OWNER_ONLY_DIR_MODE, acl };
+  fs.chmodSync(dir, OWNER_ONLY_DIR_MODE);
+  return {
+    dir,
+    mode: OWNER_ONLY_DIR_MODE,
+    acl: null,
+    principals: [ownerAccountName()],
+    foreign: [],
+    acceptablePlatformPrincipals: [],
+    hostSandboxPrincipals: [],
+  };
 }
 
 /**
@@ -380,14 +652,22 @@ module.exports = {
   OWNER_ONLY_FILE_MODE,
   OWNER_ONLY_DIR_MODE,
   ACCEPTABLE_NON_OWNER_PRINCIPAL,
+  HOST_SANDBOX_PRINCIPAL,
+  PRIVATE_DIRECTORY_PLATFORM_GRANTS,
   isWindows,
   ownerAccountName,
   samePrincipal,
   isPlatformPrincipal,
+  isHostSandboxPrincipal,
   parseAcl,
   verifyOwnerOnlyAcl,
+  verifyPrivateDirAcl,
   restrictToOwnerWindows,
+  restrictPrivateDirectoryWindows,
   readAclWindows,
+  directoryGrantRights,
+  hostSandboxGrantsOfParent,
+  privateDirectoryGrants,
   ensureOwnerOnlyDir,
   writeOwnerOnlyFile,
   assertOwnerOnlyFile,

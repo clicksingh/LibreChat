@@ -12,10 +12,25 @@
  *    `util.inspect(keystore, {showHidden: true})` and `Object.keys(keystore)` all see the public
  *    label and the paths, never the bytes. `tests/keystore.js` proves that against real encodings.
  *
- * 2. THE FILE IS OWNER-ONLY. `permissions.js` applies a real restriction (POSIX mode + Windows ACL)
- *    and fails closed when it cannot. Nothing is written into the repository worktree: the default
- *    root is under the user profile, which is exactly what the task requires (a private key inside a
- *    git worktree is one `git add -A` away from being published).
+ * 2. THE FILE IS OWNER-ONLY, AND THE ROOT STAYS OPERABLE. `permissions.js` applies a real restriction
+ *    (POSIX mode + Windows ACL) and fails closed when it cannot. Two different objects get two
+ *    different ACLs, deliberately and not by accident:
+ *
+ *      - the KEY FILE (`device-key.json`) is reduced to the owner alone: inheritance broken, one
+ *        explicit grant, no group. That is the guarantee this module exists to deliver;
+ *      - the ROOT DIRECTORY keeps the owner with full control PLUS `NT AUTHORITY\SYSTEM`,
+ *        `BUILTIN\Administrators` and the host's sandbox grant, because the root also holds
+ *        `workspace/` — the containment root tools read and write and a harness must provision and
+ *        inspect. A root whose only ACE is the owner is not a stronger guarantee, it is a directory
+ *        the platform can no longer operate in: it drops those three grants, and a `workspace/`
+ *        created before the root was hardened loses its inherited ACEs with them (GM finding
+ *        2026-10-23, where the end-to-end harness could not read back the scratch file it had just
+ *        provisioned). `ensureOwnerOnlyDir` therefore means "a directory no foreign principal can
+ *        reach", not "a directory with one ACE".
+ *
+ *    Nothing is written into the repository worktree: the default root is under the user profile,
+ *    which is exactly what the task requires (a private key inside a git worktree is one `git add -A`
+ *    away from being published).
  *
  * 3. ERRORS CARRY NO KEY MATERIAL. Every failure here is an `EndpointRefusal` with a field-naming,
  *    value-free message; a caller-supplied cause is replaced by a code-only stand-in.
@@ -139,6 +154,11 @@ function createDeviceKeystore(options = {}) {
     };
   }
 
+  // The ROOT is hardened as a private DIRECTORY — owner full control plus SYSTEM, Administrators and
+  // the host's sandbox grant — never as an owner-only FILE. `writeOwnerOnlyFile` below applies the
+  // owner-only ACL to `device-key.json` itself, so hardening the root the same way would add nothing to
+  // the key's protection and would take the inherited ACEs of `workspace/` (and of every tool that
+  // legitimately works in it) away with it.
   ensureOwnerOnlyDir(rootDir);
   const identity =
     typeof options.privateKeyPkcs8B64u === 'string' && options.privateKeyPkcs8B64u.length > 0

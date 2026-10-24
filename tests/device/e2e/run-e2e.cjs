@@ -64,6 +64,14 @@ const JWT_SECRET = `w9-e2e-jwt-secret-${nodeCrypto.randomBytes(8).toString('hex'
 const LAB_PEPPER = 'w9-e2e-lookup-pepper-0001';
 const PAIRING_OPEN_DOMAIN = 'cbhr:device:pairing-open:v1';
 
+/**
+ * The principal the ACL negative control adds to a throwaway root, with real `icacls`. It is a REAL,
+ * resolvable, ordinary group — and a FOREIGN one: it is not the owner, not SYSTEM, not Administrators,
+ * not a logon-session SID and not the host's sandbox group. `apps/cbhr-endpoint-agent/test/keystore.test.js`
+ * uses the same name as its foreign example on the key file.
+ */
+const ACL_CONTROL_FOREIGN_PRINCIPAL = 'BUILTIN\\Users';
+
 const steps = [];
 const limits = [];
 const logLines = [];
@@ -493,6 +501,97 @@ async function main() {
       { crypto: deviceCrypto },
     );
 
+    // ---- THE ROOT THE AGENT JUST PROVISIONED, READ BACK WITH REAL `icacls` ----
+    // The defect this closes (docs/GM-FINDING-E2E-RED-ROOT-HARDENING-20261023.md): the agent's own-root
+    // hardening REPLACED the directory ACL with a single owner ACE. That dropped SYSTEM, Administrators
+    // and the host sandbox grant, and it left a `workspace/` created before the root was hardened with an
+    // EMPTY ACL — this harness then could not read the scratch file it had just written (EPERM). The root
+    // must keep the owner WITH FULL CONTROL plus the two platform principals, and must still refuse a
+    // foreign principal. The raw listing is printed as evidence; the classification is the agent's own,
+    // applied to that real listing rather than to a mock.
+    const aclModule = require(path.join(ENDPOINT_AGENT_DIR, 'src', 'permissions.js'));
+    const agentRootAcl = readAclListing(agentRoot);
+    const agentRootAclVerdict = aclModule.verifyPrivateDirAcl(agentRootAcl, undefined, {
+      hostSandboxPrincipals: aclModule.hostSandboxGrantsOfParent(agentRoot).map((grant) => grant.principal),
+    });
+    const agentRootAclObserved = {
+      command: `icacls ${JSON.stringify(agentRoot)}`,
+      raw: agentRootAcl.trim(),
+      classifier: 'apps/cbhr-endpoint-agent/src/permissions.js verifyPrivateDirAcl',
+      owner: agentRootAclVerdict.owner,
+      ownerHasFullControl: agentRootAclVerdict.ownerHasFullControl,
+      requiredPrincipals: agentRootAclVerdict.requiredPrincipals,
+      explicitPrincipals: agentRootAclVerdict.explicit.map((entry) => `${entry.principal}:${entry.rights}`),
+      inheritedPrincipals: agentRootAclVerdict.inherited.map((entry) => `${entry.principal}:${entry.rights}`),
+      hostSandboxPrincipals: agentRootAclVerdict.hostSandboxPrincipals,
+      foreign: agentRootAclVerdict.foreign,
+      // Harness-side, independent of the agent's classifier: the operating system's own listing must
+      // name these three, with the owner and both platform principals holding full control.
+      rawListingGrantsTheOwnerFullControl: aclListingGrants(agentRootAcl, [agentRootAclVerdict.owner], '(F)'),
+      rawListingNamesSystem: aclListingGrants(agentRootAcl, ['NT AUTHORITY\\SYSTEM', 'S-1-5-18'], '(F)'),
+      rawListingNamesAdministrators: aclListingGrants(
+        agentRootAcl,
+        ['BUILTIN\\Administrators', 'S-1-5-32-544'],
+        '(F)',
+      ),
+      means:
+        'the ROOT is a private DIRECTORY (owner + SYSTEM + Administrators + the host sandbox grant), while device-key.json itself stays reduced to the owner alone',
+    };
+    const agentRootAclPass =
+      agentRootAclVerdict.ok === true &&
+      agentRootAclVerdict.ownerHasFullControl === true &&
+      agentRootAclObserved.rawListingGrantsTheOwnerFullControl === true &&
+      agentRootAclObserved.rawListingNamesSystem === true &&
+      agentRootAclObserved.rawListingNamesAdministrators === true;
+
+    // ---- NEGATIVE CONTROL: A FOREIGN PRINCIPAL ON A ROOT IS STILL DETECTED AND REFUSED ----
+    // A THROWAWAY root, provisioned by the real CLI, outside the repo; a real foreign ACE added with
+    // real `icacls`; then (a) the classifier refuses it and (b) the real CLI itself refuses to operate
+    // on that root. The foreign ACE is removed again so nothing is left polluted.
+    const aclControlRoot = path.join(process.env.USERPROFILE ?? process.env.HOME, '.cbhr', `e2e-acl-control-${runId}`);
+    agentStep(
+      'init (ACL negative control)',
+      ['run-agent.js', 'init', '--root', aclControlRoot, '--device-id', `w9-acl-control-${runId}`],
+      'agent-init-acl-control',
+    );
+    const aclControlClean = readAclListing(aclControlRoot);
+    execFileSync('icacls', [aclControlRoot, '/grant:r', `${ACL_CONTROL_FOREIGN_PRINCIPAL}:(OI)(CI)(F)`], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    const aclControlDirty = readAclListing(aclControlRoot);
+    const aclControlVerdict = aclModule.verifyPrivateDirAcl(aclControlDirty, undefined, {
+      hostSandboxPrincipals: aclModule.hostSandboxGrantsOfParent(aclControlRoot).map((grant) => grant.principal),
+    });
+    const aclControlRefusal = runNode(
+      ['run-agent.js', 'init', '--root', aclControlRoot, '--device-id', `w9-acl-control-${runId}-again`],
+      {
+        cwd: ENDPOINT_AGENT_DIR,
+        stdoutPath: out('agent-init-acl-control-refused.out'),
+        stderrPath: out('agent-init-acl-control-refused.err'),
+      },
+    );
+    execFileSync('icacls', [aclControlRoot, '/remove:g', ACL_CONTROL_FOREIGN_PRINCIPAL], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    const aclControlObserved = {
+      controlRoot: aclControlRoot,
+      cleanRootAcl: aclControlClean.trim(),
+      foreignPrincipal: ACL_CONTROL_FOREIGN_PRINCIPAL,
+      rootAclWithTheForeignPrincipal: aclControlDirty.trim(),
+      classifierVerdictOk: aclControlVerdict.ok,
+      classifierForeign: aclControlVerdict.foreign,
+      agentRefusedToOperateOnIt: aclControlRefusal.status !== 0,
+      agentExitCode: aclControlRefusal.status,
+      agentStderr: (readText(out('agent-init-acl-control-refused.err')) ?? '').trim(),
+      foreignAceRemovedAfterwards: readAclListing(aclControlRoot).trim(),
+    };
+    const aclControlPass =
+      aclControlVerdict.ok === false &&
+      aclControlVerdict.foreign.map((principal) => principal.toLowerCase()).includes('builtin\\users') &&
+      aclControlRefusal.status !== 0;
+
     const endpointObserved = {
       agentRoot,
       agentRootIsOutsideTheRepo: !agentRoot.startsWith(REPO),
@@ -515,19 +614,23 @@ async function main() {
         outsideTheRepo: !String(agent.deviceKeyFile).startsWith(REPO),
       },
       bootstrapDescribeDeviceId: describe?.agent?.deviceId ?? null,
+      rootAcl: agentRootAclObserved,
+      rootAclNegativeControl: aclControlObserved,
     };
     const endpointPass =
       endpointObserved.agentRootIsOutsideTheRepo === true &&
       endpointObserved.backendKeyIdIsPinned === true &&
       typeof agent.devicePublicKeySpkiB64u === 'string' &&
-      agent.devicePublicKeySpkiB64u.length > 0;
+      agent.devicePublicKeySpkiB64u.length > 0 &&
+      agentRootAclPass === true &&
+      aclControlPass === true;
     record({
       id: 'S4',
       title: 'ENDPOINT — the real agent provisioned in its own key store OUTSIDE the repo',
       status: endpointPass ? 'PASS' : 'FAIL',
       observed: endpointObserved,
       notes:
-        'The device key is generated by the agent and lives OUTSIDE the repo. The harness opens it only to sign the ceremony proofs (staged for replacement by an agent-side ceremony command); the command frames are signed by BACKEND custody, and the result frames only by the agent process.',
+        'The device key is generated by the agent and lives OUTSIDE the repo. The harness opens it only to sign the ceremony proofs (staged for replacement by an agent-side ceremony command); the command frames are signed by BACKEND custody, and the result frames only by the agent process. The root ACL is the operating system\'s own listing: the owner keeps FULL CONTROL and SYSTEM/Administrators are NOT excluded, while the key FILE stays owner-only (the negative control above re-adds a real foreign principal to a throwaway root and both the classifier and the real CLI refuse it).',
     });
     if (!endpointPass) {
       throw new Error('ENDPOINT_PROVISIONING_FAILED');
@@ -1197,22 +1300,67 @@ async function main() {
         contentMatchesExpected:
           typeof realRead?.content === 'string' && sha256Hex(realRead.content) === sha256Hex(WORKSPACE_CONTENT),
       },
-      theFileIsReal: fs.readFileSync(path.join(agentRoot, 'workspace', WORKSPACE_FILE), 'utf8') === WORKSPACE_CONTENT,
     };
+    // THE HARNESS'S OWN READ-BACK IS DELIBERATELY NOT PART OF THE OBJECT LITERAL ABOVE.
+    // It used to be one property in that literal (`theFileIsReal: fs.readFileSync(...)`), so a single
+    // failing read threw away the agent's independently-obtained result with it — the defect recorded in
+    // docs/GM-FINDING-E2E-RED-ROOT-HARDENING-20261023.md §2. The agent's evidence is now built and held
+    // FIRST (`fileRead.reportedByTheAgent` above, computed from the agent's own signed result frame) and
+    // the harness's own checks run afterwards, each inside a `try`, so they can only ever ADD evidence.
+    let harnessReadBack = null;
+    let harnessReadBackError = null;
+    try {
+      const text = fs.readFileSync(path.join(agentRoot, 'workspace', WORKSPACE_FILE), 'utf8');
+      harnessReadBack = {
+        ok: text === WORKSPACE_CONTENT,
+        bytes: text.length,
+        sha256: sha256Hex(text),
+        expectedSha256: sha256Hex(WORKSPACE_CONTENT),
+      };
+    } catch (err) {
+      harnessReadBackError = `${err.code ?? err.name}: ${err.message}`;
+    }
+    // The concrete regression the finding names: inside a root the agent hardened, the harness must still
+    // be able to CREATE a file in `workspace/` and read it back. A root that only the owner can enter
+    // leaves a pre-provisioned `workspace/` with an empty ACL and fails exactly here.
+    let harnessWriteBack = null;
+    let harnessWriteBackError = null;
+    try {
+      const scratchName = 'w9-harness-writeback.txt';
+      const scratchContent = `harness write-back inside the hardened root ${runId}\n`;
+      const scratchFile = path.join(agentRoot, 'workspace', scratchName);
+      fs.writeFileSync(scratchFile, scratchContent, 'utf8');
+      const readBack = fs.readFileSync(scratchFile, 'utf8');
+      harnessWriteBack = {
+        file: scratchFile,
+        ok: readBack === scratchContent,
+        bytes: readBack.length,
+        sha256: sha256Hex(readBack),
+      };
+    } catch (err) {
+      harnessWriteBackError = `${err.code ?? err.name}: ${err.message}`;
+    }
+    executionObserved.theFileIsReal = harnessReadBack?.ok === true;
+    executionObserved.theFileIsRealEvidence = harnessReadBack;
+    executionObserved.theFileIsRealError = harnessReadBackError;
+    executionObserved.harnessWriteBackInsideTheHardenedRoot = harnessWriteBack;
+    executionObserved.harnessWriteBackError = harnessWriteBackError;
     const executionPass =
       handled.status === 0 &&
       mainResultFrame !== null &&
       mainResultFrame.tag === 'CBHR-RPC-RESULT-V2' &&
       mainResultFrame.outcome === 'succeeded' &&
       executionObserved.fileRead.contentMatchesExpected === true &&
-      mainResultFrame.deviceKeyId === agentFinal.deviceKeyId;
+      mainResultFrame.deviceKeyId === agentFinal.deviceKeyId &&
+      executionObserved.theFileIsReal === true &&
+      harnessWriteBack?.ok === true;
     record({
       id: 'S8',
       title: 'EXECUTE — the real agent verified the frame and read a real file at a real path',
       status: executionPass ? 'PASS' : 'FAIL',
       observed: executionObserved,
       notes:
-        'The device key lives in the agent\'s own store outside the repo. This harness never uses it here: a `succeeded` outcome is unreachable without a signature by that key, and only the agent process holds it while handling frames.',
+        'The device key lives in the agent\'s own store outside the repo. This harness never uses it here: a `succeeded` outcome is unreachable without a signature by that key, and only the agent process holds it while handling frames. The agent\'s read report and the harness\'s own read/write-back are separate fields on purpose: the harness\'s checks cannot discard the agent\'s proof.',
     });
     if (!executionPass) {
       throw new Error('EXECUTION_FAILED');
@@ -1772,6 +1920,35 @@ function loadAgentPrivateKeyForProof(agentRoot) {
     format: 'der',
     type: 'pkcs8',
   });
+}
+
+/**
+ * The real ACL of a path, as `icacls` prints it. Not a mock, not a re-derivation: the same tool a
+ * Windows administrator would run, so the evidence is the operating system's own answer.
+ * @param {string} target
+ * @returns {string}
+ */
+function readAclListing(target) {
+  return execFileSync('icacls', [target], { encoding: 'utf8', windowsHide: true });
+}
+
+/**
+ * HARNESS-SIDE, INDEPENDENT OF THE AGENT'S CLASSIFIER: does the raw listing carry an ACE line naming one
+ * of `principalNames` with exactly `rightsToken`? Used to assert the shape the finding asks for (the
+ * owner with full control, SYSTEM and Administrators present) without asking the code under test.
+ *
+ * @param {string} rawAcl
+ * @param {string[]} principalNames name or well-known-SID renderings the same principal may have
+ * @param {string} rightsToken e.g. `(F)`
+ * @returns {boolean}
+ */
+function aclListingGrants(rawAcl, principalNames, rightsToken) {
+  const lines = String(rawAcl).split(/\r?\n/);
+  return lines.some(
+    (line) =>
+      principalNames.some((name) => line.toLowerCase().includes(String(name).toLowerCase())) &&
+      line.includes(rightsToken),
+  );
 }
 
 main().catch((error) => {
