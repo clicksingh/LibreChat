@@ -281,7 +281,7 @@ async function cleanupDatabase() {
     });
 
     const execution = await codeApi(execReq, 'POST', '/exec', {
-      lang: 'python3',
+      lang: 'python',
       code:
         'import os\n' +
         'os.makedirs("outputs", exist_ok=True)\n' +
@@ -389,7 +389,7 @@ async function cleanupDatabase() {
       fileGrants: [],
     });
     const postRevokeExec = await codeApi(revokedReq, 'POST', '/exec', {
-      lang: 'python3',
+      lang: 'python',
       code: 'print("must-not-run")',
     });
     must(
