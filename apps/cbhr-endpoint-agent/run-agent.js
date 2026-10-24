@@ -16,6 +16,12 @@
  *   handle        read frames (JSON, one per line, or a single JSON document) from stdin or `--in`,
  *                 verify + dispatch each, and write one result frame per input line to stdout
  *   verify-only   same, but never executes: prints the verification verdict only (a safe dry run)
+ *   serve         connect to the relay as a DEVICE and stay: receive command frames over the socket,
+ *                 feed each through the EXISTING agent path (verify -> dispatch -> execute -> sign),
+ *                 send the result back as `{t:'result', callId, payload}`, and ack each frame once the
+ *                 relay has judged the result. Reconnects with backoff; stops cleanly on
+ *                 SIGINT/SIGTERM. This is the resident participant (W13); every other command is a
+ *                 one-shot.
  *
  * LAB ARTIFACT (GM-73). This is the owner's own machine and the logic the Tauri shell will host; it is
  * NOT the employee deliverable (D008 still forbids requiring Node for end users), and it claims no
@@ -30,6 +36,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { createEndpointAgent } = require('./src/agent');
+const {
+  createAgentRuntime,
+  installShutdownHandlers,
+  buildDeviceSocketUrl,
+  DEVICE_SOCKET_TAG,
+} = require('./src/runtime');
 const { createDeviceKeystore, resolveRootDir, inspectKeyFilePermissions } = require('./src/keystore');
 const { pinBackendKey, defaultPinFile } = require('./src/pinnedKeys');
 const { loadCeilingSnapshot, defaultSnapshotPath } = require('./src/ceiling');
@@ -49,6 +61,24 @@ commands:
   pin-backend   --spki-file <path> [--label L] [--replace]
   handle        [--in <file>] [--device-id <id>] [--out <file>]
   verify-only   [--in <file>] [--device-id <id>]
+  serve         --relay <url>                   connect as a device and stay
+
+serve options:
+  --relay <url>           relay base URL, e.g. http://127.0.0.1:8787
+                          (a path-less URL gets /d/<deviceId>/ws?tag=device appended;
+                          a URL with a path is used as the device route, and the tag is forced
+                          to 'device' either way — the runtime never claims the platform role)
+  --no-replay-on-connect  pass replay=0 to the relay: do not redeliver unacked frames on connect
+                          (default: replay ON, which is the relay's production path)
+  --backoff-initial-ms N  first reconnect delay in ms (default 500)
+  --backoff-max-ms N      reconnect delay cap in ms (default 30000)
+  --max-reconnects N      give up (exit 1) after N consecutive failed reconnects
+                          (default: retry forever — the agent is a resident)
+  --verdict-timeout-ms N  how long to wait for the relay's verdict on one result (default 15000)
+  --drain-ms N            how long a shutdown waits for in-flight frames (default 5000)
+  --shutdown-on-stdin-eof also shut down cleanly when stdin reaches EOF (opt-in control channel for
+                          hosts that cannot deliver signals; useful in tests and service managers)
+  --print-url             print the device socket URL being connected to, then continue serving
 
 common options:
   --root <dir>          agent root (default ~/.cbhr/endpoint-agent; NEVER inside the repo)
@@ -63,7 +93,15 @@ common options:
 
 function parseArgs(argv) {
   const options = { _: [] };
-  const booleanFlags = new Set(['force', 'replace', 'no-pins', 'help']);
+  const booleanFlags = new Set([
+    'force',
+    'replace',
+    'no-pins',
+    'help',
+    'no-replay-on-connect',
+    'shutdown-on-stdin-eof',
+    'print-url',
+  ]);
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === '-h') {
@@ -316,6 +354,154 @@ async function commandHandle(options, { execute }) {
   return 0;
 }
 
+/**
+ * Reads an optional integer flag, refusing a non-numeric value loudly rather than silently ignoring
+ * it. A mistyped `--backoff-max-ms` that quietly became the default would leave an operator believing
+ * a policy is in force that is not — the same failure the device-config loader refuses to commit.
+ *
+ * @param {object} options parsed argv
+ * @param {string} name
+ * @returns {number|undefined}
+ */
+function optionalInteger(options, name) {
+  const raw = options[name];
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`--${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+/**
+ * `serve` — the resident participant (W13).
+ *
+ * Everything about the LOOP is the existing agent's: this command only builds the agent once (so the
+ * ceiling, the device floor and the pin set cannot change under a running process), connects the
+ * device socket, and routes signals to one shutdown path. It never prints key material, and it never
+ * writes a result the agent core did not produce.
+ *
+ * @param {object} options
+ * @returns {Promise<number>} the process exit code
+ */
+async function commandServe(options) {
+  const relay = options.relay;
+  if (typeof relay !== 'string' || relay.length === 0) {
+    process.stderr.write(
+      'serve requires --relay <url> (for example http://127.0.0.1:8787).\n' +
+        'It never guesses a relay: a resident agent that connects somewhere unasked is worse than one that does not start.\n',
+    );
+    return 2;
+  }
+  const agent = createEndpointAgent(agentOptionsFrom(options));
+  let runtime;
+  try {
+    runtime = createAgentRuntime({
+      agent,
+      relay,
+      deviceId: agent.deviceId(),
+      replayOnConnect: options['no-replay-on-connect'] !== true,
+      backoff: {
+        initialMs: optionalInteger(options, 'backoff-initial-ms'),
+        maxMs: optionalInteger(options, 'backoff-max-ms'),
+      },
+      maxReconnects: optionalInteger(options, 'max-reconnects') ?? null,
+      verdictTimeoutMs: optionalInteger(options, 'verdict-timeout-ms'),
+      drainMs: optionalInteger(options, 'drain-ms'),
+      // The default sink: info on stdout, warn/error on stderr. An operator sees a disconnect, a
+      // refusal and a reconnect without asking, which is the whole point of the command.
+    });
+  } catch (err) {
+    if (isEndpointRefusal(err)) {
+      throw err;
+    }
+    // A malformed flag is a usage error, not a crash: say which one and exit 2.
+    process.stderr.write(`serve: ${err.message}\n`);
+    return 2;
+  }
+
+  if (options['print-url'] === true) {
+    process.stdout.write(`${buildDeviceSocketUrl({ relay, deviceId: agent.deviceId() })}\n`);
+  }
+
+  let signalCount = 0;
+  const uninstall = installShutdownHandlers({
+    emitter: process,
+    onSignal: (signal) => {
+      signalCount += 1;
+      if (signalCount > 1) {
+        // A second Ctrl+C is the operator saying "now", so stop insisting on a graceful drain.
+        process.stderr.write(`\nsecond ${signal}: exiting now\n`);
+        process.exit(0);
+      }
+      runtime
+        .stop(`signal:${signal}`)
+        .then(() => {
+          uninstall();
+        })
+        .catch(() => {
+          process.exit(1);
+        });
+    },
+  });
+
+  process.on('uncaughtException', (err) => {
+    // LOUD, never silent: an agent that dies without saying why is the failure mode this command
+    // exists to remove. The exit code is non-zero so a supervisor restarts it.
+    process.stderr.write(
+      `${new Date().toISOString()} ERROR runtime.uncaught ${JSON.stringify({
+        name: err?.name ?? 'Error',
+        code: isEndpointRefusal(err) ? err.code : null,
+      })}\n`,
+    );
+    runtime.stop('uncaught-exception').finally(() => process.exit(1));
+  });
+
+  if (options['shutdown-on-stdin-eof'] === true) {
+    process.stdin.on('end', () => {
+      runtime.stop('stdin-eof').catch(() => process.exit(1));
+    });
+    process.stdin.on('close', () => {
+      runtime.stop('stdin-eof').catch(() => process.exit(1));
+    });
+    // Reading is the only way Node emits 'end'; the runtime does nothing with the bytes.
+    process.stdin.resume();
+  }
+
+  process.stdout.write(
+    `${new Date().toISOString()} INFO  serve.identity ${JSON.stringify({
+      deviceId: agent.deviceId(),
+      deviceKeyId: agent.deviceKeyId(),
+      rootDir: agent._internal.rootDir,
+      relay,
+      tag: DEVICE_SOCKET_TAG,
+      tools: agent.effectiveTools(),
+    })}\n`,
+  );
+
+  // `start()` throws a typed refusal when this machine has no WebSocket client at all; `main()`'s
+  // catch reports it as a code and exits 1 rather than pretending to listen.
+  runtime.start();
+
+  const outcome = await runtime.whenStopped();
+  uninstall();
+  if (options['shutdown-on-stdin-eof'] === true) {
+    // Stop holding the process open on a stdin that is no longer the control channel.
+    process.stdin.pause();
+  }
+  // Exit code: 0 for every clean shutdown (signal, stdin EOF, request), 1 when the runtime gave up
+  // because the relay never came back — a supervisor should see that difference.
+  const code = outcome.gaveUp === true ? 1 : 0;
+  const forced = setTimeout(() => process.exit(code), 250);
+  if (typeof forced.unref === 'function') {
+    // Does not keep the loop alive: an idle loop exits on its own, flushing these last lines first.
+    forced.unref();
+  }
+  return code;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help === true || options._.length === 0) {
@@ -336,6 +522,8 @@ async function main() {
       return commandHandle(options, { execute: true });
     case 'verify-only':
       return commandHandle(options, { execute: false });
+    case 'serve':
+      return commandServe(options);
     default:
       process.stderr.write(`unknown command: ${command}\n\n${USAGE}`);
       return 2;

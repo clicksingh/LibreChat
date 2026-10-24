@@ -344,7 +344,11 @@ describe('the CLI runs the whole loop as real processes', () => {
   it('an unknown command exits non-zero without a stack', () => {
     const result = run(RUN_AGENT, ['not-a-command'], { expectStatus: 2 });
     assert.match(result.stderr, /unknown command/);
-    assert.equal(result.stderr.includes('at '), false, 'no stack trace may be printed');
+    // Anchored to an actual stack FRAME (`    at fn (file:line:col)`). The previous check was a bare
+    // `stderr.includes('at ')`, which matches ordinary English — "thAT cannot deliver signals" in the
+    // usage text was enough to fail it — so it could never reliably detect a stack trace and produced
+    // false failures on any help text containing the word "that".
+    assert.equal(/^\s+at\s+\S+/m.test(result.stderr), false, 'no stack trace may be printed');
   });
 
   it('a missing pinned key file is reported as a typed refusal, not a crash', () => {
@@ -353,7 +357,8 @@ describe('the CLI runs the whole loop as real processes', () => {
       run(RUN_AGENT, ['init', '--root', emptyRoot, '--device-id', 'device-nopin']);
       const result = run(RUN_AGENT, ['describe', '--root', emptyRoot], { expectStatus: 1 });
       assert.match(result.stderr, /ENDPOINT_KEY_UNPINNED/);
-      assert.equal(result.stderr.includes('at '), false, 'no stack trace may be printed');
+      // Same anchoring as above: a bare `includes('at ')` matches prose, not a stack frame.
+      assert.equal(/^\s+at\s+\S+/m.test(result.stderr), false, 'no stack trace may be printed');
     } finally {
       fixtures.removeTempRoot(emptyRoot);
     }

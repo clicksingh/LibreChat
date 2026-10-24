@@ -1,0 +1,5 @@
+# The end-to-end runtime suite boots the relay artifact through Miniflare/workerd IN-PROCESS, and
+# workerd's storage must live inside this worktree: on a sandboxed host its writes are denied
+# everywhere else (see the long note at the top of `test/_relay-harness.cjs`). Everything it creates
+# is confined to this directory and removed when the relay stops.
+.runtime-e2e-state/

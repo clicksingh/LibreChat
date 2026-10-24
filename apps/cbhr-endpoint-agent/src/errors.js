@@ -77,6 +77,12 @@ const ENDPOINT_REFUSAL_HTTP_STATUS = Object.freeze({
   ENDPOINT_DEVICE_CONFIG_INVALID: 500,
   ENDPOINT_CEILING_SNAPSHOT_INVALID: 500,
   ENDPOINT_CLOCK_UNUSABLE: 500,
+  // runtime (W13): the LONG-LIVED participant. Both are LOCAL conditions of the agent process —
+  // they are never a frame's verdict and are never sent over the socket. They exist so that "this
+  // machine cannot host the runtime at all" and "the operator's runtime configuration is unusable"
+  // are distinguishable in a log, instead of both arriving as an untyped throw.
+  ENDPOINT_RUNTIME_UNAVAILABLE: 503,
+  ENDPOINT_RUNTIME_CONFIG_INVALID: 500,
 });
 
 /**
