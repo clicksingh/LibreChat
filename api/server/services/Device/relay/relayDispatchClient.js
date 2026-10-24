@@ -534,7 +534,27 @@ function interpretRelayResponse(response) {
   }
   const { status } = response;
   if (status >= 200 && status < 300) {
-    if (isPlainRecord(response.body) && response.body.accepted === false) {
+    /**
+     * A 2xx IS NOT AN ACCEPTANCE BY ITSELF — the relay states its verdict in its own body, and a
+     * refusal must never be read as a success.
+     *
+     * The relay's Durable Object answers HTTP 200 for BOTH outcomes: `{ok:true, admitted:true, seq}`
+     * when it forwards the frame, and `{ok:false, admitted:false, reason}` when it refuses it
+     * (`NO_GRANT_FAIL_CLOSED`, `GRANT_EXPIRED`, `CALL_ID_IN_USE`, `PAYLOAD_MUST_BE_OPAQUE_STRING`, …).
+     * This test previously looked only for `body.accepted === false` — a field the relay never sends —
+     * so a refusal fell straight through to `accepted: true` and the platform recorded a dispatch the
+     * relay had actually refused. That is a false success, the one outcome the outcome law forbids.
+     *
+     * Any explicit negative is now a refusal. The frozen contract that a 2xx WITHOUT an explicit
+     * refusal is accepted is deliberately preserved — a bodiless 200 is accepted exactly as the
+     * outcome-law suite pins — so this recognises the relay's real negative signals rather than
+     * tightening the rule around them.
+     */
+    const body = response.body;
+    const relayRefused =
+      isPlainRecord(body) &&
+      (body.accepted === false || body.admitted === false || body.ok === false);
+    if (relayRefused) {
       return {
         accepted: false,
         delivered: 'refused',
