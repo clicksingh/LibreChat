@@ -23,6 +23,9 @@ function mergeEndpointList(current, endpointPatch) {
     models: endpointPatch.models
       ? { ...(existing.models || {}), ...clone(endpointPatch.models) }
       : existing.models,
+    customParams: endpointPatch.customParams
+      ? { ...(existing.customParams || {}), ...clone(endpointPatch.customParams) }
+      : existing.customParams,
   };
   return list;
 }
@@ -122,6 +125,7 @@ async function commitManagedModelPolicy(input, deps) {
         policyVersion: canonical.version,
         transition,
         policyNoop: canonical.noop,
+        refreshConfigCaches: plan.refreshConfigCaches,
         writes,
         noop: canonical.noop && writes.length === 0,
       };
@@ -131,7 +135,7 @@ async function commitManagedModelPolicy(input, deps) {
   }
 
   if (!result) throw new Error('Model policy transaction completed without a result');
-  if (result.writes.length > 0) await invalidateConfigCaches();
+  if (result.writes.length > 0 || result.refreshConfigCaches === true) await invalidateConfigCaches();
   return result;
 }
 
