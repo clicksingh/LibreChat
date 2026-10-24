@@ -2,6 +2,8 @@ const SAFE_ENDPOINT = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}$/;
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,255}$/;
 const SAFE_DEPLOYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MAX_MODELS = 128;
+const REASONING_TRANSPORT = 'chat.completions.reasoning_effort';
+const REASONING_LEVEL = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 const AUDIENCES = Object.freeze({
   USER: 'locked-current-default',
   ADMIN: 'managed-catalog',
@@ -26,7 +28,29 @@ function normalizeEndpointName(value) {
   return endpointName;
 }
 
-function buildRoleProjection({ endpointName, companyDefault, adminModels }) {
+function normalizeReasoningProfile(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw invalid('Invalid reasoning capability metadata');
+  }
+  if (value.transport !== REASONING_TRANSPORT) {
+    throw invalid('Unsupported reasoning transport');
+  }
+  if (!Array.isArray(value.options) || value.options.length < 1 || value.options.length > 16) {
+    throw invalid('Reasoning options must contain between 1 and 16 values');
+  }
+  const options = value.options.map((item) => String(item || '').trim());
+  if (new Set(options).size !== options.length || options.some((item) => !REASONING_LEVEL.test(item))) {
+    throw invalid('Reasoning options must contain unique valid identifiers');
+  }
+  const defaultValue = String(value.default || '').trim();
+  if (!options.includes(defaultValue)) {
+    throw invalid('Reasoning default must be one of the supported options');
+  }
+  return { transport: REASONING_TRANSPORT, options, default: defaultValue };
+}
+
+function buildRoleProjection({ endpointName, companyDefault, adminModels, reasoningProfiles = {} }) {
   return {
     endpointName,
     companyDefault,
@@ -47,7 +71,13 @@ function buildRoleProjection({ endpointName, companyDefault, adminModels }) {
       ADMIN: {
         interface: { modelSelect: true },
         endpoints: {
-          custom: [{ name: endpointName, models: { default: adminModels, fetch: false } }],
+          custom: [
+            {
+              name: endpointName,
+              models: { default: adminModels, fetch: false },
+              customParams: { reasoningProfiles },
+            },
+          ],
         },
       },
     },
@@ -119,10 +149,18 @@ function buildModelPolicyCommitPlan(input) {
     if (!SAFE_DEPLOYMENT_ID.test(deploymentId)) {
       throw invalid('Invalid managed deployment id');
     }
-    return { deploymentId, model: normalizeModel(row.model) };
+    return {
+      deploymentId,
+      model: normalizeModel(row.model),
+      reasoning: normalizeReasoningProfile(row.reasoning),
+    };
   });
   const deploymentIds = deployments.map((row) => row.deploymentId);
   const adminModels = deployments.map((row) => row.model);
+  const reasoningProfiles = {};
+  for (const row of deployments) {
+    if (row.reasoning) reasoningProfiles[row.model] = row.reasoning;
+  }
   if (new Set(deploymentIds).size !== deploymentIds.length) {
     throw invalid('Deployment ids must be unique');
   }
@@ -148,6 +186,7 @@ function buildModelPolicyCommitPlan(input) {
     expectedVersion: input.expectedVersion,
     actor,
     source,
+    refreshConfigCaches: input.refreshConfigCaches === true,
     candidate: {
       schemaVersion: 1,
       companyDefaultDeploymentId,
@@ -158,6 +197,7 @@ function buildModelPolicyCommitPlan(input) {
       endpointName,
       companyDefault: defaultDeployment.model,
       adminModels,
+      reasoningProfiles,
     }),
   };
 }
@@ -167,4 +207,5 @@ module.exports = {
   buildRoleProjection,
   buildModelPolicyProjection,
   buildModelPolicyCommitPlan,
+  normalizeReasoningProfile,
 };
