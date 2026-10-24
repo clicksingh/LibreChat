@@ -7,28 +7,20 @@ const { Readable } = require('stream');
 const mongoose = require('mongoose');
 const { connectDb } = require('/app/api/db');
 const db = require('/app/api/models');
-const {
-  grantPermission,
-} = require('/app/api/server/services/PermissionService');
+const { grantPermission } = require('/app/api/server/services/PermissionService');
 const {
   resolveWorkspaceContext,
   resolveWorkspaceContextExplicit,
 } = require('/app/api/server/services/Endpoints/agents/authorization');
 const workspaceProxy = require('/app/api/server/services/Workspace/proxy');
-const {
-  uploadCodeEnvFile,
-} = require('/app/api/server/services/Files/Code/crud');
+const { uploadCodeEnvFile } = require('/app/api/server/services/Files/Code/crud');
 const {
   getCodeApiAuthHeaders,
   bindCodeApiExecutionScope,
   mintInternalAdminToken,
 } = require('@librechat/api');
 const { getCodeBaseURL } = require('@librechat/agents');
-const {
-  PrincipalType,
-  ResourceType,
-  AccessRoleIds,
-} = require('librechat-data-provider');
+const { PrincipalType, ResourceType, AccessRoleIds } = require('librechat-data-provider');
 
 const TENANT = 'legacy';
 const stamp = Date.now().toString(36);
@@ -84,7 +76,9 @@ async function codeApi(req, method, path, body) {
   let json = null;
   try {
     json = JSON.parse(bytes.toString('utf8'));
-  } catch {}
+  } catch {
+    // Non-JSON bodies (downloads/denials) are returned through bytes/text below.
+  }
   return { status: response.status, bytes, json, text: bytes.toString('utf8') };
 }
 
@@ -229,10 +223,7 @@ async function cleanupDatabase() {
       kind: 'user',
       id: String(userA._id),
     });
-    must(
-      personalUpload?.storage_session_id && personalUpload?.file_id,
-      'personal signed upload',
-    );
+    must(personalUpload?.storage_session_id && personalUpload?.file_id, 'personal signed upload');
     const personalDownload = await codeApi(
       reqA,
       'GET',
@@ -248,7 +239,11 @@ async function cleanupDatabase() {
       'GET',
       `/download/${personalUpload.storage_session_id}/${personalUpload.file_id}?kind=user&id=${userA._id}`,
     );
-    must(crossPersonal.status !== 200, 'cross-user personal download denied', String(crossPersonal.status));
+    must(
+      crossPersonal.status !== 200,
+      'cross-user personal download denied',
+      String(crossPersonal.status),
+    );
 
     const convo = await db.saveConvo(
       { userId: String(userA._id), isTemporary: false },
@@ -336,7 +331,11 @@ async function cleanupDatabase() {
       'GET',
       `/download/${projectFile.sessionId}/${projectFile.fileId}?kind=project&id=${forgedWorkspace}`,
     );
-    must(forged.status === 403, 'signed project token cannot forge query workspace', String(forged.status));
+    must(
+      forged.status === 403,
+      'signed project token cannot forge query workspace',
+      String(forged.status),
+    );
 
     await db.revokePermission(
       PrincipalType.USER,
@@ -479,6 +478,8 @@ async function cleanupDatabase() {
     await deleteSyntheticStorage();
     await cleanupDatabase();
     await mongoose.disconnect();
-  } catch {}
+  } catch (cleanupError) {
+    console.error('CLEANUP_FATAL_WARNING', cleanupError.message);
+  }
   process.exit(1);
 });
