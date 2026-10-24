@@ -13,6 +13,7 @@ const {
   resolveWorkspaceContextExplicit,
 } = require('/app/api/server/services/Endpoints/agents/authorization');
 const workspaceProxy = require('/app/api/server/services/Workspace/proxy');
+const { syncProjectQuota } = require('/app/api/server/services/Workspace/quotaSync');
 const { uploadCodeEnvFile } = require('/app/api/server/services/Files/Code/crud');
 const {
   getCodeApiAuthHeaders,
@@ -190,6 +191,8 @@ async function cleanupDatabase() {
       grantedBy: String(userA._id),
     });
     must(true, 'project owner ACL created');
+    await syncProjectQuota(workspaceId);
+    pass('project quota boundary provisioned');
 
     const reqA = reqFor(userA);
     const reqB = reqFor(userB);
@@ -472,14 +475,7 @@ async function cleanupDatabase() {
     await cleanupDatabase();
     await mongoose.disconnect();
   }
-})().catch(async (error) => {
+})().catch((error) => {
   console.error('LIBRECHAT_CODEAPI_LIVE_ACCEPTANCE_FAILED', error.stack || error.message);
-  try {
-    await deleteSyntheticStorage();
-    await cleanupDatabase();
-    await mongoose.disconnect();
-  } catch (cleanupError) {
-    console.error('CLEANUP_FATAL_WARNING', cleanupError.message);
-  }
   process.exit(1);
 });
