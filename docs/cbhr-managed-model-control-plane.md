@@ -38,3 +38,9 @@ On 2026-10-23, exact image `cbhr-ai:model-policy-v2-stage-9cb5d7f8a` (OCI source
 Result: `create -> noop -> advance`, active canonical revision 2, synthetic mid-transaction ADMIN projection failure fully rolled back canonical revision + all Config versions, stale expected revision was rejected, cache invalidation count stayed unchanged on failed transaction, and the disposable database/container/network were removed after the run. Production and normal staging data were untouched.
 
 This closes the Phase 2 **atomicity** gate. Remaining Phase 2 work is service-to-service HTTP acceptance with the dedicated secret on an isolated replica-set fixture, then wiring CBHR Admin as the CAS client. The internal listener remains disabled unless explicitly configured.
+
+## Reasoning metadata and cache refresh
+
+The typed model-policy command now accepts optional reasoning capability metadata per deployment. LibreChat validates the finite transport contract and effort IDs, then materializes `customParams.reasoningProfiles` only on the ADMIN endpoint projection while preserving unrelated custom parameters. USER never receives the override metadata.
+
+The command also supports an explicit `refreshConfigCaches` flag. This exists for the migration window where Admin still writes non-policy compatibility fields such as title/summarize and tokenConfig before the publisher call; LibreChat therefore invalidates effective config caches when policy-owned role fields changed **or** an explicit refresh was requested. A same-policy/reasoning-only retry can remain canonical-revision-idempotent while still refreshing changed derived metadata.
