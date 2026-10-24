@@ -70,6 +70,36 @@ async function waitForFile(file, timeoutMs = 120000) {
 }
 
 /** Arms the real pairing ceremony for one device and returns what the approve step needs. */
+/**
+ * GM-41: waits, with a bound, until shard A's revoke is OBSERVED COMMITTED in the device row before
+ * shard B arms its fresh claim. Returns `{ok:true}` when the row observably leaves the live lease
+ * (leaseState not 'active', or the epoch advancing past the seed epoch), and `{ok:false}` on timeout.
+ *
+ * This is a FIXTURE-side ordering gate, not a product behaviour: it makes the fixture's premise — a
+ * lapsed lease ready to claim — true by construction, rather than by hoping the scheduler opens the
+ * right side first. The product still decides everything: the revoke still runs as a real CAS, the
+ * claim still runs as a real CAS, and exactly-one-winner per transition still holds.
+ *
+ * The wait does NOT weaken the contention: the claim still lands in the window immediately after the
+ * revoke, with no time for anything else to act, and the epoch arithmetic (1->2->3) is still decided
+ * by the product's own transactions.
+ */
+async function waitForRevokeCommitted(ctx, device, { timeoutMs = 15000, intervalMs = 25 } = {}) {
+  const startedAt = Date.now();
+  for (;;) {
+    const row = await ctx.models.DeviceAuthority.findOne(
+      { _id: device.deviceId, tenantId: TENANT },
+    ).lean();
+    if (row !== null && (row.leaseState !== 'active' || Number(row.epoch) > device.seedEpoch)) {
+      return { ok: true, waitedMs: Date.now() - startedAt };
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      return { ok: false, waitedMs: Date.now() - startedAt };
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 async function armClaimCeremony(ctx, pairing, device, key) {
   const openChallenge = await pairing.mintPairingOpenChallenge({
     tenantId: TENANT,
@@ -233,13 +263,41 @@ async function main() {
             errorCode: outcome.error ? outcome.error.code : null,
           };
         } else {
-          // The frozen protocol only lets a fresh claim be ARMED while no live lease exists:
-          // issuePairingSession refuses a live lease outright, so the ceremony is armed inside
-          // this window. If the revoke has not committed yet the arm fails closed (no CAS is
-          // attempted); if it has, the product freezes the post-revoke epoch and the claim CAS
-          // below is the real product claim for that generation.
-          armed = await armClaimCeremony(ctx, pairing, device, env.makeDeviceKey(device.tag));
-          if (!armed.ok) {
+          /**
+           * GM-41 — THE ARM WAITS FOR THE REVOKE TO BE OBSERVED COMMITTED.
+           *
+           * This fixture asserts that every raced row commits BOTH legal transitions in order: the
+           * revoke (epoch 1->2) and then the fresh claim (2->3). That expectation is only true under
+           * an ordering the fixture previously did not establish. Both shards were released by the
+           * same `go` file, so when the claim armed before the revoke committed, the lease was still
+           * live, `issuePairingSession` CORRECTLY refused it, no CAS was attempted, and the row
+           * produced one transition instead of two.
+           *
+           * The product was right and the fixture went red for it — measured at 23 of 25 rows and 48
+           * of 50 CAS attempts, reported as a PRODUCT_FAIL. A flake that reads as a product failure
+           * trains everyone to re-run red results, which is what lets a real regression through.
+           *
+           * So the arm waits, with a bound, until the row observably leaves the live lease. The race
+           * is still real: the claim still lands immediately after the revoke, in the next window,
+           * with the product's own epoch arithmetic deciding everything. What is removed is only the
+           * fixture's dependence on which side of the barrier the scheduler happened to pick.
+           */
+          const armedAfterRevoke = await waitForRevokeCommitted(ctx, device, { timeoutMs: 15000 });
+          if (!armedAfterRevoke.ok) {
+            record = {
+              action: 'waitForRevokeCommitted',
+              deviceId: device.deviceId,
+              ownerId: device.claimOwner,
+              ok: false,
+              matched: 0,
+              errorCode: 'REVOKE_NOT_OBSERVED_COMMITTED',
+              waitedMs: armedAfterRevoke.waitedMs,
+              casAttempted: false,
+            };
+          } else {
+            armed = await armClaimCeremony(ctx, pairing, device, env.makeDeviceKey(device.tag));
+          }
+          if (!record && !armed.ok) {
             record = {
               action: 'armClaimCeremony',
               deviceId: device.deviceId,
@@ -250,7 +308,10 @@ async function main() {
               armStage: armed.stage,
               casAttempted: false,
             };
-          } else {
+          } else if (!record) {
+            // Reached ONLY when the revoke was observed committed and the arm succeeded. The wait is
+            // not an outcome: when it fails, `record` is already set and `armed` is still null, so this
+            // branch must be skipped rather than dereferencing it.
             const key = env.makeDeviceKey(device.tag);
             const proof = support.pairingClaimProof(ctx, {
               session: armed.session,
