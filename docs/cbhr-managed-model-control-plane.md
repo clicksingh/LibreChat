@@ -30,3 +30,11 @@ The internal publisher must persist its last applied external policy revision in
 The branch now includes a dedicated LibreChat-owned model-policy publication state contract: `modelpolicypublications` stores the last applied external policy revision and SHA-256 content digest. The method layer defines monotonic transitions: first publication must be revision 1; same revision plus same digest is an idempotent no-op; same revision with different content, stale revisions, revision gaps, and concurrent CAS changes fail closed. The state is derived integration metadata only. It is not the canonical model policy, and it is not yet wired into the runtime publisher route.
 
 The next step is to execute the state transition and the three owned Config projections inside one Mongo transaction, then invalidate effective config caches only after commit. Only after a real staging transaction/rollback test will the internal route be mounted.
+
+## Phase 2 real transaction acceptance
+
+On 2026-10-23, exact image `cbhr-ai:model-policy-v2-stage-9cb5d7f8a` (OCI source `9cb5d7f8a82d9db9f3b94487597a168ac5b36174`) passed the canonical policy transaction acceptance against a disposable MongoDB 7 single-node replica set. The ordinary stage Mongo is standalone and correctly rejected transactions; it was not reconfigured. The acceptance harness therefore used a dedicated database matching `cbhr_model_policy_acceptance_*` and refused any other database name.
+
+Result: `create -> noop -> advance`, active canonical revision 2, synthetic mid-transaction ADMIN projection failure fully rolled back canonical revision + all Config versions, stale expected revision was rejected, cache invalidation count stayed unchanged on failed transaction, and the disposable database/container/network were removed after the run. Production and normal staging data were untouched.
+
+This closes the Phase 2 **atomicity** gate. Remaining Phase 2 work is service-to-service HTTP acceptance with the dedicated secret on an isolated replica-set fixture, then wiring CBHR Admin as the CAS client. The internal listener remains disabled unless explicitly configured.
