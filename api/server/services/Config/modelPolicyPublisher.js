@@ -135,7 +135,8 @@ async function commitManagedModelPolicy(input, deps) {
   }
 
   if (!result) throw new Error('Model policy transaction completed without a result');
-  if (result.writes.length > 0 || result.refreshConfigCaches === true) await invalidateConfigCaches();
+  if (result.writes.length > 0 || result.refreshConfigCaches === true)
+    await invalidateConfigCaches();
   return result;
 }
 

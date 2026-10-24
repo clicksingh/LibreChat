@@ -40,7 +40,10 @@ function normalizeReasoningProfile(value) {
     throw invalid('Reasoning options must contain between 1 and 16 values');
   }
   const options = value.options.map((item) => String(item || '').trim());
-  if (new Set(options).size !== options.length || options.some((item) => !REASONING_LEVEL.test(item))) {
+  if (
+    new Set(options).size !== options.length ||
+    options.some((item) => !REASONING_LEVEL.test(item))
+  ) {
     throw invalid('Reasoning options must contain unique valid identifiers');
   }
   const defaultValue = String(value.default || '').trim();
@@ -50,7 +53,12 @@ function normalizeReasoningProfile(value) {
   return { transport: REASONING_TRANSPORT, options, default: defaultValue };
 }
 
-function buildRoleProjection({ endpointName, companyDefault, adminModels, reasoningProfiles = {} }) {
+function buildRoleProjection({
+  endpointName,
+  companyDefault,
+  adminModels,
+  reasoningProfiles = {},
+}) {
   return {
     endpointName,
     companyDefault,
