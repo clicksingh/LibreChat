@@ -30,10 +30,19 @@ describe('managed-model config projection', () => {
       endpointName: 'CBHR AI',
       actor: 'admin@example.invalid',
       source: 'cbhr-admin',
+      refreshConfigCaches: true,
       policy: {
         companyDefaultDeploymentId: 'deployment-b',
         deployments: [
-          { deploymentId: 'deployment-b', model: 'provider-x/model:fast' },
+          {
+            deploymentId: 'deployment-b',
+            model: 'provider-x/model:fast',
+            reasoning: {
+              transport: 'chat.completions.reasoning_effort',
+              options: ['low', 'high', 'max'],
+              default: 'high',
+            },
+          },
           { deploymentId: 'deployment-a', model: 'unrelated-vendor/deep_model' },
         ],
         audiences: AUDIENCES,
@@ -41,6 +50,7 @@ describe('managed-model config projection', () => {
     });
 
     expect(out.expectedVersion).toBe(7);
+    expect(out.refreshConfigCaches).toBe(true);
     expect(out.candidate).toEqual({
       schemaVersion: 1,
       companyDefaultDeploymentId: 'deployment-b',
@@ -52,6 +62,52 @@ describe('managed-model config projection', () => {
       'provider-x/model:fast',
       'unrelated-vendor/deep_model',
     ]);
+    expect(out.projection.roles.ADMIN.endpoints.custom[0].customParams.reasoningProfiles).toEqual({
+      'provider-x/model:fast': {
+        transport: 'chat.completions.reasoning_effort',
+        options: ['low', 'high', 'max'],
+        default: 'high',
+      },
+    });
+  });
+
+  test('rejects malformed reasoning capability metadata', () => {
+    const base = {
+      expectedVersion: 0,
+      endpointName: 'CBHR AI',
+      actor: 'admin@example.invalid',
+      policy: {
+        companyDefaultDeploymentId: 'd1',
+        deployments: [
+          {
+            deploymentId: 'd1',
+            model: 'model-a',
+            reasoning: {
+              transport: 'chat.completions.reasoning_effort',
+              options: ['low', 'high'],
+              default: 'max',
+            },
+          },
+        ],
+        audiences: AUDIENCES,
+      },
+    };
+    expect(() => buildModelPolicyCommitPlan(base)).toThrow(/Reasoning default/);
+    expect(() =>
+      buildModelPolicyCommitPlan({
+        ...base,
+        policy: {
+          ...base.policy,
+          deployments: [
+            {
+              deploymentId: 'd1',
+              model: 'model-a',
+              reasoning: { transport: 'vendor.magic', options: ['high'], default: 'high' },
+            },
+          ],
+        },
+      }),
+    ).toThrow(/Unsupported reasoning transport/);
   });
 
   test('rejects duplicate deployment IDs or model IDs instead of silently collapsing them', () => {
