@@ -475,7 +475,14 @@ async function cleanupDatabase() {
     await cleanupDatabase();
     await mongoose.disconnect();
   }
-})().catch((error) => {
-  console.error('LIBRECHAT_CODEAPI_LIVE_ACCEPTANCE_FAILED', error.stack || error.message);
-  process.exit(1);
-});
+})()
+  .then(() => {
+    // The application may leave Redis-backed connection handles open after
+    // Mongo cleanup; the one-shot acceptance driver must not remain running.
+    // This resolves only after the finally block completed all cleanup awaits.
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('LIBRECHAT_CODEAPI_LIVE_ACCEPTANCE_FAILED', error.stack || error.message);
+    process.exit(1);
+  });
