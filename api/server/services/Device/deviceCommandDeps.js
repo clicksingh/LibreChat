@@ -373,7 +373,8 @@ function createRelayTransport({ baseUrl, timeoutMs = RELAY_FRAME_TIMEOUT_MS, fet
 
   return async function relayTransport({ deviceId, frame }) {
     const url = new URL(`/d/${encodeURIComponent(deviceId)}/frame`, base);
-    const callId = typeof frame?.callId === 'string' && frame.callId.length > 0 ? frame.callId : null;
+    const callId =
+      typeof frame?.callId === 'string' && frame.callId.length > 0 ? frame.callId : null;
     const body = JSON.stringify({
       epoch: frame?.epoch ?? null,
       payload: JSON.stringify(frame),

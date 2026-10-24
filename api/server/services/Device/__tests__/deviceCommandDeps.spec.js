@@ -241,7 +241,10 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
       });
 
       const deviceTool = await loadDeviceTool({ deps });
-      const { payload } = await invoke(deviceTool, { tool: 'read_file', arguments: READ_FILE_ARGS });
+      const { payload } = await invoke(deviceTool, {
+        tool: 'read_file',
+        arguments: READ_FILE_ARGS,
+      });
 
       expect(payload.outcome).toBe(DEVICE_COMMAND_OUTCOMES.NOT_CONFIGURED);
       expect(payload.ok).toBe(false);
@@ -294,9 +297,9 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
       expect(deps.transport).toBeNull();
       expect(describeDeviceCommandDeps({ env }).custody).toBe('absent');
       // The one variable that DOES enable it is the lab opt-in, spelled exactly.
-      expect(describeDeviceCommandDeps({ env: { [LAB_CUSTODY_KEY_FILE_ENV]: lab.file } })).toMatchObject(
-        { custody: 'lab-key-file', labCustodyKeyFile: lab.file },
-      );
+      expect(
+        describeDeviceCommandDeps({ env: { [LAB_CUSTODY_KEY_FILE_ENV]: lab.file } }),
+      ).toMatchObject({ custody: 'lab-key-file', labCustodyKeyFile: lab.file });
     });
 
     it('logs the lab presence at load (startup) when the explicit opt-in is set', () => {
@@ -441,9 +444,9 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
         accepted: true,
         seq: 3,
       });
-      expect(classifyRelayAnswer({ ok: false, admitted: false, reason: 'STALE_EPOCH' })).toMatchObject(
-        { accepted: false },
-      );
+      expect(
+        classifyRelayAnswer({ ok: false, admitted: false, reason: 'STALE_EPOCH' }),
+      ).toMatchObject({ accepted: false });
       expect(classifyRelayAnswer({ ok: true })).toMatchObject({ accepted: false });
       expect(classifyRelayAnswer(null)).toMatchObject({ accepted: false });
       expect(classifyRelayAnswer('<html>not json</html>')).toMatchObject({ accepted: false });
@@ -487,7 +490,9 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
       const quickTransport = createRelayTransport({ baseUrl, timeoutMs: 400 });
       expect(typeof quickTransport).toBe('function');
 
-      const deviceTool = await loadDeviceTool({ deps: withIdentity({ ...deps, transport: quickTransport }) });
+      const deviceTool = await loadDeviceTool({
+        deps: withIdentity({ ...deps, transport: quickTransport }),
+      });
       const { payload } = await invoke(deviceTool, {
         tool: 'read_file',
         arguments: READ_FILE_ARGS,
@@ -615,7 +620,9 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
       const lab = writeLabKeyFile('unreadable-lab-key.txt');
       const stub = await startRelayStub();
       const log = recordingLogger();
-      const hostile = new Error(`EACCES: simulated read failure for ${lab.keypair.privateKeyPkcs8B64u}`);
+      const hostile = new Error(
+        `EACCES: simulated read failure for ${lab.keypair.privateKeyPkcs8B64u}`,
+      );
       const realReadFileSync = fs.readFileSync;
       const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((target, ...rest) => {
         // Only the lab key file is made unreadable; every other read in the process is untouched.
@@ -640,11 +647,14 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
         expect(thrown.code).toBe(LAB_CUSTODY_FAILURES.UNREADABLE);
         // The caught filesystem error is DISCARDED: neither its message nor the key bytes it quoted
         // appear anywhere in the refusal, its cause chain, the log or the tool's answer.
-        const chain = `${causeChainText(thrown)}\n${JSON.stringify(thrown)}\n${nodeUtil.inspect(thrown, {
-          depth: 8,
-          showHidden: true,
-          getters: true,
-        })}`;
+        const chain = `${causeChainText(thrown)}\n${JSON.stringify(thrown)}\n${nodeUtil.inspect(
+          thrown,
+          {
+            depth: 8,
+            showHidden: true,
+            getters: true,
+          },
+        )}`;
         expect(chain).not.toContain(lab.keypair.privateKeyPkcs8B64u);
         expect(chain).not.toContain('simulated read failure');
 
@@ -813,7 +823,10 @@ describe('W15 — deviceCommandDeps: the injection that puts device_command on t
       });
       const deviceTool = await toolMap[DEVICE_COMMAND_TOOL_NAME]();
       expect(deviceTool.name).toBe(DEVICE_COMMAND_TOOL_NAME);
-      const { payload } = await invoke(deviceTool, { tool: 'read_file', arguments: READ_FILE_ARGS });
+      const { payload } = await invoke(deviceTool, {
+        tool: 'read_file',
+        arguments: READ_FILE_ARGS,
+      });
       expect(payload.outcome).toBe(DEVICE_COMMAND_OUTCOMES.NOT_CONFIGURED);
     });
   });
