@@ -51,7 +51,7 @@ export { default as getLoginError } from './getLoginError';
 export { default as cleanupPreset } from './cleanupPreset';
 export { default as buildDefaultConvo } from './buildDefaultConvo';
 export { default as getDefaultEndpoint } from './getDefaultEndpoint';
-export { default as createChatSearchParams, processValidSettings } from './createChatSearchParams';
+export { default as createChatSearchParams, processValidSettings, getNextChatSearchUrl } from './createChatSearchParams';
 export { getThemeFromEnv } from './getThemeFromEnv';
 
 export const languages = [
