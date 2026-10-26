@@ -29,6 +29,7 @@ const { resizeAvatar } = require('~/server/services/Files/images/avatar');
 const { findUser, createUser, updateUser, findRolesByNames } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 const getLogStores = require('~/cache/getLogStores');
+const { setOpenIdConfig, getOpenIdConfig: getOpenIdConfigState } = require('./openidConfigState');
 
 /**
  * @typedef {import('openid-client').ClientMetadata} ClientMetadata
@@ -940,6 +941,8 @@ async function setupOpenId() {
       },
     );
 
+    setOpenIdConfig(openidConfig);
+
     logger.info(`[openidStrategy] OpenID authentication configuration`, {
       usePKCE,
       hasClientSecret: !!clientSecret,
@@ -973,10 +976,7 @@ async function setupOpenId() {
  * @returns {Configuration}
  */
 function getOpenIdConfig() {
-  if (!openidConfig) {
-    throw new Error('OpenID client is not initialized. Please call setupOpenId first.');
-  }
-  return openidConfig;
+  return getOpenIdConfigState();
 }
 
 module.exports = {

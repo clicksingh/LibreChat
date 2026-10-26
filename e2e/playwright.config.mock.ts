@@ -177,7 +177,7 @@ export default defineConfig({
     : [['html', { outputFolder: reportPath }], ['list']],
   use: {
     baseURL,
-    video: 'on-first-retry',
+    video: process.env.CI ? 'off' : 'on-first-retry',
     trace: 'retain-on-failure',
     ignoreHTTPSErrors: true,
     headless: true,

@@ -186,6 +186,10 @@ const initializeClient = async ({
    *      allowlist with the toggle on = full accessible catalog. */
   const enabledCapabilities = new Set(appConfig?.endpoints?.[EModelEndpoint.agents]?.capabilities);
   const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
+  const modelsConfigPromise = getModelsConfig(req);
+  const skillCreateAllowedPromise = skillsCapabilityEnabled
+    ? getSkillToolDeps().canCreateSkill({ req })
+    : Promise.resolve(false);
   const codeEnvAvailable = await resolveEffectiveCodeEnv(
     req,
     enabledCapabilities.has(AgentCapabilities.execute_code),
@@ -245,9 +249,6 @@ const initializeClient = async ({
         requiredPermissions: PermissionBits.EDIT,
       })
     : Promise.resolve([]);
-  const skillCreateAllowedPromise = skillsCapabilityEnabled
-    ? getSkillToolDeps().canCreateSkill({ req })
-    : Promise.resolve(false);
   const skillStatesPromise = accessibleSkillIdsPromise.then((accessibleSkillIds) =>
     loadSkillStates({
       userId: req.user.id,
@@ -257,7 +258,6 @@ const initializeClient = async ({
     }),
   );
   const primaryAgentPromise = endpointOption.agent;
-  const modelsConfigPromise = getModelsConfig(req);
   const validatedPrimaryAgentPromise = Promise.all([primaryAgentPromise, modelsConfigPromise]).then(
     async ([primaryAgent, modelsConfig]) => {
       if (!primaryAgent) {

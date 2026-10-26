@@ -1,5 +1,5 @@
 jest.mock('@microsoft/microsoft-graph-client');
-jest.mock('~/strategies/openidStrategy');
+jest.mock('~/strategies/openidConfigState');
 jest.mock('~/cache/getLogStores');
 jest.mock('@librechat/data-schemas', () => ({
   ...jest.requireActual('@librechat/data-schemas'),
@@ -28,7 +28,7 @@ const mongoose = require('mongoose');
 const client = require('openid-client');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { Client } = require('@microsoft/microsoft-graph-client');
-const { getOpenIdConfig } = require('~/strategies/openidStrategy');
+const { getOpenIdConfig } = require('~/strategies/openidConfigState');
 const getLogStores = require('~/cache/getLogStores');
 const GraphApiService = require('./GraphApiService');
 

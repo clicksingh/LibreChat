@@ -1094,7 +1094,7 @@ test.describe('message tree stream operations', () => {
     const basePrompt = replyPrompt(`${label}-base`);
     const baseReply = replyText(`${label}-base`);
     const errorPrompt = `E2E_FORCED_ERROR:${label}`;
-    const errorText = `E2E forced stream error ${label}`;
+    const errorText = 'This response ended before I could give you a usable answer.';
     const afterErrorPrompt = replyPrompt(`${label}-after-error`);
     const afterErrorReply = replyText(`${label}-after-error`);
 

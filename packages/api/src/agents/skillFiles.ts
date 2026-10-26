@@ -522,15 +522,31 @@ export async function primeInvokedSkills(
     // references with zero re-uploads. If any expired, re-upload everything.
     if (deps.getSessionInfo && deps.checkIfActive) {
       const allResolved = fileListResults.flatMap((r) =>
-        r.files.map((f) => ({ skillName: r.skill.name, file: f, ref: f.codeEnvRef })),
+        r.files.map((f) => ({
+          skillName: r.skill.name,
+          skillId: r.skill._id.toString(),
+          skillVersion: r.skill.version,
+          file: f,
+          ref: f.codeEnvRef,
+        })),
       );
-      const resolvedWithRef = allResolved.filter((x) => x.ref !== undefined);
+      const allHaveCurrentSkillRefs = allResolved.every(
+        ({ ref, skillId, skillVersion }) =>
+          ref?.kind === 'skill' &&
+          ref.id === skillId &&
+          ref.version === skillVersion &&
+          typeof ref.file_id === 'string' &&
+          ref.file_id.length > 0,
+      );
 
-      // Only use cache when ALL files have refs (no partial persistence)
-      if (resolvedWithRef.length > 0 && resolvedWithRef.length === allResolved.length) {
-        const refsBySession = new Map<string, CodeEnvRef>();
+      // Only use cache when ALL files have current, skill-scoped refs.
+      if (allResolved.length > 0 && allHaveCurrentSkillRefs) {
+        const resolvedWithRef = allResolved as Array<
+          (typeof allResolved)[number] & { ref: Extract<CodeEnvRef, { kind: 'skill' }> }
+        >;
+        const refsBySession = new Map<string, Extract<CodeEnvRef, { kind: 'skill' }>>();
         for (const { ref } of resolvedWithRef) {
-          if (ref && !refsBySession.has(ref.storage_session_id)) {
+          if (!refsBySession.has(ref.storage_session_id)) {
             refsBySession.set(ref.storage_session_id, ref);
           }
         }
@@ -561,8 +577,8 @@ export async function primeInvokedSkills(
             resource_id: ref!.id,
             name: `${SKILL_FILE_PREFIX}${skillName}/${file.relativePath}`,
             storage_session_id: ref!.storage_session_id,
-            kind: ref!.kind,
-            ...(ref!.kind === 'skill' ? { version: ref!.version } : {}),
+            kind: 'skill' as const,
+            version: ref!.version,
           }));
           if (cachedFiles.length > 0) {
             logger.debug(

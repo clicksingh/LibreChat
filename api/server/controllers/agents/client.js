@@ -1,5 +1,6 @@
 require('events').EventEmitter.defaultMaxListeners = 100;
 const { logger } = require('@librechat/data-schemas');
+const { normalizeAgentFailure } = require('./agentFailure');
 const { getBufferString, HumanMessage } = require('@librechat/agents/langchain/messages');
 const {
   createRun,
@@ -3098,9 +3099,7 @@ class AgentClient extends BaseClient {
         });
         this.contentParts.push({
           type: ContentTypes.ERROR,
-          [ContentTypes.ERROR]:
-            videoError ??
-            `An error occurred while processing the request${err?.message ? `: ${err.message}` : ''}`,
+          [ContentTypes.ERROR]: videoError ?? normalizeAgentFailure(err),
         });
       }
     } finally {
@@ -3425,7 +3424,7 @@ class AgentClient extends BaseClient {
         );
         this.contentParts.push({
           type: ContentTypes.ERROR,
-          [ContentTypes.ERROR]: `An error occurred while resuming the request${err?.message ? `: ${err.message}` : ''}`,
+          [ContentTypes.ERROR]: normalizeAgentFailure(err),
         });
       }
     } finally {

@@ -30,12 +30,15 @@ const {
   checkRemoteAgentsFeature,
 } = require('./middleware');
 
+const { rejectNonAdminRemoteAgentApi } = require('~/server/middleware/enforceManagedChatEndpoint');
+
 const router = express.Router();
 
 router.use(preAuthTenantMiddleware);
 router.use(requireRemoteAgentAuth);
 router.use(configMiddleware);
 router.use(checkRemoteAgentsFeature);
+router.use(rejectNonAdminRemoteAgentApi);
 
 /**
  * @route POST /v1/chat/completions

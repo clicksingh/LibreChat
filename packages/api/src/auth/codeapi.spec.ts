@@ -355,8 +355,7 @@ describe('Code API JWT minting', () => {
     scope.fileGrants[0].name = 'evil.pdf';
     const first = await mintCodeApiToken(req);
     const second = await mintCodeApiToken(req);
-    const a = decodeToken(first),
-      b = decodeToken(second);
+    const a = decodeToken(first);
     expect(cryptoVerify(null, Buffer.from(a.signingInput), publicKey, a.signature)).toBe(true);
     expect(first).not.toBe(second);
     expect(a.claims.exp as number).toBeLessThanOrEqual((a.claims.iat as number) + 60);
@@ -379,7 +378,9 @@ describe('Code API JWT minting', () => {
       ],
     });
     expect(a.claims).not.toHaveProperty('workspace_id');
-    expect(a.claims.execution_session_id).not.toEqual(req.body.execution_session_id);
+    expect(a.claims.execution_session_id).not.toEqual(
+      (req.body as Record<string, unknown>).execution_session_id,
+    );
     expect(() => bindCodeApiExecutionScope(req, scope)).toThrow('ALREADY_BOUND');
     expect(decodeToken(second).claims.jti).not.toEqual(a.claims.jti);
   });

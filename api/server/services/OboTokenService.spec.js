@@ -1,4 +1,4 @@
-jest.mock('~/strategies/openidStrategy');
+jest.mock('~/strategies/openidConfigState');
 jest.mock('~/cache/getLogStores');
 jest.mock('@librechat/data-schemas', () => ({
   ...jest.requireActual('@librechat/data-schemas'),
@@ -10,7 +10,7 @@ jest.mock('@librechat/data-schemas', () => ({
 }));
 
 const client = require('openid-client');
-const { getOpenIdConfig } = require('~/strategies/openidStrategy');
+const { getOpenIdConfig } = require('~/strategies/openidConfigState');
 const getLogStores = require('~/cache/getLogStores');
 const { exchangeOboToken } = require('./OboTokenService');
 

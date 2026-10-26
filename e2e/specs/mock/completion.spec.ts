@@ -20,6 +20,8 @@ test.describe('generation finalization invariant', () => {
     await expect(
       sendMessageAndWaitForCompletion(page, `E2E_FORCED_ERROR:${label}`),
     ).rejects.toThrow('Persisted assistant response contains an unexpected error');
-    await expect(messagesView(page).getByText(`E2E forced stream error ${label}`)).toBeVisible();
+    await expect(
+      messagesView(page).getByText('This response ended before I could give you a usable answer.'),
+    ).toBeVisible();
   });
 });

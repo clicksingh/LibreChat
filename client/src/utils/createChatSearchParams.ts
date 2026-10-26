@@ -61,6 +61,23 @@ export function processValidSettings(queryParams: Record<string, string>) {
 }
 
 const allowedParams = Object.keys(tQueryParamsSchema.shape);
+
+export function getNextChatSearchUrl(
+  pathname: string,
+  currentSearch: string,
+  params: URLSearchParams,
+): string | null {
+  const nextSearch = params.toString();
+  const normalizedCurrentSearch = currentSearch.startsWith('?')
+    ? currentSearch.slice(1)
+    : currentSearch;
+
+  if (nextSearch === normalizedCurrentSearch) {
+    return null;
+  }
+
+  return nextSearch.length > 0 ? `${pathname}?${nextSearch}` : pathname;
+}
 export default function createChatSearchParams(
   input: TConversation | TPreset | Record<string, string> | null,
 ): URLSearchParams {

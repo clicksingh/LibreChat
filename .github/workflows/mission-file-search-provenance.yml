@@ -5,7 +5,7 @@ on:
     paths:
       - 'api/app/clients/tools/util/fileSearch.js'
       - 'api/app/clients/tools/util/fileSearchResults.js'
-      - 'api/app/clients/tools/util/fileSearchResults.test.js'
+      - 'api/app/clients/tools/util/fileSearchResults.contract.cjs'
       - '.github/workflows/mission-file-search-provenance.yml'
   push:
     branches:
@@ -29,8 +29,8 @@ jobs:
         run: |
           node --check api/app/clients/tools/util/fileSearch.js
           node --check api/app/clients/tools/util/fileSearchResults.js
-          node --check api/app/clients/tools/util/fileSearchResults.test.js
+          node --check api/app/clients/tools/util/fileSearchResults.contract.cjs
       - name: Origin and indexing diagnostics regressions
-        run: node --test api/app/clients/tools/util/fileSearchResults.test.js
+        run: node --test api/app/clients/tools/util/fileSearchResults.contract.cjs
       - name: Whitespace verification
         run: git diff --check

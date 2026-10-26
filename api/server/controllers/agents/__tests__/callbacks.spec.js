@@ -8,7 +8,7 @@ jest.mock('nanoid', () => ({
 jest.mock('@librechat/api', () => ({
   sendEvent: jest.fn(),
   GenerationJobManager: {
-    emitChunk: jest.fn(),
+    emitChunk: jest.fn().mockResolvedValue(undefined),
   },
   HOST_FILE_AUTHORING_ARTIFACT_KEY: '__librechat_file_authoring',
   getToolInputValidationDetails: jest.fn((result, validationError) =>
