@@ -2,7 +2,6 @@ import { EModelEndpoint, Constants } from 'librechat-data-provider';
 import type { TConversation, TPreset } from 'librechat-data-provider';
 import createChatSearchParams, { getNextChatSearchUrl } from './createChatSearchParams';
 
-
 describe('getNextChatSearchUrl', () => {
   it('does not write history when blank-chat settings already match the URL', () => {
     const params = new URLSearchParams({
