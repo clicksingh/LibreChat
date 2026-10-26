@@ -7,10 +7,11 @@ import store from '../families';
 const baseConversation = {
   conversationId: 'new',
   createdAt: '',
+  updatedAt: '',
   endpoint: 'CBHR AI',
   model: 'zai/glm-5.3-flash',
   title: 'New Chat',
-} as TConversation;
+} as unknown as TConversation;
 
 function ConversationWriter({ effort }: { effort: string }) {
   const setConversation = useSetRecoilState(store.conversationByIndex(0));
