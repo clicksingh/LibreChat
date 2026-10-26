@@ -23,6 +23,7 @@ import type { TOptionSettings, ExtendedFile } from '~/common';
 import {
   clearModelForNonEphemeralAgent,
   createChatSearchParams,
+  getNextChatSearchUrl,
   storeEndpointSettings,
   logger,
 } from '~/utils';
@@ -104,8 +105,14 @@ const conversationByIndex = atomFamily<TConversation | null, string | number>({
             newParams.set('projectId', newValue.chatProjectId);
           }
           const searchParams = createSearchParams(newParams);
-          const url = `${window.location.pathname}?${searchParams.toString()}`;
-          window.history.pushState({}, '', url);
+          const url = getNextChatSearchUrl(
+            window.location.pathname,
+            window.location.search,
+            searchParams,
+          );
+          if (url != null) {
+            window.history.pushState({}, '', url);
+          }
         }
       });
     },
