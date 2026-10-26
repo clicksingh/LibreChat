@@ -1,6 +1,45 @@
 import { EModelEndpoint, Constants } from 'librechat-data-provider';
 import type { TConversation, TPreset } from 'librechat-data-provider';
-import createChatSearchParams from './createChatSearchParams';
+import createChatSearchParams, { getNextChatSearchUrl } from './createChatSearchParams';
+
+
+describe('getNextChatSearchUrl', () => {
+  it('does not write history when blank-chat settings already match the URL', () => {
+    const params = new URLSearchParams({
+      endpoint: 'CBHR AI',
+      model: 'zai/glm-5.3-flash',
+      reasoning_effort: 'high',
+    });
+
+    expect(
+      getNextChatSearchUrl(
+        '/c/new',
+        '?endpoint=CBHR+AI&model=zai%2Fglm-5.3-flash&reasoning_effort=high',
+        params,
+      ),
+    ).toBeNull();
+  });
+
+  it('returns a new URL when a setting actually changes', () => {
+    const params = new URLSearchParams({
+      endpoint: 'CBHR AI',
+      model: 'zai/glm-5.3-flash',
+      reasoning_effort: 'high',
+    });
+
+    expect(
+      getNextChatSearchUrl(
+        '/c/new',
+        '?endpoint=CBHR+AI&model=zai%2Fglm-5.3-flash&reasoning_effort=max',
+        params,
+      ),
+    ).toBe('/c/new?endpoint=CBHR+AI&model=zai%2Fglm-5.3-flash&reasoning_effort=high');
+  });
+
+  it('returns the bare path when all settings are cleared', () => {
+    expect(getNextChatSearchUrl('/c/new', '?model=old', new URLSearchParams())).toBe('/c/new');
+  });
+});
 
 describe('createChatSearchParams', () => {
   describe('conversation inputs', () => {
