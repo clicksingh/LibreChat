@@ -1,10 +1,20 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Spinner } from '@librechat/client';
 import { useLocalize } from '~/hooks';
 
-/** Height matches the SubRow action buttons row (31px) — keep in sync with HoverButtons. */
+/** Height matches the SubRow action buttons row (31px) - keep in sync with HoverButtons. */
 const PlaceholderRow = memo(function PlaceholderRow() {
   const localize = useLocalize();
+  const [elapsedMinutes, setElapsedMinutes] = useState(0);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setElapsedMinutes(Math.floor((Date.now() - startedAt) / 60_000));
+    }, 15_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   return (
     <div
@@ -15,6 +25,7 @@ const PlaceholderRow = memo(function PlaceholderRow() {
     >
       <Spinner className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <span>{localize('com_ui_working')}</span>
+      {elapsedMinutes > 0 && <span>{`${elapsedMinutes}m`}</span>}
     </div>
   );
 });
