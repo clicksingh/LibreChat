@@ -200,6 +200,9 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     ) {
       formData.append('conversationId', conversation.conversationId);
     }
+    if (isConversationUpload && conversation?.workspaceId) {
+      formData.append('workspaceId', conversation.workspaceId);
+    }
     if (isTemporary && isConversationUpload) {
       formData.append('isTemporary', 'true');
     }

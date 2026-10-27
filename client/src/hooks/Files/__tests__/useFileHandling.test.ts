@@ -342,6 +342,30 @@ describe('useFileHandling', () => {
       expect(formData.get('conversationId')).toBeNull();
     });
 
+    it('sends workspaceId for a project-bound new conversation upload', async () => {
+      mockConversation = {
+        conversationId: Constants.NEW_CONVO as string,
+        workspaceId: 'workspace-123',
+        endpoint: 'openAI',
+        endpointType: 'custom',
+      };
+
+      const useFileHandling = await loadHook();
+      const { result } = renderHook(() => useFileHandling());
+
+      const textFile = new File(['hello'], 'test.txt', { type: 'text/plain' });
+
+      await act(async () => {
+        await result.current.handleFiles([textFile]);
+      });
+
+      expect(mockMutate).toHaveBeenCalledTimes(1);
+      const formData: FormData = mockMutate.mock.calls[0][0];
+      expect(formData.get('conversationId')).toBeNull();
+      expect(formData.get('workspaceId')).toBe('workspace-123');
+      expect(formData.get('message_file')).toBe('true');
+    });
+
     it('sends temporary flag for temporary chat uploads', async () => {
       mockIsTemporary = true;
       mockConversation = {
