@@ -87,22 +87,41 @@ function DynamicDropdown({
               </Label>
             </div>
           )}
-          <SelectDropDown
-            showLabel={false}
-            emptyTitle={true}
-            disabled={readonly}
-            value={selectedValue}
-            setValue={handleChange}
-            availableValues={options}
-            containerClassName="w-full"
-            className="py-1.5"
-            id={`${settingKey}-dynamic-dropdown`}
-            placeholder={
-              placeholderCode
-                ? (localize(placeholder as TranslationKeys) ?? placeholder)
-                : placeholder
-            }
-          />
+          {settingKey === 'reasoning_effort' ? (
+            <select
+              id={`${settingKey}-dynamic-dropdown`}
+              aria-label={
+                labelCode ? (localize(label as TranslationKeys) ?? label) : label || settingKey
+              }
+              className="w-full rounded-md border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary"
+              disabled={readonly}
+              value={selectedValue ?? ''}
+              onChange={(event) => handleChange(event.target.value)}
+            >
+              {options.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <SelectDropDown
+              showLabel={false}
+              emptyTitle={true}
+              disabled={readonly}
+              value={selectedValue}
+              setValue={handleChange}
+              availableValues={options}
+              containerClassName="w-full"
+              className="py-1.5"
+              id={`${settingKey}-dynamic-dropdown`}
+              placeholder={
+                placeholderCode
+                  ? (localize(placeholder as TranslationKeys) ?? placeholder)
+                  : placeholder
+              }
+            />
+          )}
         </HoverCardTrigger>
         {description && (
           <OptionHover
