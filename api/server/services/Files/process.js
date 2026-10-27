@@ -39,7 +39,10 @@ const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { getFileStrategy } = require('~/server/utils/getFileStrategy');
 const { checkCapability } = require('~/server/services/Config');
-const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
+const {
+  isRunCodeUseAllowed,
+  resolveWorkspaceContext,
+} = require('~/server/services/Endpoints/agents/authorization');
 const { LB_QueueAsyncCall } = require('~/server/utils/queue');
 const { getRetentionExpiry, getAgentFileRetentionExpiry } = require('./retention');
 const { getStrategyFunctions } = require('./strategies');
@@ -701,14 +704,31 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
       throw new Error('Code execution is not enabled for Agents');
     }
     const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(FileSources.execute_code);
-    const stream = fs.createReadStream(file.path);
     /* Resource identity for codeapi's sessionKey:
-     * - chat attachments (messageAttachment=true): `kind: 'user'`, codeapi
-     *   buckets under `<tenant>:user:<authContext.userId>` regardless of `id`.
+     * - chat attachments (messageAttachment=true): re-resolve the current
+     *   conversation/new-chat workspace on THIS request. Project uploads use
+     *   the ACL-validated project boundary; ordinary chats remain personal.
      * - agent setup files (messageAttachment=false): `kind: 'agent'`, shared
      *   per agent identity. `id` carries the agent id. */
-    const codeKind = messageAttachment === true ? 'user' : 'agent';
-    const codeId = messageAttachment === true ? req.user.id : agent_id;
+    let codeKind;
+    let codeId;
+    if (messageAttachment === true) {
+      const workspaceContext = await resolveWorkspaceContext(req);
+      if (workspaceContext?.kind === 'project') {
+        codeKind = 'project';
+        codeId = workspaceContext.workspaceId;
+      } else {
+        codeKind = 'user';
+        codeId = req.user.id;
+      }
+    } else {
+      codeKind = 'agent';
+      codeId = agent_id;
+    }
+    // Open the staged file only after project authorization succeeds. A denied
+    // workspace request must not leave an unread descriptor behind after the
+    // route unlinks the temporary pathname.
+    const stream = fs.createReadStream(file.path);
     /* Upload under the same sanitized filename LC stores in its DB
      * (`fileInfo.filename` below uses `sanitizeFilename(originalname)`).
      * Codeapi/file_server use this as the on-disk name in the sandbox
@@ -733,6 +753,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
      * mode and the file would lose its sandbox reference on subsequent
      * priming turns. */
     fileInfoMetadata = {
+      ...(codeKind === 'project' ? { workspaceFileAttachment: true } : {}),
       codeEnvRef: {
         kind: codeKind,
         id: codeId,

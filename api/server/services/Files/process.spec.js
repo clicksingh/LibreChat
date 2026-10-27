@@ -114,6 +114,14 @@ jest.mock('~/server/utils/queue', () => ({
   LB_QueueAsyncCall: jest.fn(),
 }));
 
+jest.mock('~/server/services/Endpoints/agents/authorization', () => {
+  const actual = jest.requireActual('~/server/services/Endpoints/agents/authorization');
+  return {
+    ...actual,
+    resolveWorkspaceContext: jest.fn().mockResolvedValue(undefined),
+  };
+});
+
 jest.mock('~/server/services/Files/strategies', () => ({
   getStrategyFunctions: jest.fn(),
 }));
@@ -151,6 +159,7 @@ const {
 } = require('librechat-data-provider');
 const { mergeFileConfig } = require('librechat-data-provider');
 const { checkCapability } = require('~/server/services/Config');
+const { resolveWorkspaceContext } = require('~/server/services/Endpoints/agents/authorization');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { uploadVectors } = require('./VectorDB/crud');
 const db = require('~/models');
@@ -224,6 +233,7 @@ describe('processAgentFileUpload', () => {
     mockRes.status.mockReturnThis();
     mockRes.json.mockReturnValue({});
     checkCapability.mockResolvedValue(true);
+    resolveWorkspaceContext.mockResolvedValue(undefined);
     getStrategyFunctions.mockReturnValue({
       handleFileUpload: jest
         .fn()
@@ -800,6 +810,77 @@ describe('processAgentFileUpload', () => {
         }),
         true,
       );
+    });
+
+    it('persists kind:project codeEnvRef for a project-bound chat attachment', async () => {
+      const codeEnvUpload = setupCodeEnvUpload({
+        storage_session_id: 'sess-project',
+        file_id: 'fid-project',
+      });
+      resolveWorkspaceContext.mockResolvedValueOnce({
+        kind: 'project',
+        workspaceId: 'workspace-123',
+      });
+      const req = makeReq({ body: { conversationId: 'convo-project' } });
+
+      await processAgentFileUpload({
+        req,
+        res: mockRes,
+        metadata: {
+          agent_id: 'agent-abc',
+          tool_resource: EToolResources.execute_code,
+          file_id: 'file-uuid',
+          message_file: true,
+        },
+      });
+
+      expect(resolveWorkspaceContext).toHaveBeenCalledWith(req);
+      expect(codeEnvUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'project', id: 'workspace-123' }),
+      );
+      expect(db.createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: {
+            workspaceFileAttachment: true,
+            codeEnvRef: {
+              kind: 'project',
+              id: 'workspace-123',
+              storage_session_id: 'sess-project',
+              file_id: 'fid-project',
+            },
+          },
+        }),
+        true,
+      );
+    });
+
+    it('fails closed before upload when project workspace authorization is denied', async () => {
+      const codeEnvUpload = setupCodeEnvUpload({
+        storage_session_id: 'sess-denied',
+        file_id: 'fid-denied',
+      });
+      const denied = Object.assign(new Error('Not authorized for this workspace'), {
+        status: 403,
+      });
+      resolveWorkspaceContext.mockRejectedValueOnce(denied);
+      const req = makeReq({ body: { conversationId: 'convo-denied' } });
+
+      await expect(
+        processAgentFileUpload({
+          req,
+          res: mockRes,
+          metadata: {
+            agent_id: 'agent-abc',
+            tool_resource: EToolResources.execute_code,
+            file_id: 'file-uuid',
+            message_file: true,
+          },
+        }),
+      ).rejects.toThrow('Not authorized for this workspace');
+
+      expect(createReadStreamSpy).not.toHaveBeenCalled();
+      expect(codeEnvUpload).not.toHaveBeenCalled();
+      expect(db.createFile).not.toHaveBeenCalled();
     });
 
     it('persists kind:agent codeEnvRef for agent setup files (messageAttachment=false)', async () => {

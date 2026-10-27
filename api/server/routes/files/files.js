@@ -725,8 +725,8 @@ router.post('/', async (req, res) => {
     }
 
     let errorStatusCode = 500;
-    if (error.userErrorStatusCode) {
-      errorStatusCode = error.userErrorStatusCode;
+    if (error.userErrorStatusCode || [400, 401, 403, 404].includes(error.status)) {
+      errorStatusCode = error.userErrorStatusCode || error.status;
     }
 
     if (sseStream) {
