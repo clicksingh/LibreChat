@@ -41,7 +41,11 @@ empty. This is an ownership-routing defect, not a FileTable rendering bug.
 3. Use project identity and matching signed CodeAPI claim for verified project
    uploads. Preserve user identity for personal chats and agent identity for
    independent agent setup uploads.
-4. Keep existing saved personal conversations personal even if an upload body
+4. Persist workspaceFileAttachment=true on project uploads. This protects
+   shared project objects from ordinary chat-file deletion and allows
+   existing project grant checks to recognize their workspace provenance.
+5. Add a client regression for workspaceId in an unsaved project chat.
+6. Keep existing saved personal conversations personal even if an upload body
    supplies a project id. Return 400/401/403/404 from route when applicable.
 
 ## Qualification and remaining gates
@@ -55,3 +59,14 @@ empty. This is an ownership-routing defect, not a FileTable rendering bug.
   production acceptance, project owner download/trash/restore/purge,
   non-member/revoked denial, persistence, cleanup, G3 review, G4 rollback.
 - Automatic CodeAPI retention apply remains separately unauthorized.
+
+## Parallel release-line reconciliation
+
+The current production-hotfix branch uses PR #39, head
+6f712a0cfbee2b075736521135b00e718fe20616 and base a06e5fda.
+This PR #40 is for the broad V2 PR #36 base 511901e3. It incorporates
+PR #39's workspaceFileAttachment protection and client regression, and
+additionally guards existing personal conversations and preserves
+authorization-denial status. These are separate heads and need independent
+exact-head approval and browser acceptance. Neither constitutes a
+general production V2 clearance.

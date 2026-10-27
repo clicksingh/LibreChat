@@ -835,6 +835,7 @@ describe('processAgentFileUpload', () => {
       expect(db.createFile).toHaveBeenCalledWith(
         expect.objectContaining({
           metadata: {
+            workspaceFileAttachment: true,
             codeEnvRef: {
               kind: 'project',
               id: 'workspace-abc',

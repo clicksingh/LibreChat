@@ -744,6 +744,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
      * mode and the file would lose its sandbox reference on subsequent
      * priming turns. */
     fileInfoMetadata = {
+      ...(codeKind === 'project' ? { workspaceFileAttachment: true } : {}),
       codeEnvRef: {
         kind: codeKind,
         id: codeId,
