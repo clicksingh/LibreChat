@@ -29,3 +29,11 @@ G2 requires authenticated browser owner file visibility, download,
 Trash and restore, cross-user denial, revoked-membership denial, quotas,
 and cleanup receipts. Do not alter CodeAPI retention apply mode.
 Parallel V2 branch PR #40 remains a distinct release lane with its own CI.
+
+## Image upload denial symmetry
+
+The /files/images upload handler also routes tool-resource uploads into
+processAgentFileUpload and must preserve the same 403/404 workspace denial
+status as /files. Both endpoints now forward controlled error.status, retain
+userErrorStatusCode priority, and include image-route 403/404 tests.
+No image user files were mutated during this code correction.
