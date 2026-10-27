@@ -71,16 +71,20 @@ router.post('/', async (req, res) => {
     } catch (error) {
       logger.error('[/files/images] Error deleting file:', error);
     }
+    let errorStatusCode = 500;
+    if (error.userErrorStatusCode || [400, 401, 403, 404].includes(error.status)) {
+      errorStatusCode = error.userErrorStatusCode || error.status;
+    }
     if (sseStream) {
       sseStream.sendError({
         message,
-        code: 500,
+        code: errorStatusCode,
         temp_file_id: metadata.temp_file_id,
         tool_resource: metadata.tool_resource,
         display_to_user: true,
       });
     } else {
-      res.status(500).json({ message });
+      res.status(errorStatusCode).json({ message });
     }
   } finally {
     try {
