@@ -26,24 +26,23 @@ function renderDropdown(settingKey: string, readonly = false) {
   return { update, setOption };
 }
 
-describe('DynamicDropdown native reasoning effort', () => {
-  it('uses an accessible native select and commits the non-default choice', () => {
+describe('DynamicDropdown shared reasoning effort select', () => {
+  it('uses the shared accessible select and commits the non-default choice', () => {
     const { update, setOption } = renderDropdown('reasoning_effort');
     const select = screen.getByRole('combobox', { name: 'Reasoning Effort' });
-    expect(select).toHaveValue('max');
-    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'low',
-      'high',
-      'max',
-    ]);
-    fireEvent.change(select, { target: { value: 'high' } });
+    expect(select).toHaveTextContent('max');
+    fireEvent.keyDown(select, { key: 'ArrowDown' });
+    const high = screen.getByRole('option', { name: 'high' });
+    fireEvent.click(high);
     expect(setOption).toHaveBeenCalledWith('reasoning_effort');
     expect(update).toHaveBeenCalledWith('high');
   });
 
-  it('respects readonly mode on the native reasoning selector', () => {
+  it('respects readonly mode on the shared reasoning selector', () => {
     renderDropdown('reasoning_effort', true);
-    expect(screen.getByRole('combobox', { name: 'Reasoning Effort' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Reasoning Effort' })).toHaveAttribute(
+      'data-disabled',
+    );
   });
 
   it('preserves the existing custom dropdown for other settings', () => {

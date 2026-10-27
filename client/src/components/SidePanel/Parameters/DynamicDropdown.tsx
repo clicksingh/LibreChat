@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react';
 import { OptionTypes } from 'librechat-data-provider';
-import { Label, HoverCard, HoverCardTrigger, SelectDropDown } from '@librechat/client';
+import {
+  Label,
+  HoverCard,
+  HoverCardTrigger,
+  SelectDropDown,
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@librechat/client';
 import type { DynamicSettingProps } from 'librechat-data-provider';
 import { TranslationKeys, useLocalize, useParameterEffects } from '~/hooks';
 import { useChatContext } from '~/Providers';
@@ -88,22 +98,33 @@ function DynamicDropdown({
             </div>
           )}
           {settingKey === 'reasoning_effort' ? (
-            <select
-              id={`${settingKey}-dynamic-dropdown`}
-              aria-label={
-                labelCode ? (localize(label as TranslationKeys) ?? label) : label || settingKey
-              }
-              className="w-full rounded-md border border-border-medium bg-surface-primary px-3 py-2 text-sm text-text-primary"
+            <Select
+              value={selectedValue ?? undefined}
+              onValueChange={handleChange}
               disabled={readonly}
-              value={selectedValue ?? ''}
-              onChange={(event) => handleChange(event.target.value)}
             >
-              {options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                id={`${settingKey}-dynamic-dropdown`}
+                aria-label={
+                  labelCode ? (localize(label as TranslationKeys) ?? label) : label || settingKey
+                }
+              >
+                <SelectValue
+                  placeholder={
+                    placeholderCode
+                      ? (localize(placeholder as TranslationKeys) ?? placeholder)
+                      : placeholder
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <SelectDropDown
               showLabel={false}
