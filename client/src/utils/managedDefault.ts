@@ -95,3 +95,27 @@ export function applyManagedNewChatPreset(
     assistant_id: undefined,
   };
 }
+
+/** Refresh an unsent managed USER draft after the company default changes.
+ * Never silently rewrite a saved conversation, admin selection or tool agent. */
+export function reconcileManagedDraftModel(
+  conversation: TConversation | null | undefined,
+  preset: Partial<TPreset> | undefined,
+  isManagedUser: boolean,
+): TConversation | null | undefined {
+  if (
+    !isManagedUser ||
+    !conversation ||
+    conversation.conversationId !== Constants.NEW_CONVO ||
+    String(conversation.endpoint ?? '') !== MANAGED_ENDPOINT ||
+    !preset?.model ||
+    conversation.agent_id ||
+    conversation.assistant_id
+  ) {
+    return conversation;
+  }
+  if (conversation.model === preset.model && conversation.spec === preset.spec) {
+    return conversation;
+  }
+  return { ...conversation, model: preset.model, spec: preset.spec };
+}

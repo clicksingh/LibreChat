@@ -193,6 +193,11 @@ const useFileHandlingCore = (params: UseFileHandling | undefined, fileState: Fil
     formData.append('endpointType', endpointType ?? '');
     formData.append('file', extendedFile.file as File, encodeURIComponent(filename));
     formData.append('file_id', extendedFile.file_id);
+    // A new project chat has no persisted conversation yet. The backend
+    // must independently revalidate membership before using this id.
+    if (isConversationUpload && conversation?.workspaceId) {
+      formData.append('workspaceId', conversation.workspaceId);
+    }
     if (
       isConversationUpload &&
       conversation?.conversationId &&
