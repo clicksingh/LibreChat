@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react';
 import { OptionTypes } from 'librechat-data-provider';
-import { Label, HoverCard, HoverCardTrigger, SelectDropDown } from '@librechat/client';
+import {
+  Label,
+  HoverCard,
+  HoverCardTrigger,
+  SelectDropDown,
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@librechat/client';
 import type { DynamicSettingProps } from 'librechat-data-provider';
 import { TranslationKeys, useLocalize, useParameterEffects } from '~/hooks';
 import { useChatContext } from '~/Providers';
@@ -87,22 +97,52 @@ function DynamicDropdown({
               </Label>
             </div>
           )}
-          <SelectDropDown
-            showLabel={false}
-            emptyTitle={true}
-            disabled={readonly}
-            value={selectedValue}
-            setValue={handleChange}
-            availableValues={options}
-            containerClassName="w-full"
-            className="py-1.5"
-            id={`${settingKey}-dynamic-dropdown`}
-            placeholder={
-              placeholderCode
-                ? (localize(placeholder as TranslationKeys) ?? placeholder)
-                : placeholder
-            }
-          />
+          {settingKey === 'reasoning_effort' ? (
+            <Select
+              value={selectedValue ?? undefined}
+              onValueChange={handleChange}
+              disabled={readonly}
+            >
+              <SelectTrigger
+                id={`${settingKey}-dynamic-dropdown`}
+                aria-label={
+                  labelCode ? (localize(label as TranslationKeys) ?? label) : label || settingKey
+                }
+              >
+                <SelectValue
+                  placeholder={
+                    placeholderCode
+                      ? (localize(placeholder as TranslationKeys) ?? placeholder)
+                      : placeholder
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <SelectDropDown
+              showLabel={false}
+              emptyTitle={true}
+              disabled={readonly}
+              value={selectedValue}
+              setValue={handleChange}
+              availableValues={options}
+              containerClassName="w-full"
+              className="py-1.5"
+              id={`${settingKey}-dynamic-dropdown`}
+              placeholder={
+                placeholderCode
+                  ? (localize(placeholder as TranslationKeys) ?? placeholder)
+                  : placeholder
+              }
+            />
+          )}
         </HoverCardTrigger>
         {description && (
           <OptionHover
