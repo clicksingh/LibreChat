@@ -7,6 +7,10 @@
  * that no longer exists or is archived is denied, and denial throws rather
  * than silently falling back to the personal workspace.
  */
+jest.mock('@librechat/api', () => ({
+  checkAccessWithRequestCache: jest.fn().mockResolvedValue(true),
+}));
+
 const mockGetConvo = jest.fn();
 const mockGetWorkspace = jest.fn();
 jest.mock('~/models', () => ({
@@ -129,6 +133,17 @@ describe('resolveWorkspaceContext (8S3D.1)', () => {
     const ctx = await resolveWorkspaceContext(req);
     expect(ctx.workspaceId).toBe('ws_original');
     expect(mockGetWorkspace).toHaveBeenCalledWith('ws_original');
+  });
+
+  it('keeps a saved PERSONAL conversation personal despite a project body parameter', async () => {
+    mockGetConvo.mockResolvedValue({ workspaceId: null });
+    const req = makeReq({
+      body: { conversationId: 'personal-existing', workspaceId: 'unrelated-project' },
+    });
+    await expect(resolveWorkspaceContext(req)).resolves.toBeUndefined();
+    expect(req.workspaceContext).toBeUndefined();
+    expect(mockGetWorkspace).not.toHaveBeenCalled();
+    expect(mockCheckPermission).not.toHaveBeenCalled();
   });
 
   it('caches the resolution on req — a second call in the same request does not re-query', async () => {
