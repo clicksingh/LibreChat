@@ -117,13 +117,17 @@ async function resolveWorkspaceContext(req) {
   let desiredWorkspaceId;
 
   const conversationId = req.body?.conversationId;
+  let existingConversationFound = false;
   if (conversationId && conversationId !== 'new') {
     const convo = await db.getConvo(user.id, conversationId);
-    if (convo?.workspaceId) {
-      desiredWorkspaceId = convo.workspaceId;
+    if (convo) {
+      existingConversationFound = true;
+      // Saved personal chats cannot switch to project scope through the
+      // request body; the stored conversation always controls its scope.
+      desiredWorkspaceId = convo.workspaceId || undefined;
     }
   }
-  if (!desiredWorkspaceId && req.body?.workspaceId) {
+  if (!existingConversationFound && req.body?.workspaceId) {
     desiredWorkspaceId = req.body.workspaceId;
   }
   if (!desiredWorkspaceId) {

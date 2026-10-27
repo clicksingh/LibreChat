@@ -110,6 +110,11 @@ jest.mock('~/server/services/Config', () => ({
   checkCapability: jest.fn().mockResolvedValue(true),
 }));
 
+jest.mock('~/server/services/Endpoints/agents/authorization', () => ({
+  ...jest.requireActual('~/server/services/Endpoints/agents/authorization'),
+  resolveWorkspaceContext: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('~/server/utils/queue', () => ({
   LB_QueueAsyncCall: jest.fn(),
 }));
@@ -151,6 +156,7 @@ const {
 } = require('librechat-data-provider');
 const { mergeFileConfig } = require('librechat-data-provider');
 const { checkCapability } = require('~/server/services/Config');
+const { resolveWorkspaceContext } = require('~/server/services/Endpoints/agents/authorization');
 const { getStrategyFunctions } = require('~/server/services/Files/strategies');
 const { uploadVectors } = require('./VectorDB/crud');
 const db = require('~/models');
@@ -800,6 +806,70 @@ describe('processAgentFileUpload', () => {
         }),
         true,
       );
+    });
+
+    it('persists kind:project for a server-authorized project chat upload', async () => {
+      const codeEnvUpload = setupCodeEnvUpload({
+        storage_session_id: 'sess-project',
+        file_id: 'fid-project',
+      });
+      resolveWorkspaceContext.mockImplementationOnce(async (req) => {
+        req.workspaceContext = { kind: 'project', workspaceId: 'workspace-abc' };
+        return req.workspaceContext;
+      });
+      const req = makeReq({ body: { workspaceId: 'workspace-abc', conversationId: 'new' } });
+      await processAgentFileUpload({
+        req,
+        res: mockRes,
+        metadata: {
+          agent_id: 'agent-abc',
+          tool_resource: EToolResources.execute_code,
+          file_id: 'file-uuid',
+          message_file: true,
+        },
+      });
+      expect(resolveWorkspaceContext).toHaveBeenCalledWith(req);
+      expect(codeEnvUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'project', id: 'workspace-abc' }),
+      );
+      expect(db.createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: {
+            codeEnvRef: {
+              kind: 'project',
+              id: 'workspace-abc',
+              storage_session_id: 'sess-project',
+              file_id: 'fid-project',
+            },
+          },
+        }),
+        true,
+      );
+    });
+
+    it('denies a revoked project upload before making any CodeAPI storage request', async () => {
+      const codeEnvUpload = setupCodeEnvUpload({
+        storage_session_id: 'unwanted',
+        file_id: 'unwanted',
+      });
+      resolveWorkspaceContext.mockRejectedValueOnce(
+        Object.assign(new Error('revoked'), { status: 403 }),
+      );
+      const req = makeReq({ body: { workspaceId: 'workspace-revoked', conversationId: 'new' } });
+      await expect(
+        processAgentFileUpload({
+          req,
+          res: mockRes,
+          metadata: {
+            agent_id: 'agent-abc',
+            tool_resource: EToolResources.execute_code,
+            file_id: 'file-uuid',
+            message_file: true,
+          },
+        }),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(codeEnvUpload).not.toHaveBeenCalled();
+      expect(db.createFile).not.toHaveBeenCalled();
     });
 
     it('persists kind:agent codeEnvRef for agent setup files (messageAttachment=false)', async () => {
