@@ -70,3 +70,11 @@ additionally guards existing personal conversations and preserves
 authorization-denial status. These are separate heads and need independent
 exact-head approval and browser acceptance. Neither constitutes a
 general production V2 clearance.
+
+## Image upload denial symmetry
+
+The /files/images upload handler also routes tool-resource uploads into
+processAgentFileUpload and must preserve the same 403/404 workspace denial
+status as /files. Both endpoints now forward controlled error.status, retain
+userErrorStatusCode priority, and include image-route 403/404 tests.
+No image user files were mutated during this code correction.

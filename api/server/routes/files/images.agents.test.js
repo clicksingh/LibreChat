@@ -145,6 +145,30 @@ describe('POST /images - Agent Upload Permission Check (Integration)', () => {
     expect(fs.promises.unlink).toHaveBeenCalledWith('/tmp/t.png');
   });
 
+  it.each([403, 404])('preserves project upload denial HTTP %s', async (status) => {
+    await createAgent({
+      id: agentCustomId,
+      name: 'Test Agent',
+      provider: 'openai',
+      model: 'gpt-4',
+      author: authorId,
+    });
+    processAgentFileUpload.mockRejectedValueOnce(
+      Object.assign(new Error('workspace denied'), { status }),
+    );
+    const app = createAppWithUser(authorId);
+    const response = await request(app).post('/images').send({
+      endpoint: 'agents',
+      agent_id: agentCustomId,
+      tool_resource: 'execute_code',
+      file_id: uuidv4(),
+      message_file: true,
+    });
+    expect(response.status).toBe(status);
+    expect(processAgentFileUpload).toHaveBeenCalledTimes(1);
+    expect(fs.promises.unlink).toHaveBeenCalledWith('/tmp/t.png');
+  });
+
   it('should allow upload for agent owner', async () => {
     await createAgent({
       id: agentCustomId,
