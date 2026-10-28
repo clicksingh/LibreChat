@@ -258,6 +258,21 @@ describe('transactional model policy publisher', () => {
     expect(deps.headVersion).toBe(0);
   });
 
+  test('rejects ADMIN default:false overriding the published managed catalogue', async () => {
+    const deps = fakeDeps({
+      ADMIN: {
+        priority: 20,
+        overrides: { endpoints: { custom: [{ name: 'CBHR AI', default: false }] } },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
   test('rejects ADMIN overrides that empty the server-funded API key', async () => {
     const deps = fakeDeps({
       ADMIN: {

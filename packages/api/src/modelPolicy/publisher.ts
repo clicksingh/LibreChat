@@ -255,6 +255,7 @@ function validateFundedEndpoint(
   const adminSelected = adminProjected.filter((ep: Endpoint) => ep?.name === managedPatch.name);
   if (
     adminSelected.length !== 1 ||
+    adminSelected[0].default !== true ||
     adminSelected[0].apiKey !== configuredEndpoint.apiKey ||
     adminSelected[0].baseURL !== configuredEndpoint.baseURL ||
     !Array.isArray(adminSelected[0].models?.default) ||
