@@ -145,6 +145,14 @@ function validateNonRoleConfigs(configs: RoleConfig[], endpointName: string): vo
   }
 }
 
+function hasForbiddenModelParameter(endpoint: Endpoint): boolean {
+  const extra = endpoint.addParams;
+  if (extra != null && (typeof extra !== 'object' || Array.isArray(extra))) return true;
+  if (extra && Object.prototype.hasOwnProperty.call(extra, 'model')) return true;
+  const dropped = endpoint.dropParams;
+  return Array.isArray(dropped) && dropped.includes('model');
+}
+
 function invalidFundedEndpoint(message: string): never {
   const error = new Error(message);
   throw Object.assign(error, { code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID', status: 422 });
@@ -246,6 +254,9 @@ function validateFundedEndpoint(
   }
 
   const selected = defaults[0];
+  if (hasForbiddenModelParameter(selected)) {
+    invalidFundedEndpoint('Managed USER endpoint parameters override the published model');
+  }
   const requiredModel = managedPatch.models.default[0];
   if (
     !Array.isArray(selected.models?.default) ||
@@ -312,6 +323,7 @@ function validateFundedEndpoint(
   if (
     adminSelected.length !== 1 ||
     adminSelected[0].default !== true ||
+    hasForbiddenModelParameter(adminSelected[0]) ||
     adminSelected[0].apiKey !== configuredEndpoint.apiKey ||
     adminSelected[0].baseURL !== configuredEndpoint.baseURL ||
     !Array.isArray(adminSelected[0].models?.default) ||

@@ -105,6 +105,23 @@ describe('V2 active USER runtime authority against later user/group override dri
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('rejects later endpoint addParams.model overriding the same funded model', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const userConfig = JSON.parse(JSON.stringify(roleConfig));
+    userConfig.endpoints.custom[0].addParams = { model: 'unfunded-model' };
+    const req = makeReq(
+      { endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL },
+      SystemRoles.USER,
+      userConfig,
+    );
+    req.user.tenantId = 'tenant-qa';
+    const { res, next } = await invokePublished(req);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('rejects user/group API key or URL replacement with unchanged model', async () => {
     const roleConfig = makeConfig();
     roleConfig.endpoints.custom[0].default = true;

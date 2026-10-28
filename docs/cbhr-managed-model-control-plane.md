@@ -259,3 +259,21 @@ enabled; production currently retains the previous pre-activation behavior.
 This fail-closed check does not make a legacy Config mutation acceptable:
 central Config writes must still be reviewed to prevent future
 role/tenant-policy conflicts at the source.
+
+
+## Model-changing parameters and generic Config write lock
+
+Publication rejects effective managed USER and ADMIN endpoints that retain
+addParams.model (or dropParams containing model), since downstream model
+construction can override the otherwise validated published model list.
+When the publisher is enabled, USER runtime authority compares the entire
+managed endpoint object against role-only effective config, so a later
+model parameter or credential mutation fails closed before generation.
+
+The generic Admin Config API is not a second policy publisher. While the
+dedicated publisher port is enabled, it rejects writes to managed __base__,
+USER, and ADMIN role Configs, as well as endpoint-section upserts, patches,
+tombstones, and field deletes for individual users/groups. Inactive user/group
+endpoint overrides cannot be reactivated through the generic toggle route.
+Unrelated Config sections remain available where supported by existing
+permissions. These checks are feature-dark until publisher activation.

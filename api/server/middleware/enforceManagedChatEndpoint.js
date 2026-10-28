@@ -91,8 +91,7 @@ async function isTrustedRoleOnlyDefault(req, funded) {
   return Boolean(
     currentEndpoint &&
       trustedEndpoint &&
-      currentEndpoint.apiKey === trustedEndpoint.apiKey &&
-      currentEndpoint.baseURL === trustedEndpoint.baseURL,
+      JSON.stringify(currentEndpoint) === JSON.stringify(trustedEndpoint),
   );
 }
 

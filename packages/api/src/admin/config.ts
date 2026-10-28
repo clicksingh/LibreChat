@@ -26,6 +26,25 @@ import {
   redactConfigSecrets,
 } from './secrets';
 
+export function isManagedPolicyConfigWriteBlocked(
+  principalType: string,
+  principalId: string,
+  fieldPaths: string[] = [],
+  enabled = Number(process.env.MODEL_POLICY_INTERNAL_PORT) > 0,
+): boolean {
+  if (!enabled) return false;
+  if (
+    principalType === PrincipalType.ROLE &&
+    [BASE_CONFIG_PRINCIPAL_ID, 'USER', 'ADMIN'].includes(principalId)
+  )
+    return true;
+  return fieldPaths.some((path) => path === 'endpoints' || path.startsWith('endpoints.'));
+}
+
+const MANAGED_MODEL_WRITE_LOCK_ERROR = {
+  error: 'Managed model policy owns endpoint configuration; use its publisher',
+};
+
 const UNSAFE_SEGMENTS = /(?:^|\.)(__[\w]*|constructor|prototype)(?:\.|$)/;
 const MAX_PATCH_ENTRIES = 100;
 const DEFAULT_PRIORITY = 10;
@@ -523,6 +542,9 @@ export function createAdminConfigHandlers(deps: AdminConfigDeps): {
       if (!hasAssignConfigs) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
+      if (isManagedPolicyConfigWriteBlocked(principalType, principalId, Object.keys(overrides))) {
+        return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+      }
 
       const filteredOverrides = {
         ...(overrides as Record<string, unknown>),
@@ -767,6 +789,16 @@ export function createAdminConfigHandlers(deps: AdminConfigDeps): {
         }
       }
 
+      if (
+        isManagedPolicyConfigWriteBlocked(
+          principalType,
+          principalId,
+          validEntries.map((entry) => entry.fieldPath),
+        )
+      ) {
+        return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+      }
+
       const seen = new Set<string>();
       const fields: Record<string, unknown> = {};
       for (const entry of validEntries) {
@@ -867,6 +899,10 @@ export function createAdminConfigHandlers(deps: AdminConfigDeps): {
         });
       }
 
+      if (isManagedPolicyConfigWriteBlocked(principalType, principalId, [fieldPath])) {
+        return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+      }
+
       if (isInterfacePermissionPath(fieldPath)) {
         logger.warn(
           `[adminConfig] Ignoring tombstone for interface permission field "${fieldPath}" — use role permissions instead`,
@@ -956,6 +992,10 @@ export function createAdminConfigHandlers(deps: AdminConfigDeps): {
         });
       }
 
+      if (isManagedPolicyConfigWriteBlocked(principalType, principalId, [fieldPath])) {
+        return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+      }
+
       if (isBaseOnlyFieldPath(fieldPath)) {
         logger.warn(
           `[adminConfig] Ignoring delete for base-only config field "${fieldPath}" - configure it in librechat.yaml instead`,
@@ -1029,6 +1069,9 @@ export function createAdminConfigHandlers(deps: AdminConfigDeps): {
       if (!allowed) {
         return res.status(403).json({ error: 'Insufficient permissions' });
       }
+      if (isManagedPolicyConfigWriteBlocked(principalType, principalId)) {
+        return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+      }
 
       const config = await deleteConfig(principalType, principalId, undefined, {
         expectEmpty: !hasBroadManage,
@@ -1090,6 +1133,21 @@ export function createAdminConfigHandlers(deps: AdminConfigDeps): {
         (await hasCapability(user, `assign:configs:${principalType}` as SystemCapability));
       if (!allowed) {
         return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      if (isManagedPolicyConfigWriteBlocked(principalType, principalId)) {
+        return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+      }
+
+      // Re-enabling a previously inactive group/user endpoint override must
+      // not bypass the post-publication endpoint write lock.
+      if (isActive && Number(process.env.MODEL_POLICY_INTERNAL_PORT) > 0) {
+        const existing = await findConfigByPrincipal(principalType, principalId, {
+          includeInactive: true,
+        });
+        const paths = [...Object.keys(existing?.overrides ?? {}), ...(existing?.tombstones ?? [])];
+        if (isManagedPolicyConfigWriteBlocked(principalType, principalId, paths)) {
+          return res.status(409).json(MANAGED_MODEL_WRITE_LOCK_ERROR);
+        }
       }
 
       const config = await toggleConfigActive(principalType, principalId, isActive, undefined, {

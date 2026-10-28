@@ -274,6 +274,41 @@ describe('transactional model policy publisher', () => {
     expect(deps.invalidations()).toBe(0);
   });
 
+  test('rejects inherited addParams.model despite a valid published model list', async () => {
+    const base = clone(validBaseConfig);
+    base.overrides.endpoints.custom[0].addParams = { model: 'old-unfunded-model' };
+    const deps = fakeDeps({ __base__: base });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects ADMIN addParams.model overriding selected catalogue model', async () => {
+    const deps = fakeDeps({
+      ADMIN: {
+        priority: 20,
+        overrides: {
+          endpoints: {
+            custom: [
+              {
+                name: 'CBHR AI',
+                addParams: { model: 'old-unfunded-model' },
+              },
+            ],
+          },
+        },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
   test('rejects active per-user endpoint override before version advance', async () => {
     const deps = fakeDeps({
       __nonRoleConfigs: [
