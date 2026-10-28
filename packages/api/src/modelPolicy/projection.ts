@@ -5,13 +5,58 @@ export interface ReasoningProfile {
   default: string;
 }
 
+export interface ModelPolicyRoleProjection {
+  endpointName: string;
+  companyDefault: string;
+  adminModels: string[];
+  roles: {
+    __base__: {
+      endpoints: {
+        custom: Array<{
+          name: string;
+          default: boolean;
+          models: { default: string[]; fetch: boolean };
+        }>;
+      };
+    };
+    USER: { interface: { modelSelect: boolean } };
+    ADMIN: {
+      interface: { modelSelect: boolean };
+      endpoints: {
+        custom: Array<{
+          name: string;
+          models: { default: string[]; fetch: boolean };
+          customParams: { reasoningProfiles: Record<string, ReasoningProfile> };
+        }>;
+      };
+    };
+  };
+}
+
+export interface ModelPolicyCommitPlan {
+  expectedVersion: number;
+  actor: string;
+  source: string;
+  refreshConfigCaches: boolean;
+  candidate: {
+    schemaVersion: number;
+    companyDefaultDeploymentId: string;
+    activeDeploymentIds: string[];
+    audiences: { USER: 'locked-current-default'; ADMIN: 'managed-catalog' };
+  };
+  projection: ModelPolicyRoleProjection;
+}
+
 const SAFE_ENDPOINT = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}$/;
 const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,255}$/;
 const SAFE_DEPLOYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MAX_MODELS = 128;
 const REASONING_TRANSPORT = 'chat.completions.reasoning_effort';
 const REASONING_LEVEL = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
-export const AUDIENCES = Object.freeze({
+export const AUDIENCES: Readonly<{
+  USER: 'locked-current-default';
+  ADMIN: 'managed-catalog';
+}> = Object.freeze({
   USER: 'locked-current-default',
   ADMIN: 'managed-catalog',
 });
@@ -73,7 +118,7 @@ export function buildRoleProjection({
   companyDefault: string;
   adminModels: string[];
   reasoningProfiles?: Record<string, ReasoningProfile>;
-}) {
+}): ModelPolicyRoleProjection {
   return {
     endpointName,
     companyDefault,
@@ -107,7 +152,9 @@ export function buildRoleProjection({
   };
 }
 
-export function buildModelPolicyProjection(input: unknown) {
+export function buildModelPolicyProjection(
+  input: unknown,
+): ModelPolicyRoleProjection & { policyVersion: number } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw invalid('Projection payload is required');
   }
@@ -137,7 +184,7 @@ export function buildModelPolicyProjection(input: unknown) {
   };
 }
 
-export function buildModelPolicyCommitPlan(input: unknown) {
+export function buildModelPolicyCommitPlan(input: unknown): ModelPolicyCommitPlan {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw invalid('Commit payload is required');
   }
