@@ -76,7 +76,6 @@ function resolveFundedDefault(config) {
  * Both Config views come from the existing tenant-scoped service.
  */
 async function isTrustedRoleOnlyDefault(req, funded) {
-  if (!process.env.MODEL_POLICY_INTERNAL_PORT) return true;
   if (!req.user?.tenantId) return false;
   const { getAppConfig } = require('~/server/services/Config');
   const roleConfig = await getAppConfig({ role: SystemRoles.USER, tenantId: req.user.tenantId });
@@ -106,7 +105,7 @@ function isExplicitPersistedAgent(body) {
   );
 }
 
-async function enforceManagedChatEndpoint(req, res, next) {
+function enforceManagedChatEndpoint(req, res, next) {
   if (req.user?.role === SystemRoles.ADMIN) {
     return next();
   }
@@ -152,23 +151,33 @@ async function enforceManagedChatEndpoint(req, res, next) {
     });
   }
 
-  if (process.env.MODEL_POLICY_INTERNAL_PORT) {
-    try {
-      if (!(await isTrustedRoleOnlyDefault(req, funded))) {
-        logger.error('[managed-endpoint] User/group Config drift from role-only funded default');
+  // Preserve the synchronous contract when the publisher is dark.
+  // The lightweight Node VM contract runner has no process global.
+  if (typeof process !== 'undefined' && Number(process.env?.MODEL_POLICY_INTERNAL_PORT) > 0) {
+    return isTrustedRoleOnlyDefault(req, funded)
+      .then((trusted) => {
+        if (!trusted) {
+          logger.error('[managed-endpoint] User/group Config drift from role-only funded default');
+          return res.status(503).json({
+            error: 'Managed model unavailable',
+            message: 'The company-provided model is temporarily unavailable.',
+          });
+        }
+        return finalizeManagedChatEndpoint(req, res, next, funded);
+      })
+      .catch((error) => {
+        logger.error('[managed-endpoint] Role-only policy verification failed', error);
         return res.status(503).json({
           error: 'Managed model unavailable',
           message: 'The company-provided model is temporarily unavailable.',
         });
-      }
-    } catch (error) {
-      logger.error('[managed-endpoint] Role-only policy verification failed', error);
-      return res.status(503).json({
-        error: 'Managed model unavailable',
-        message: 'The company-provided model is temporarily unavailable.',
       });
-    }
   }
+  return finalizeManagedChatEndpoint(req, res, next, funded);
+}
+
+function finalizeManagedChatEndpoint(req, res, next, funded) {
+  const body = req.body;
 
   // A persisted agent must first pass the existing resource VIEW ACL.
   // We defer the model check until AFTER the access-control middleware, so
