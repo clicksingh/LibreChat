@@ -210,3 +210,16 @@ against the compiled \`@librechat/api\` package are therefore mandatory;
 do not treat the local module-level TypeScript check as bundled release
 qualification. Production activation remains disabled until all prior gates
 are satisfied.
+
+
+## Real replica-set integration acceptance
+
+A new protected backend regression test at
+\`packages/api/src/modelPolicy/publisher.transaction.spec.ts\` uses only a
+fresh in-process MongoMemoryReplSet. It validates independent canonical
+version-one commits for two synthetic tenants sharing one replica-set
+database, tenant-isolated revision reads, and complete rollback of a
+mid-transaction ADMIN patch failure without cache invalidation. Test failure
+blocks a release candidate. This is synthetic infrastructure evidence only:
+it is not a production MongoDB topology migration or authenticated G2
+browser acceptance.
