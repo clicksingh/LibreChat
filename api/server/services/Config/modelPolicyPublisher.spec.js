@@ -299,6 +299,35 @@ describe('transactional model policy publisher', () => {
     expect(deps.invalidations()).toBe(0);
   });
 
+  test('rejects explicit null models overriding the managed USER default', async () => {
+    const deps = fakeDeps({
+      USER: {
+        priority: 20,
+        overrides: { endpoints: { custom: [{ name: 'CBHR AI', models: null }] } },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects explicit null models.default in ADMIN overrides', async () => {
+    const deps = fakeDeps({
+      ADMIN: {
+        priority: 20,
+        overrides: { endpoints: { custom: [{ name: 'CBHR AI', models: { default: null } }] } },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
   test('rejects inherited addParams.model despite a valid published model list', async () => {
     const base = clone(validBaseConfig);
     base.overrides.endpoints.custom[0].addParams = { model: 'old-unfunded-model' };

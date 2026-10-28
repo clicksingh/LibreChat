@@ -226,6 +226,29 @@ function validateFundedEndpoint(
     }
   }
 
+  // Mixed Config fields can carry explicit nulls. The real Config resolver
+  // treats these as replacements rather than the keyed merge helper's fallback.
+  // Reject them before canonical CAS instead of certifying an unusable model.
+  for (const [label, entries] of [
+    ['__base__', baseEntries],
+    ['USER', userEntries],
+    ['ADMIN', existing.ADMIN?.overrides?.endpoints?.custom],
+  ] as const) {
+    const managed = entries?.filter((ep: Endpoint) => ep?.name === managedPatch.name) || [];
+    if (
+      managed.some(
+        (ep: Endpoint) =>
+          (Object.prototype.hasOwnProperty.call(ep, 'models') &&
+            (ep.models === null || typeof ep.models !== 'object' || Array.isArray(ep.models))) ||
+          (ep.models &&
+            Object.prototype.hasOwnProperty.call(ep.models, 'default') &&
+            !Array.isArray(ep.models.default)),
+      )
+    ) {
+      invalidFundedEndpoint('Invalid explicit managed model override in ' + label);
+    }
+  }
+
   for (const [label, role] of [
     ['__base__', baseEntries],
     ['USER', userEntries],
