@@ -150,6 +150,7 @@ function fakeDeps(seed = {}) {
         revision.companyDefaultDeploymentId === candidate.companyDefaultDeploymentId &&
         JSON.stringify(revision.activeDeploymentIds) ===
           JSON.stringify(candidate.activeDeploymentIds) &&
+        JSON.stringify(revision.routing) === JSON.stringify(candidate.routing) &&
         revision.audiences.USER === candidate.audiences.USER &&
         revision.audiences.ADMIN === candidate.audiences.ADMIN
       ) {
@@ -188,6 +189,30 @@ describe('transactional model policy publisher', () => {
       status: 503,
     });
     expect(deps.headVersion).toBe(0);
+  });
+
+  test('model rebinding with unchanged deployment IDs advances CAS and forbids stale rollback', async () => {
+    const deps = fakeDeps();
+    const first = await commitManagedModelPolicy(makeInput(), deps);
+    expect(first.policyVersion).toBe(1);
+    expect(deps.revision.routing.endpointName).toBe('CBHR AI');
+    expect(deps.revision.routing.deployments[0].model).toBe('model-b');
+
+    const changed = makeInput({
+      expectedVersion: 1,
+      deployments: [
+        { deploymentId: 'deployment-b', model: 'model-b-new' },
+        { deploymentId: 'deployment-a', model: 'model-a' },
+      ],
+    });
+    const second = await commitManagedModelPolicy(changed, deps);
+    expect(second.policyVersion).toBe(2);
+    expect(second.policyNoop).toBe(false);
+    expect(deps.revision.routing.deployments[0].model).toBe('model-b-new');
+    await expect(
+      commitManagedModelPolicy(makeInput({ expectedVersion: 1 }), deps),
+    ).rejects.toMatchObject({ code: 'MODEL_POLICY_REVISION_CONFLICT' });
+    expect(deps.headVersion).toBe(2);
   });
 
   test('scopes every Config read and write to the fixed instance tenant', async () => {

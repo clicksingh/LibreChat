@@ -11,6 +11,13 @@ const candidate = {
   schemaVersion: 1,
   companyDefaultDeploymentId: 'deployment-b',
   activeDeploymentIds: ['deployment-b', 'deployment-a'],
+  routing: {
+    endpointName: 'CBHR AI',
+    deployments: [
+      { deploymentId: 'deployment-b', model: 'vendor/model-b', reasoning: null },
+      { deploymentId: 'deployment-a', model: 'vendor/model-a', reasoning: null },
+    ],
+  },
   audiences: MODEL_POLICY_AUDIENCES,
 };
 
@@ -78,6 +85,10 @@ describe('canonical managed-model policy validation', () => {
       sameModelPolicyCandidate(revision, {
         ...candidate,
         activeDeploymentIds: ['deployment-a', 'deployment-b'],
+        routing: {
+          ...candidate.routing,
+          deployments: [candidate.routing.deployments[1], candidate.routing.deployments[0]],
+        },
       }),
     ).toBe(false);
     expect(
@@ -86,6 +97,61 @@ describe('canonical managed-model policy validation', () => {
         companyDefaultDeploymentId: 'deployment-a',
       }),
     ).toBe(false);
+    expect(
+      sameModelPolicyCandidate(revision, {
+        ...candidate,
+        routing: { ...candidate.routing, endpointName: 'Other Funded Endpoint' },
+      }),
+    ).toBe(false);
+    expect(
+      sameModelPolicyCandidate(revision, {
+        ...candidate,
+        routing: {
+          ...candidate.routing,
+          deployments: [
+            { ...candidate.routing.deployments[0], model: 'vendor/model-b-new' },
+            candidate.routing.deployments[1],
+          ],
+        },
+      }),
+    ).toBe(false);
+  });
+
+  test('routing requires ordered 1:1 model bindings and valid reasoning', () => {
+    expect(() =>
+      normalizeModelPolicyCandidate({
+        ...candidate,
+        routing: { ...candidate.routing, deployments: [candidate.routing.deployments[0]] },
+      }),
+    ).toThrow(ModelPolicyInvalidError);
+    expect(() =>
+      normalizeModelPolicyCandidate({
+        ...candidate,
+        routing: {
+          ...candidate.routing,
+          deployments: [candidate.routing.deployments[1], candidate.routing.deployments[0]],
+        },
+      }),
+    ).toThrow(ModelPolicyInvalidError);
+    expect(() =>
+      normalizeModelPolicyCandidate({
+        ...candidate,
+        routing: {
+          ...candidate.routing,
+          deployments: [
+            {
+              ...candidate.routing.deployments[0],
+              reasoning: {
+                transport: 'chat.completions.reasoning_effort',
+                options: ['low', 'high'],
+                default: 'unsupported',
+              },
+            },
+            candidate.routing.deployments[1],
+          ],
+        },
+      }),
+    ).toThrow(ModelPolicyInvalidError);
   });
 });
 

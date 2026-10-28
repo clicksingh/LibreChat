@@ -277,3 +277,21 @@ tombstones, and field deletes for individual users/groups. Inactive user/group
 endpoint overrides cannot be reactivated through the generic toggle route.
 Unrelated Config sections remain available where supported by existing
 permissions. These checks are feature-dark until publisher activation.
+
+
+## Immutable canonical routing identity
+
+A canonical managed-model revision now stores the publisher endpoint name
+and the ordered deployment bindings, including each deployment ID, concrete
+model, and normalized reasoning capability. The tenant-specific revision CAS
+compares these bindings alongside the company default, deployment ordering,
+audiences, and schema contract. Rebinding the same deployment ID to another
+concrete model or changing its endpoint can no longer return a policy no-op:
+it must advance the canonical version or reject a stale expected version.
+
+The MongoDB revision schema requires routing metadata on new records, with
+embedded binding documents using no generated IDs. Any legacy canonical
+records without these bindings must be inventoried and deliberately migrated
+or superseded through a reviewed version transition before activation.
+The production canonical collections were absent in the read-only inventory,
+so no live canonical metadata was changed.

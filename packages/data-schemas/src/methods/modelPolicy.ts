@@ -2,6 +2,7 @@ import type { ClientSession, Model } from 'mongoose';
 import type {
   IModelPolicyAudiences,
   IModelPolicyCandidate,
+  IModelPolicyReasoningBinding,
   IModelPolicyHead,
   IModelPolicyHeadDocument,
   IModelPolicyRevision,
@@ -26,6 +27,39 @@ function validateTenantId(tenantId: string): void {
 
 const MAX_DEPLOYMENTS = 128;
 const SAFE_DEPLOYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
+const SAFE_ENDPOINT = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,79}$/;
+const SAFE_MODEL = /^[A-Za-z0-9][A-Za-z0-9_./:@+-]{0,255}$/;
+const SAFE_REASONING_LEVEL = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
+
+function normalizeReasoningBinding(value: unknown): IModelPolicyReasoningBinding | null {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    invalid('Invalid canonical reasoning binding');
+  }
+  const profile = value as Record<string, unknown>;
+  if (
+    profile.transport !== 'chat.completions.reasoning_effort' ||
+    !Array.isArray(profile.options) ||
+    profile.options.length < 1 ||
+    profile.options.length > 16
+  ) {
+    invalid('Unsupported canonical reasoning binding');
+  }
+  const options = profile.options.map((part: unknown) => String(part || '').trim());
+  const selectedDefault = String(profile.default || '').trim();
+  if (
+    new Set(options).size !== options.length ||
+    options.some((option: string) => !SAFE_REASONING_LEVEL.test(option)) ||
+    !options.includes(selectedDefault)
+  ) {
+    invalid('Canonical reasoning options/default are invalid');
+  }
+  return {
+    transport: 'chat.completions.reasoning_effort',
+    options,
+    default: selectedDefault,
+  };
+}
 
 export class ModelPolicyRevisionConflictError extends Error {
   code = 'MODEL_POLICY_REVISION_CONFLICT';
@@ -89,10 +123,39 @@ export function normalizeModelPolicyCandidate(
     invalid('Unsupported managed-model audience contract');
   }
 
+  const routing = candidate.routing;
+  const endpointName = typeof routing?.endpointName === 'string' ? routing.endpointName.trim() : '';
+  if (
+    !SAFE_ENDPOINT.test(endpointName) ||
+    !Array.isArray(routing?.deployments) ||
+    routing.deployments.length !== activeDeploymentIds.length
+  ) {
+    invalid('Canonical routing endpoint and deployment bindings are required');
+  }
+  const deployments = routing.deployments.map((binding, index) => {
+    if (!binding || typeof binding !== 'object') {
+      invalid('Invalid canonical deployment binding');
+    }
+    const deploymentId = String(binding.deploymentId || '').trim();
+    const model = String(binding.model || '').trim();
+    if (deploymentId !== activeDeploymentIds[index] || !SAFE_MODEL.test(model)) {
+      invalid('Canonical routing does not match active deployment order');
+    }
+    return {
+      deploymentId,
+      model,
+      reasoning: normalizeReasoningBinding(binding.reasoning),
+    };
+  });
+  if (new Set(deployments.map((binding) => binding.model)).size !== deployments.length) {
+    invalid('Canonical deployment models must be unique');
+  }
+
   return {
     schemaVersion: MODEL_POLICY_SCHEMA_VERSION,
     companyDefaultDeploymentId,
     activeDeploymentIds,
+    routing: { endpointName, deployments },
     audiences: { ...MODEL_POLICY_AUDIENCES },
   };
 }
@@ -100,7 +163,7 @@ export function normalizeModelPolicyCandidate(
 export function sameModelPolicyCandidate(
   revision: Pick<
     IModelPolicyRevision,
-    'schemaVersion' | 'companyDefaultDeploymentId' | 'activeDeploymentIds' | 'audiences'
+    'schemaVersion' | 'companyDefaultDeploymentId' | 'activeDeploymentIds' | 'routing' | 'audiences'
   >,
   candidate: IModelPolicyCandidate,
 ): boolean {
@@ -110,6 +173,7 @@ export function sameModelPolicyCandidate(
     String(revision.companyDefaultDeploymentId) === normalized.companyDefaultDeploymentId &&
     JSON.stringify(revision.activeDeploymentIds) ===
       JSON.stringify(normalized.activeDeploymentIds) &&
+    JSON.stringify(revision.routing) === JSON.stringify(normalized.routing) &&
     revision.audiences?.USER === normalized.audiences.USER &&
     revision.audiences?.ADMIN === normalized.audiences.ADMIN
   );

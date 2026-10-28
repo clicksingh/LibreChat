@@ -55,6 +55,21 @@ describe('managed-model config projection', () => {
       schemaVersion: 1,
       companyDefaultDeploymentId: 'deployment-b',
       activeDeploymentIds: ['deployment-b', 'deployment-a'],
+      routing: {
+        endpointName: 'CBHR AI',
+        deployments: [
+          {
+            deploymentId: 'deployment-b',
+            model: 'provider-x/model:fast',
+            reasoning: {
+              transport: 'chat.completions.reasoning_effort',
+              options: ['low', 'high', 'max'],
+              default: 'high',
+            },
+          },
+          { deploymentId: 'deployment-a', model: 'unrelated-vendor/deep_model', reasoning: null },
+        ],
+      },
       audiences: AUDIENCES,
     });
     expect(out.projection.companyDefault).toBe('provider-x/model:fast');

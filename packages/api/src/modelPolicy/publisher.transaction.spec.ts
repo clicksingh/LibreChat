@@ -113,4 +113,22 @@ describe('real replica-set managed-model policy transactions', () => {
       expect(invalidations).toBe(invalidationsBefore);
     });
   }, 120000);
+
+  it('records model rebinding at version two and prevents stale version-one reversal', async () => {
+    await runAsSystem(async () => {
+      const deps = depsFor('synthetic-tenant-beta');
+      const changed = await commitManagedModelPolicy(payload(1, 'model-beta'), deps);
+      expect(changed.policyVersion).toBe(2);
+      expect(changed.policyNoop).toBe(false);
+      const revision = (await db.getModelPolicyRevision('synthetic-tenant-beta', 2)) as {
+        routing?: { endpointName?: string; deployments?: Array<{ model: string }> };
+      } | null;
+      expect(revision?.routing?.endpointName).toBe('CBHR AI');
+      expect(revision?.routing?.deployments?.[0]?.model).toBe('model-beta');
+      await expect(commitManagedModelPolicy(payload(1, 'model-alpha'), deps)).rejects.toMatchObject(
+        { code: 'MODEL_POLICY_REVISION_CONFLICT' },
+      );
+      expect((await db.getModelPolicyHead('synthetic-tenant-beta'))?.version).toBe(2);
+    });
+  }, 120000);
 });

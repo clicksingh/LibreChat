@@ -1,6 +1,26 @@
 import { Schema } from 'mongoose';
 import type { IModelPolicyHeadDocument, IModelPolicyRevisionDocument } from '~/types';
 
+const modelPolicyDeploymentBindingSchema = new Schema(
+  {
+    deploymentId: { type: String, required: true, trim: true },
+    model: { type: String, required: true, trim: true },
+    reasoning: { type: Schema.Types.Mixed, default: null },
+  },
+  { _id: false },
+);
+
+const modelPolicyRoutingSchema = new Schema(
+  {
+    endpointName: { type: String, required: true, trim: true },
+    deployments: {
+      type: [modelPolicyDeploymentBindingSchema],
+      required: true,
+    },
+  },
+  { _id: false },
+);
+
 export const modelPolicyHeadSchema: Schema<IModelPolicyHeadDocument> =
   new Schema<IModelPolicyHeadDocument>(
     {
@@ -21,6 +41,7 @@ export const modelPolicyRevisionSchema: Schema<IModelPolicyRevisionDocument> =
       schemaVersion: { type: Number, required: true, min: 1, default: 1 },
       companyDefaultDeploymentId: { type: String, required: true, trim: true },
       activeDeploymentIds: [{ type: String, required: true }],
+      routing: { type: modelPolicyRoutingSchema, required: true },
       audiences: {
         USER: {
           type: String,

@@ -42,6 +42,14 @@ export interface ModelPolicyCommitPlan {
     schemaVersion: number;
     companyDefaultDeploymentId: string;
     activeDeploymentIds: string[];
+    routing: {
+      endpointName: string;
+      deployments: Array<{
+        deploymentId: string;
+        model: string;
+        reasoning: ReasoningProfile | null;
+      }>;
+    };
     audiences: { USER: 'locked-current-default'; ADMIN: 'managed-catalog' };
   };
   projection: ModelPolicyRoleProjection;
@@ -266,6 +274,7 @@ export function buildModelPolicyCommitPlan(input: unknown): ModelPolicyCommitPla
       schemaVersion: 1,
       companyDefaultDeploymentId,
       activeDeploymentIds: deploymentIds,
+      routing: { endpointName, deployments },
       audiences: { ...AUDIENCES },
     },
     projection: buildRoleProjection({

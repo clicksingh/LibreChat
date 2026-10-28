@@ -8,10 +8,28 @@ export interface IModelPolicyAudiences {
   ADMIN: ModelPolicyAdminMode;
 }
 
+export interface IModelPolicyReasoningBinding {
+  transport: 'chat.completions.reasoning_effort';
+  options: string[];
+  default: string;
+}
+
+export interface IModelPolicyDeploymentBinding {
+  deploymentId: string;
+  model: string;
+  reasoning: IModelPolicyReasoningBinding | null;
+}
+
+export interface IModelPolicyRouting {
+  endpointName: string;
+  deployments: IModelPolicyDeploymentBinding[];
+}
+
 export interface IModelPolicyCandidate {
   schemaVersion: number;
   companyDefaultDeploymentId: string;
   activeDeploymentIds: string[];
+  routing: IModelPolicyRouting;
   audiences: IModelPolicyAudiences;
 }
 

@@ -30,7 +30,7 @@ export function isManagedPolicyConfigWriteBlocked(
   principalType: string,
   principalId: string,
   fieldPaths: string[] = [],
-  enabled = Number(process.env.MODEL_POLICY_INTERNAL_PORT) > 0,
+  enabled: boolean = Number(process.env.MODEL_POLICY_INTERNAL_PORT) > 0,
 ): boolean {
   if (!enabled) return false;
   if (

@@ -8,6 +8,7 @@ This is a release gate record, not a deployment authorization.
 - CodeAPI retains CODEAPI_RETENTION_MODE=preview. No destructive retention apply.
 - Existing Admin/broker/aibridge rollback images all resolve; rollback-preflight.sh returned ROLLBACK_PREFLIGHT_PASS.
 - New model-policy source is tenant-bound, requires a transaction-capable MongoDB, and keeps its internal listener dark until explicitly configured.
+- Canonical revision source now records endpoint plus ordered deployment model/reasoning bindings so same-ID rebinding must advance CAS. Legacy revision records need explicit reconciliation if discovered.
 - Protected CI for prior PR #41 head 332a981414 was nine of nine applicable workflows SUCCESS. This does not certify later commits.
 - Read-only live MongoDB hello has setName=null: standalone, not a transaction-capable replica set.
 - Production LibreChat configs collection has exactly three role records; all three lack tenantId. Canonical modelpolicyheads and modelpolicyrevisions collections do not yet exist.

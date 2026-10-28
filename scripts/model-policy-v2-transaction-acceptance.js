@@ -237,6 +237,8 @@ async function main() {
       second.policyVersion !== 2 ||
       policy2.head?.version !== 2 ||
       policy2.revision?.companyDefaultDeploymentId !== DEPLOYMENTS.beta.deploymentId ||
+      policy2.revision?.routing?.endpointName !== 'CBHR AI' ||
+      policy2.revision?.routing?.deployments?.[0]?.model !== 'stage-beta' ||
       managedEndpoint(base2).models.default[0] !== 'stage-beta'
     ) {
       throw new Error('revision 2 advance failed');
