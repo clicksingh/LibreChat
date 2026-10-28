@@ -40,8 +40,26 @@ function makeInput({
   };
 }
 
+const validBaseConfig = {
+  priority: 10,
+  isActive: true,
+  overrides: {
+    endpoints: {
+      custom: [
+        {
+          name: 'CBHR AI',
+          default: true,
+          apiKey: 'company-service-key',
+          baseURL: 'http://litellm:4000/v1',
+          models: { default: ['previous-model'] },
+        },
+      ],
+    },
+  },
+};
+
 function fakeDeps(seed = {}) {
-  let docs = clone(seed);
+  let docs = clone({ __base__: validBaseConfig, ...seed });
   let headVersion = 0;
   let revision = null;
   const writes = [];
@@ -186,6 +204,66 @@ describe('transactional model policy publisher', () => {
     expect(deps.invalidations()).toBe(0);
   });
 
+  test('rejects publication to a new endpoint with no configured company credentials', async () => {
+    const deps = fakeDeps();
+    const input = makeInput();
+    input.endpointName = 'Unconfigured Endpoint';
+    await expect(commitManagedModelPolicy(input, deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects a stale higher-priority USER model override rather than publishing a false default', async () => {
+    const deps = fakeDeps({
+      USER: {
+        priority: 20,
+        overrides: {
+          endpoints: { custom: [{ name: 'CBHR AI', models: { default: ['stale-model'] } }] },
+        },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.writes).toHaveLength(0);
+  });
+
+  test('rejects ambiguous centrally marked defaults before advancing the canonical version', async () => {
+    const base = clone(validBaseConfig);
+    base.overrides.endpoints.custom.push({
+      name: 'Second Default',
+      default: true,
+      apiKey: 'company-service-key',
+      baseURL: 'http://litellm:4000/v1',
+      models: { default: ['other-model'] },
+    });
+    const deps = fakeDeps({ __base__: base });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('rejects a USER override that redirects company credentials to a different provider', async () => {
+    const deps = fakeDeps({
+      USER: {
+        priority: 20,
+        overrides: {
+          endpoints: { custom: [{ name: 'CBHR AI', baseURL: 'https://untrusted.invalid/v1' }] },
+        },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
   test('commits canonical deployment policy and preserves unrelated LibreChat config', async () => {
     const deps = fakeDeps({
       __base__: {
@@ -196,7 +274,8 @@ describe('transactional model policy publisher', () => {
               { name: 'Other API', baseURL: 'internal-other' },
               {
                 name: 'CBHR AI',
-                baseURL: 'internal-bridge',
+                baseURL: 'http://internal-bridge:4000/v1',
+                apiKey: 'company-service-key',
                 tokenConfig: { old: true },
                 models: { default: ['old'] },
               },
@@ -238,7 +317,7 @@ describe('transactional model policy publisher', () => {
     const baseList = deps.docs.__base__.overrides.endpoints.custom;
     expect(baseList.find((item) => item.name === 'Other API').baseURL).toBe('internal-other');
     const baseManaged = baseList.find((item) => item.name === 'CBHR AI');
-    expect(baseManaged.baseURL).toBe('internal-bridge');
+    expect(baseManaged.baseURL).toBe('http://internal-bridge:4000/v1');
     expect(baseManaged.tokenConfig).toEqual({ old: true });
     expect(baseManaged.models.default).toEqual(['model-b']);
     expect(deps.docs.USER.overrides.interface).toEqual({ modelSelect: false, fileSearch: true });
@@ -309,7 +388,7 @@ describe('transactional model policy publisher', () => {
 
     expect(deps.headVersion).toBe(0);
     expect(deps.revision).toBeNull();
-    expect(deps.docs).toEqual({});
+    expect(deps.docs).toEqual({ __base__: validBaseConfig });
     expect(deps.invalidations()).toBe(0);
   });
 

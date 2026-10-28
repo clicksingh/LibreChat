@@ -73,3 +73,23 @@ backfill production Config, enable policy publication, or claim end-to-end
 model-policy V2 activation until database topology/migration and live browser
 admission tests are independently reviewed. The active V2 LibreChat image
 was a bounded canary and CodeAPI retention stays \`preview\`.
+
+## Transactional effective USER admission acceptance
+
+The publisher must not create a managed endpoint from only a name/model or
+commit a canonical revision whose effective USER configuration remains stale.
+Inside the transaction it now requires an existing base managed endpoint
+with company-owned credentials and an HTTP(S) base URL, computes the
+effective USER endpoint over any higher-priority USER override, and rejects:
+an unconfigured endpoint; ambiguous marked defaults; an overridden managed
+model list; or an overridden company API key/URL. The whole transaction rolls
+back on rejection, including the canonical version. Cache invalidation is
+scoped to the fixed tenant after successful commit. Four adversarial
+regression cases cover these failure modes.
+
+This is a narrow fail-closed acceptance boundary. Publishing an unrelated
+endpoint through a raw request body cannot bootstrap credentials.
+Future per-user/group policy layers and complete live config-service E2E
+acceptance remain independent release obligations before enabling the
+listener. Production MongoDB remains standalone, and the listener remains
+OFF. No automatic CodeAPI file-retention apply is authorized.

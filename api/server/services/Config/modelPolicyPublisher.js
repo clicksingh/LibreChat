@@ -30,6 +30,79 @@ function mergeEndpointList(current, endpointPatch) {
   return list;
 }
 
+function invalidFundedEndpoint(message) {
+  const error = new Error(message);
+  error.code = 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID';
+  error.status = 422;
+  throw error;
+}
+
+function validateFundedEndpoint(existing, projection) {
+  const managedPatch = projection.roles.__base__.endpoints.custom[0];
+  const baseEntries = existing.__base__?.overrides?.endpoints?.custom;
+  if (
+    !Array.isArray(baseEntries) ||
+    baseEntries.filter((ep) => ep?.name === managedPatch.name).length !== 1
+  ) {
+    invalidFundedEndpoint('Managed endpoint must already exist in base Config');
+  }
+
+  // Mirror the keyed endpoint merge in the config resolver: the USER role
+  // is higher priority than __base__, so its persisted overrides also matter.
+  const currentManaged = baseEntries.find((ep) => ep?.name === managedPatch.name);
+  const projectedBase = mergeEndpointList(baseEntries, managedPatch);
+  const userEntries = existing.USER?.overrides?.endpoints?.custom;
+  if (
+    userEntries != null &&
+    (!Array.isArray(userEntries) ||
+      userEntries.some((ep) => !ep || typeof ep !== 'object' || typeof ep.name !== 'string'))
+  ) {
+    invalidFundedEndpoint('Invalid USER endpoint overrides');
+  }
+  const effective = (userEntries || []).reduce(
+    (entries, override) => mergeEndpointList(entries, override),
+    projectedBase,
+  );
+  const defaults = effective.filter((ep) => ep?.default === true);
+  if (defaults.length !== 1 || defaults[0].name !== managedPatch.name) {
+    invalidFundedEndpoint('Managed USER default endpoint is ambiguous or overridden');
+  }
+
+  const selected = defaults[0];
+  const requiredModel = managedPatch.models.default[0];
+  if (
+    !Array.isArray(selected.models?.default) ||
+    selected.models.default.length !== 1 ||
+    selected.models.default[0] !== requiredModel
+  ) {
+    invalidFundedEndpoint('USER override conflicts with published managed model');
+  }
+  // A higher-priority USER override may not silently replace centrally
+  // funded provider credentials with a different or personal destination.
+  if (selected.apiKey !== currentManaged.apiKey || selected.baseURL !== currentManaged.baseURL) {
+    invalidFundedEndpoint('USER override changes company-funded credentials');
+  }
+  if (
+    typeof selected.apiKey !== 'string' ||
+    !selected.apiKey.trim() ||
+    selected.apiKey === 'user_provided' ||
+    typeof selected.baseURL !== 'string' ||
+    !selected.baseURL.trim() ||
+    selected.baseURL === 'user_provided'
+  ) {
+    invalidFundedEndpoint('Managed endpoint requires server credentials and base URL');
+  }
+  try {
+    const url = new URL(selected.baseURL);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+      invalidFundedEndpoint('Managed endpoint URL is invalid');
+    }
+  } catch (error) {
+    if (error?.code === 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID') throw error;
+    invalidFundedEndpoint('Managed endpoint URL is invalid');
+  }
+}
+
 async function applyProjectionInSession(projection, deps, session) {
   const { findConfigByPrincipal, patchConfigFields, tenantId } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
@@ -42,6 +115,10 @@ async function applyProjectionInSession(projection, deps, session) {
     ),
   );
   const writes = [];
+
+  // Validate the *effective* USER endpoint before the transaction can
+  // advance the canonical revision, not only the new base projection.
+  validateFundedEndpoint(existing, projection);
 
   for (const id of ids) {
     const current = existing[id];
@@ -153,7 +230,7 @@ async function commitManagedModelPolicy(input, deps) {
 
   if (!result) throw new Error('Model policy transaction completed without a result');
   if (result.writes.length > 0 || result.refreshConfigCaches === true)
-    await invalidateConfigCaches();
+    await invalidateConfigCaches(tenantId);
   return result;
 }
 
