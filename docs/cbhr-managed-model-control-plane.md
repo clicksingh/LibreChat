@@ -98,3 +98,16 @@ Future per-user/group policy layers and complete live config-service E2E
 acceptance remain independent release obligations before enabling the
 listener. Production MongoDB remains standalone, and the listener remains
 OFF. No automatic CodeAPI file-retention apply is authorized.
+
+## Tombstones and legacy-preset precedence
+
+The Config resolver applies tombstones before keyed endpoint overrides.
+Publisher acceptance rejects a \`__base__\` or USER tombstone for
+\`endpoints\` or \`endpoints.custom\` (including descendants), rather than
+committing a revision whose funded endpoint would be deleted at read time.
+Separately, ordinary USER admission gives exactly one centrally marked
+custom endpoint priority over any retained legacy default \`modelSpec\`.
+The preset name is used only when it matches the selected endpoint and
+model; ambiguous marked defaults fail closed. This preserves the existing
+legacy-only fallback only before a marked company default is available.
+Synthetic regressions verify rollback and legacy-preset bypass denial.

@@ -49,6 +49,26 @@ function validateFundedEndpoint(existing, projection, baseAppConfig) {
     invalidFundedEndpoint('Managed endpoint must exist in validated server configuration');
   }
 
+  // The resolver applies role tombstones before merging overrides. If a
+  // tombstone deletes the funded endpoint, a matching model list alone is
+  // insufficient evidence that USER chat can actually resolve that model.
+  for (const id of ['__base__', 'USER']) {
+    const tombstones = existing[id]?.tombstones;
+    if (
+      tombstones != null &&
+      (!Array.isArray(tombstones) ||
+        tombstones.some(
+          (path) =>
+            typeof path !== 'string' ||
+            path === 'endpoints' ||
+            path === 'endpoints.custom' ||
+            path.startsWith('endpoints.custom.'),
+        ))
+    ) {
+      invalidFundedEndpoint('Owned Config tombstone suppresses the managed endpoint');
+    }
+  }
+
   const baseEntries = existing.__base__?.overrides?.endpoints?.custom;
   const userEntries = existing.USER?.overrides?.endpoints?.custom;
   for (const entries of [baseEntries, userEntries]) {

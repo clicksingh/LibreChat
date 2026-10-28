@@ -36,10 +36,13 @@ function resolveFundedDefault(config) {
     ? configured.filter((entry) => entry?.default === true && typeof entry.name === 'string')
     : [];
   let custom;
-  if (spec) {
-    custom = configured.find((entry) => entry?.name === spec.preset.endpoint);
-  } else if (v2Defaults.length === 1) {
+  if (v2Defaults.length > 0) {
+    // The centrally published default outranks any retained legacy preset.
+    // Multiple server-marked defaults are ambiguous, even when a legacy spec exists.
+    if (v2Defaults.length !== 1) return null;
     custom = v2Defaults[0];
+  } else if (spec) {
+    custom = configured.find((entry) => entry?.name === spec.preset.endpoint);
   }
   const selected = Array.isArray(custom?.models?.default) ? custom.models.default[0] : undefined;
   const validModel =
@@ -58,7 +61,11 @@ function resolveFundedDefault(config) {
   ) {
     return null;
   }
-  return { endpoint: custom.name, model: selected, spec: spec?.name };
+  const matchingSpec =
+    spec?.preset?.endpoint === custom.name && spec?.preset?.model === selected
+      ? spec.name
+      : undefined;
+  return { endpoint: custom.name, model: selected, spec: matchingSpec };
 }
 
 function isExplicitPersistedAgent(body) {

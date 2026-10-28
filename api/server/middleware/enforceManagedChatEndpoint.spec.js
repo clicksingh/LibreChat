@@ -314,6 +314,47 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(resolveFundedDefault(config)).toBeNull();
   });
 
+  it('gives the server-marked funded default precedence over a conflicting legacy preset', () => {
+    const config = makeConfig();
+    config.endpoints.custom[0].default = true;
+    config.endpoints.custom.push({
+      name: 'Legacy Privileged Endpoint',
+      apiKey: 'server-key',
+      baseURL: 'http://legacy.internal/v1',
+      models: { default: ['old-model'] },
+    });
+    config.modelSpecs.list[0].preset.endpoint = 'Legacy Privileged Endpoint';
+    config.modelSpecs.list[0].preset.model = 'old-model';
+    expect(resolveFundedDefault(config)).toEqual({
+      endpoint: COMPANY_ENDPOINT,
+      model: COMPANY_MODEL,
+      spec: undefined,
+    });
+    const req = makeReq(
+      { endpoint: 'Legacy Privileged Endpoint', model: 'old-model', spec: COMPANY_SPEC },
+      SystemRoles.USER,
+      config,
+    );
+    const { next } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(req.body.endpoint).toBe(COMPANY_ENDPOINT);
+    expect(req.body.model).toBe(COMPANY_MODEL);
+    expect(req.body).not.toHaveProperty('spec');
+  });
+
+  it('refuses multiple marked defaults even if a legacy preset selects one', () => {
+    const config = makeConfig();
+    config.endpoints.custom[0].default = true;
+    config.endpoints.custom.push({
+      name: 'Another Default',
+      default: true,
+      apiKey: 'server-key',
+      baseURL: 'http://another.internal/v1',
+      models: { default: ['other-model'] },
+    });
+    expect(resolveFundedDefault(config)).toBeNull();
+  });
+
   it('only uses the configured default spec and centrally authenticated endpoint', () => {
     expect(resolveFundedDefault(makeConfig())).toEqual({
       endpoint: COMPANY_ENDPOINT,

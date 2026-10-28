@@ -236,6 +236,28 @@ describe('transactional model policy publisher', () => {
     expect(deps.docs.__base__.overrides.endpoints.custom[0].apiKey).toBeUndefined();
   });
 
+  test('rejects a USER tombstone deleting the published managed endpoint', async () => {
+    const deps = fakeDeps({
+      USER: { priority: 20, tombstones: ['endpoints.custom'], overrides: {} },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects a base tombstone that would suppress effective managed endpoints', async () => {
+    const base = clone(validBaseConfig);
+    base.tombstones = ['endpoints.custom'];
+    const deps = fakeDeps({ __base__: base });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
   test('rejects publication to a new endpoint with no configured company credentials', async () => {
     const deps = fakeDeps();
     const input = makeInput();
