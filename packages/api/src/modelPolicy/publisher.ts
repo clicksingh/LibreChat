@@ -161,6 +161,45 @@ function validateNonRoleConfigs(configs: RoleConfig[], endpointName: string): vo
   }
 }
 
+function reasoningProfileMap(endpoint: Endpoint | undefined): Record<string, unknown> {
+  const value = endpoint?.customParams?.reasoningProfiles;
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+// Runtime Config resolution deep-merges nested reasoningProfiles across YAML
+// and role documents. An empty projection map cannot remove older profiles.
+// Null overlays neutralize stale capabilities while retaining unrelated params.
+function reconcileAdminReasoningProfiles(
+  existing: RoleConfigs,
+  projection: RoleProjection,
+  baseAppConfig: BaseAppConfig,
+): void {
+  const managedName = projection.roles.__base__?.endpoints?.custom?.[0]?.name;
+  const adminPatch = projection.roles.ADMIN?.endpoints?.custom?.[0];
+  if (!managedName || !adminPatch) return;
+  const active = reasoningProfileMap(adminPatch);
+  const cleared: Record<string, unknown> = Object.create(null);
+  const sources = [
+    ...(baseAppConfig.endpoints?.custom || []),
+    ...(existing.__base__?.overrides?.endpoints?.custom || []),
+    ...(existing.ADMIN?.overrides?.endpoints?.custom || []),
+  ];
+  for (const endpoint of sources) {
+    if (endpoint?.name !== managedName) continue;
+    for (const model of Object.keys(reasoningProfileMap(endpoint))) {
+      if (!Object.prototype.hasOwnProperty.call(active, model)) {
+        cleared[model] = null;
+      }
+    }
+  }
+  adminPatch.customParams = {
+    ...adminPatch.customParams,
+    reasoningProfiles: { ...cleared, ...active },
+  };
+}
+
 function hasForbiddenModelParameter(endpoint: Endpoint): boolean {
   const extra = endpoint.addParams;
   if (extra != null && (typeof extra !== 'object' || Array.isArray(extra))) return true;
@@ -414,6 +453,7 @@ export async function applyProjectionInSession(
 
   // Validate the *effective* USER endpoint before the transaction can
   // advance the canonical revision, not only the new base projection.
+  reconcileAdminReasoningProfiles(existing, projection, baseAppConfig);
   validateFundedEndpoint(existing, projection, baseAppConfig);
 
   for (const id of ids) {

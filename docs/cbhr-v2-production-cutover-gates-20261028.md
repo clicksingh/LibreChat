@@ -42,6 +42,14 @@ This is a release gate record, not a deployment authorization.
 ## Authenticated G2 browser acceptance (NOT DONE)
 Use a signed-in, authorized staff persona in the target deployment, plus an ADMIN persona separately. Prove: effective funded USER model and effort, stale/browser BYOK normalization, saved-agent VIEW ACL, project-owned file upload/download/preview and image rendering, conversation/project ownership boundaries, ADMIN active catalogue selection, and logout/login persistence. Record screenshots or traces and compare network responses with backend receipts. CI mock E2E does not replace this.
 
+## G4 rollback baseline correction (NOT YET READY)
+
+- The historical rollback preflight presently fails: its October 23 LibreChat image `cbhr-ai:pr35-beta-47014eda` is not present. Do not use that snapshot as the next release rollback authority.
+- A protected October 28 current-image/config baseline exists at `/opt/cbhr-ai/backups/v2-current-rollback-baseline-20261028T205916Z`. Five running image digest checks and ten configuration/secret file checksums passed. This is **inventory evidence**, not a tested coordinated rollback.
+- Live deployment metadata includes additional per-service overrides; a Compose dry-run using only the saved base/ordinary override resolves a different LibreChat image from the one actually running. Preserve and independently validate the exact effective Compose file chain for LibreChat, Bridge, and CodeAPI before any G4 dispatch.
+- Never run generic `docker compose up` with incomplete overrides or silently retag an unrelated image. At the authorized cutover, refresh backups and image pins after any intervening changes; test the exact rollback and re-promotion sequence using all active service generations. Keep retention preview.
+- A new P2 finding identified inherited ADMIN reasoning profiles after capability removal. The source correction neutralizes retired profiles before Config publication. Protected CI and independent exact-head review are required again; G3 is not yet approved.
+
 ## G4 live release and rollback drill (NOT DONE)
 Only after exact-head protected CI, independent security approval, authenticated G2, and MongoDB gate: pin immutable new image and rollback image, perform a bounded production rollout, capture running image/health/chat receipts, execute one coordinated rollback across LibreChat/Admin/Broker/Bridge/CodeAPI as actually required, verify app health and user workflows, and re-promote only after the rollback passes. CodeAPI destructive retention remains preview until separately accepted.
 

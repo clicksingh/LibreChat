@@ -299,3 +299,7 @@ so no live canonical metadata was changed.
 ## Inherited endpoint-parameter safety (2026-10-28)
 
 Runtime Config resolution recursively merges managed endpoint addParams from validated server YAML and later role overrides. Publication cannot trust only a shallow projected endpoint for forbidden model parameters: an empty addParams override does not erase an inherited addParams.model. The transactional publisher therefore fails closed if validated YAML or any stored managed role entry contains a model-changing addParams/dropParams value, before version CAS. This guards USER and ADMIN upstream model identity without altering existing running production configurations.
+
+## Retired ADMIN reasoning capability reconciliation (2026-10-28)
+
+Runtime Config resolution recursively merges nested endpoint reasoningProfiles from validated YAML, base role Config and ADMIN Config. Publishing an empty ADMIN reasoningProfiles object alone does not remove inherited capabilities. The transactional publisher now emits explicit null overlays for inherited reasoning profile keys that are absent from the canonical active policy, while retaining active declared profiles and unrelated custom parameters. ADMIN's shared model control renderer treats null entries as no usable capability, preventing stale effort selectors. A regression covers YAML and ADMIN inheritance and a later policy revision that removes an active capability. Production deployment remains gated by exact-head CI and independent review.

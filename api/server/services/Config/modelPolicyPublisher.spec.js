@@ -731,6 +731,7 @@ describe('transactional model policy publisher', () => {
     expect(adminManaged.customParams).toEqual({
       unrelatedFlag: true,
       reasoningProfiles: {
+        legacy: null,
         'model-b': {
           transport: 'chat.completions.reasoning_effort',
           options: ['low', 'high', 'max'],
@@ -740,6 +741,56 @@ describe('transactional model policy publisher', () => {
     });
     expect(adminManaged.models.default).toEqual(['model-b', 'model-a']);
     expect(deps.docs.ADMIN.overrides.interface.modelSelect).toBe(true);
+  });
+
+  test('neutralizes inherited YAML and ADMIN reasoning profiles when policy omits them', async () => {
+    const profile = {
+      transport: 'chat.completions.reasoning_effort',
+      options: ['low', 'high'],
+      default: 'high',
+    };
+    const deps = fakeDeps({
+      ADMIN: {
+        priority: 20,
+        overrides: {
+          endpoints: {
+            custom: [
+              {
+                name: 'CBHR AI',
+                customParams: {
+                  unrelatedFlag: true,
+                  reasoningProfiles: { 'model-a': profile, 'retired-admin': profile },
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    deps.baseAppConfig.endpoints.custom[0].customParams = {
+      reasoningProfiles: { 'model-a': profile, 'retired-yaml': profile },
+    };
+    await commitManagedModelPolicy(makeInput(), deps);
+    const profileMap = deps.docs.ADMIN.overrides.endpoints.custom[0].customParams.reasoningProfiles;
+    expect(profileMap['model-a']).toBeNull();
+    expect(profileMap['retired-admin']).toBeNull();
+    expect(profileMap['retired-yaml']).toBeNull();
+    expect(profileMap['model-b']).toMatchObject({ default: 'high' });
+    expect(deps.docs.ADMIN.overrides.endpoints.custom[0].customParams.unrelatedFlag).toBe(true);
+    await commitManagedModelPolicy(
+      makeInput({
+        expectedVersion: 1,
+        deployments: [
+          { deploymentId: 'deployment-b', model: 'model-b' },
+          { deploymentId: 'deployment-a', model: 'model-a' },
+        ],
+      }),
+      deps,
+    );
+    const cleared = deps.docs.ADMIN.overrides.endpoints.custom[0].customParams.reasoningProfiles;
+    expect(cleared['model-b']).toBeNull();
+    expect(cleared['model-a']).toBeNull();
+    expect(deps.headVersion).toBe(2);
   });
 
   test('same canonical policy at the current expected version is a complete no-op', async () => {
