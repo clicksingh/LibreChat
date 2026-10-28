@@ -116,8 +116,24 @@ function rejectDuplicateEndpointNames(entries: Endpoint[] | undefined, label: st
   }
 }
 
+function rejectNullEndpointContainers(config: RoleConfig | null, label: string): void {
+  const overrides = config?.overrides;
+  if (!overrides || !Object.prototype.hasOwnProperty.call(overrides, 'endpoints')) return;
+  const endpoints = overrides.endpoints;
+  if (endpoints == null || typeof endpoints !== 'object' || Array.isArray(endpoints)) {
+    invalidFundedEndpoint('Invalid endpoint container in ' + label);
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(endpoints, 'custom') &&
+    !Array.isArray(endpoints.custom)
+  ) {
+    invalidFundedEndpoint('Invalid custom endpoint container in ' + label);
+  }
+}
+
 function validateNonRoleConfigs(configs: RoleConfig[], endpointName: string): void {
   for (const config of configs) {
+    rejectNullEndpointContainers(config, 'user/group Config');
     const tombstones = config.tombstones;
     if (
       tombstones != null &&
@@ -210,6 +226,10 @@ function validateFundedEndpoint(
     ) {
       invalidFundedEndpoint('Owned Config tombstone suppresses the managed endpoint');
     }
+  }
+
+  for (const id of ['__base__', 'USER', 'ADMIN']) {
+    rejectNullEndpointContainers(existing[id], id);
   }
 
   const baseEntries = existing.__base__?.overrides?.endpoints?.custom;

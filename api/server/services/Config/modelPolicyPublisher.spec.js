@@ -299,6 +299,45 @@ describe('transactional model policy publisher', () => {
     expect(deps.invalidations()).toBe(0);
   });
 
+  test.each([
+    [{ endpoints: null }, 'null endpoints'],
+    [{ endpoints: { custom: null } }, 'null custom'],
+    [{ endpoints: { custom: 'invalid' } }, 'invalid custom'],
+  ])('rejects USER %s container before policy CAS: %s', async (overrides) => {
+    const deps = fakeDeps({ USER: { priority: 20, overrides } });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test.each([
+    ['__base__', { endpoints: null }],
+    ['ADMIN', { endpoints: { custom: null } }],
+  ])('rejects %s role with null endpoint container', async (id, overrides) => {
+    const deps = fakeDeps({ [id]: { priority: id === '__base__' ? 10 : 20, overrides } });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test.each([{ endpoints: null }, { endpoints: { custom: null } }])(
+    'rejects non-role explicit null endpoint container %j',
+    async (overrides) => {
+      const deps = fakeDeps({ __nonRoleConfigs: [{ overrides }] });
+      await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+        code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+        status: 422,
+      });
+      expect(deps.headVersion).toBe(0);
+      expect(deps.invalidations()).toBe(0);
+    },
+  );
+
   test('rejects explicit null models overriding the managed USER default', async () => {
     const deps = fakeDeps({
       USER: {
