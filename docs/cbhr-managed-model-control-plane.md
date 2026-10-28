@@ -189,3 +189,24 @@ The TypeScript backend relocation finding remains separately reviewable:
 new implementation should live in the packages/api workspace, leaving thin
 legacy API wiring. Do not treat source-level test success as full release
 approval until that architectural review is resolved.
+
+
+## TypeScript backend migration (2026-10-28)
+
+Policy candidate validation, projection construction, credential-bound endpoint
+checks, and transactional publication orchestration have moved into
+\`packages/api/src/modelPolicy/{projection,publisher}.ts\`. The shared
+\`@librechat/api\` package exports the typed backend functions. The legacy
+\`api/server/services/Config/modelPolicyProjection.js\` and
+\`modelPolicyPublisher.js\` are import-only compatibility shims without policy
+business logic. The internal server is limited to authentication, trusted
+base-config dependency wiring, and HTTP routing.
+
+The moved modules pass local TypeScript and targeted ESLint checks. Local
+tsdown packaging could not be completed: first the isolated older dependency
+tree was missing \`unrun\`, then the alternative host installation produced
+a native bundler bus error. A protected GitHub CI build and runtime tests
+against the compiled \`@librechat/api\` package are therefore mandatory;
+do not treat the local module-level TypeScript check as bundled release
+qualification. Production activation remains disabled until all prior gates
+are satisfied.
