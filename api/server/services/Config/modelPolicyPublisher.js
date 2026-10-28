@@ -1,3 +1,4 @@
+const { extractEnvVariable } = require('librechat-data-provider');
 const { buildModelPolicyCommitPlan } = require('./modelPolicyProjection');
 
 const ROLE = 'role';
@@ -122,26 +123,60 @@ function validateFundedEndpoint(existing, projection, baseAppConfig) {
   }
 
   const configuredEndpoint = trusted[0];
+  const resolvedKey = extractEnvVariable(configuredEndpoint.apiKey || '');
+  const resolvedURL = extractEnvVariable(configuredEndpoint.baseURL || '');
   if (
-    typeof configuredEndpoint.apiKey !== 'string' ||
-    !configuredEndpoint.apiKey.trim() ||
-    configuredEndpoint.apiKey === 'user_provided' ||
-    typeof configuredEndpoint.baseURL !== 'string' ||
-    !configuredEndpoint.baseURL.trim() ||
-    configuredEndpoint.baseURL === 'user_provided' ||
+    typeof resolvedKey !== 'string' ||
+    !resolvedKey.trim() ||
+    resolvedKey === 'user_provided' ||
+    resolvedKey.includes(String.fromCharCode(36, 123)) ||
+    typeof resolvedURL !== 'string' ||
+    !resolvedURL.trim() ||
+    resolvedURL === 'user_provided' ||
+    resolvedURL.includes(String.fromCharCode(36, 123)) ||
     selected.apiKey !== configuredEndpoint.apiKey ||
     selected.baseURL !== configuredEndpoint.baseURL
   ) {
     invalidFundedEndpoint('Managed endpoint requires unchanged server-owned credentials');
   }
   try {
-    const url = new URL(configuredEndpoint.baseURL);
+    const url = new URL(resolvedURL);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
       invalidFundedEndpoint('Managed endpoint URL is invalid');
     }
   } catch (error) {
     if (error?.code === 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID') throw error;
     invalidFundedEndpoint('Managed endpoint URL is invalid');
+  }
+
+  // Verify the actual ADMIN catalogue after applying its higher-priority
+  // overrides and the proposed publication patch. It must keep the trusted
+  // company credential destination and the published active model list.
+  const adminPatch = projection.roles.ADMIN?.endpoints?.custom?.[0];
+  const adminEntries = existing.ADMIN?.overrides?.endpoints?.custom;
+  if (!adminPatch || (adminEntries != null && !Array.isArray(adminEntries))) {
+    invalidFundedEndpoint('Managed ADMIN endpoint projection is invalid');
+  }
+  if (
+    Array.isArray(adminEntries) &&
+    adminEntries.some((ep) => !ep || typeof ep !== 'object' || typeof ep.name !== 'string')
+  ) {
+    invalidFundedEndpoint('Managed ADMIN endpoint overrides are malformed');
+  }
+  const adminEffective = (adminEntries || []).reduce(
+    (entries, override) => mergeEndpointList(entries, override),
+    projectedBase,
+  );
+  const adminProjected = mergeEndpointList(adminEffective, adminPatch);
+  const adminSelected = adminProjected.filter((ep) => ep?.name === managedPatch.name);
+  if (
+    adminSelected.length !== 1 ||
+    adminSelected[0].apiKey !== configuredEndpoint.apiKey ||
+    adminSelected[0].baseURL !== configuredEndpoint.baseURL ||
+    !Array.isArray(adminSelected[0].models?.default) ||
+    JSON.stringify(adminSelected[0].models.default) !== JSON.stringify(adminPatch.models.default)
+  ) {
+    invalidFundedEndpoint('ADMIN catalogue would override trusted managed endpoint');
   }
 }
 

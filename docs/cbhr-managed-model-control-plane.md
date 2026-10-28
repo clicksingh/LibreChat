@@ -161,3 +161,31 @@ Verify two isolated synthetic tenants can each CAS from version 0 to version
 1 without reading one another's head or revisions. This migration has **not**
 been run on production. Transaction-capable MongoDB and an authenticated
 service-to-service/browser end-to-end acceptance are still required.
+
+
+## October 28 exact-head CI and ADMIN admission corrections
+
+Canonical model-policy head and revision schemas both use the standard tenant
+isolation plugin, in addition to explicit tenant-scoped method queries and
+compound unique indexes. The tenant isolation coverage test is a required
+guard and must not be bypassed by adding these models to the manual-scoping
+allowlist.
+
+The transaction validator checks effective ADMIN endpoint credentials and
+URL against the validated YAML authority, as well as the proposed ADMIN
+managed model catalogue. Empty or redirected ADMIN endpoint overrides fail
+closed before the canonical version can advance. Environment-backed YAML
+credential fields are resolved for validation while retaining their stored
+references; missing placeholders are rejected.
+
+For a verified effective managed ADMIN custom endpoint with a centrally
+credentialed model in the published active list, the endpoint option builder
+accepts that model without a conflicting legacy concrete-model preset.
+Unlisted models and non-managed endpoints remain subject to legacy spec
+enforcement; the USER request-local marker is not accepted from browser
+payload fields.
+
+The TypeScript backend relocation finding remains separately reviewable:
+new implementation should live in the packages/api workspace, leaving thin
+legacy API wiring. Do not treat source-level test success as full release
+approval until that architectural review is resolved.

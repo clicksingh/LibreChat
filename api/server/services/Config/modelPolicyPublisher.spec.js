@@ -258,6 +258,58 @@ describe('transactional model policy publisher', () => {
     expect(deps.headVersion).toBe(0);
   });
 
+  test('rejects ADMIN overrides that empty the server-funded API key', async () => {
+    const deps = fakeDeps({
+      ADMIN: {
+        priority: 20,
+        overrides: { endpoints: { custom: [{ name: 'CBHR AI', apiKey: '' }] } },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('rejects ADMIN overrides that redirect the company endpoint', async () => {
+    const deps = fakeDeps({
+      ADMIN: {
+        priority: 20,
+        overrides: {
+          endpoints: { custom: [{ name: 'CBHR AI', baseURL: 'http://external.invalid/v1' }] },
+        },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('validates environment-backed baseURL against its resolved server value', async () => {
+    const base = clone(validBaseConfig);
+    delete base.overrides.endpoints.custom[0].apiKey;
+    delete base.overrides.endpoints.custom[0].baseURL;
+    const deps = fakeDeps({ __base__: base });
+    deps.baseAppConfig.endpoints.custom[0].baseURL = '$' + '{CBHR_POLICY_QA_BASE_URL}';
+    deps.baseAppConfig.endpoints.custom[0].apiKey = '$' + '{CBHR_POLICY_QA_TOKEN}';
+    const previousUrl = process.env.CBHR_POLICY_QA_BASE_URL;
+    const previousKey = process.env.CBHR_POLICY_QA_TOKEN;
+    process.env.CBHR_POLICY_QA_BASE_URL = 'http://litellm:4000/v1';
+    process.env.CBHR_POLICY_QA_TOKEN = 'synthetic-service-token';
+    try {
+      const result = await commitManagedModelPolicy(makeInput(), deps);
+      expect(result.policyVersion).toBe(1);
+    } finally {
+      if (previousUrl === undefined) delete process.env.CBHR_POLICY_QA_BASE_URL;
+      else process.env.CBHR_POLICY_QA_BASE_URL = previousUrl;
+      if (previousKey === undefined) delete process.env.CBHR_POLICY_QA_TOKEN;
+      else process.env.CBHR_POLICY_QA_TOKEN = previousKey;
+    }
+  });
+
   test('rejects ADMIN ancestor tombstone hiding the funded endpoint', async () => {
     const deps = fakeDeps({
       ADMIN: { priority: 20, tombstones: ['endpoints'], overrides: {} },

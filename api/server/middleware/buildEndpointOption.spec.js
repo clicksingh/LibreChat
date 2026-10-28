@@ -493,6 +493,74 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
     expect(req.body.endpointOption.attachments).toBe(attachments);
   });
 
+  it('admits an active company-funded ADMIN catalogue model despite legacy enforce', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      { endpoint: 'CBHR AI', endpointType: EModelEndpoint.custom, model: 'catalogue-model-b' },
+      {
+        endpoints: {
+          custom: [
+            {
+              name: 'CBHR AI',
+              default: true,
+              apiKey: 'company-key',
+              baseURL: 'http://bridge.internal/v1',
+              models: { default: ['catalogue-model-a', 'catalogue-model-b'] },
+            },
+          ],
+        },
+        modelSpecs: {
+          enforce: true,
+          list: [{ name: 'legacy', preset: { endpoint: 'CBHR AI', model: 'catalogue-model-a' } }],
+        },
+      },
+    );
+    req.baseUrl = '/api/agents/chat';
+    req.user = { id: 'admin-1', role: 'ADMIN' };
+    const next = jest.fn();
+    const res = createRes();
+    const { handleError } = require('@librechat/api');
+    await buildEndpointOption(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(handleError).not.toHaveBeenCalled();
+    expect(req.body.endpointOption?.model).toBe('catalogue-model-b');
+  });
+
+  it('retains legacy modelSpec enforcement for unlisted ADMIN models', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      { endpoint: 'CBHR AI', endpointType: EModelEndpoint.custom, model: 'forged-unknown' },
+      {
+        endpoints: {
+          custom: [
+            {
+              name: 'CBHR AI',
+              default: true,
+              apiKey: 'company-key',
+              baseURL: 'http://bridge.internal/v1',
+              models: { default: ['catalogue-model-a'] },
+            },
+          ],
+        },
+        modelSpecs: {
+          enforce: true,
+          list: [{ name: 'legacy', preset: { endpoint: 'CBHR AI', model: 'catalogue-model-a' } }],
+        },
+      },
+    );
+    req.baseUrl = '/api/agents/chat';
+    req.user = { id: 'admin-1', role: 'ADMIN' };
+    const next = jest.fn();
+    const res = createRes();
+    const { handleError } = require('@librechat/api');
+    await buildEndpointOption(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(handleError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ text: 'No model spec selected' }),
+    );
+  });
+
   it('permits server-verified V2 funded default despite conflicting enforced legacy spec', async () => {
     mockGetEndpointsConfig.mockResolvedValue({});
     const req = createReq(

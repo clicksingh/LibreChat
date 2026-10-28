@@ -1,4 +1,3 @@
-import { modelPolicyHeadSchema, modelPolicyRevisionSchema } from '../schema/modelPolicy';
 import {
   MODEL_POLICY_AUDIENCES,
   ModelPolicyInvalidError,
@@ -6,6 +5,7 @@ import {
   sameModelPolicyCandidate,
   createModelPolicyMethods,
 } from './modelPolicy';
+import { modelPolicyHeadSchema, modelPolicyRevisionSchema } from '../schema/modelPolicy';
 
 const candidate = {
   schemaVersion: 1,
