@@ -37,28 +37,37 @@ function invalidFundedEndpoint(message) {
   throw error;
 }
 
-function validateFundedEndpoint(existing, projection) {
+function validateFundedEndpoint(existing, projection, baseAppConfig) {
   const managedPatch = projection.roles.__base__.endpoints.custom[0];
-  const baseEntries = existing.__base__?.overrides?.endpoints?.custom;
-  if (
-    !Array.isArray(baseEntries) ||
-    baseEntries.filter((ep) => ep?.name === managedPatch.name).length !== 1
-  ) {
-    invalidFundedEndpoint('Managed endpoint must already exist in base Config');
+  // Credentials are owned by the validated server/YAML base configuration.
+  // The Config projection need not (and must not) duplicate the API key.
+  const configured = baseAppConfig?.endpoints?.custom;
+  const trusted = Array.isArray(configured)
+    ? configured.filter((ep) => ep?.name === managedPatch.name)
+    : [];
+  if (trusted.length !== 1) {
+    invalidFundedEndpoint('Managed endpoint must exist in validated server configuration');
   }
 
-  // Mirror the keyed endpoint merge in the config resolver: the USER role
-  // is higher priority than __base__, so its persisted overrides also matter.
-  const currentManaged = baseEntries.find((ep) => ep?.name === managedPatch.name);
-  const projectedBase = mergeEndpointList(baseEntries, managedPatch);
+  const baseEntries = existing.__base__?.overrides?.endpoints?.custom;
   const userEntries = existing.USER?.overrides?.endpoints?.custom;
-  if (
-    userEntries != null &&
-    (!Array.isArray(userEntries) ||
-      userEntries.some((ep) => !ep || typeof ep !== 'object' || typeof ep.name !== 'string'))
-  ) {
-    invalidFundedEndpoint('Invalid USER endpoint overrides');
+  for (const entries of [baseEntries, userEntries]) {
+    if (
+      entries != null &&
+      (!Array.isArray(entries) ||
+        entries.some((ep) => !ep || typeof ep !== 'object' || typeof ep.name !== 'string'))
+    ) {
+      invalidFundedEndpoint('Invalid role endpoint overrides');
+    }
   }
+
+  // Use the same keyed merge precedence as the actual Config resolver:
+  // validated YAML -> __base__ role -> V2 base patch -> USER role.
+  const mergedBase = (baseEntries || []).reduce(
+    (entries, override) => mergeEndpointList(entries, override),
+    configured,
+  );
+  const projectedBase = mergeEndpointList(mergedBase, managedPatch);
   const effective = (userEntries || []).reduce(
     (entries, override) => mergeEndpointList(entries, override),
     projectedBase,
@@ -77,23 +86,22 @@ function validateFundedEndpoint(existing, projection) {
   ) {
     invalidFundedEndpoint('USER override conflicts with published managed model');
   }
-  // A higher-priority USER override may not silently replace centrally
-  // funded provider credentials with a different or personal destination.
-  if (selected.apiKey !== currentManaged.apiKey || selected.baseURL !== currentManaged.baseURL) {
-    invalidFundedEndpoint('USER override changes company-funded credentials');
-  }
+
+  const configuredEndpoint = trusted[0];
   if (
-    typeof selected.apiKey !== 'string' ||
-    !selected.apiKey.trim() ||
-    selected.apiKey === 'user_provided' ||
-    typeof selected.baseURL !== 'string' ||
-    !selected.baseURL.trim() ||
-    selected.baseURL === 'user_provided'
+    typeof configuredEndpoint.apiKey !== 'string' ||
+    !configuredEndpoint.apiKey.trim() ||
+    configuredEndpoint.apiKey === 'user_provided' ||
+    typeof configuredEndpoint.baseURL !== 'string' ||
+    !configuredEndpoint.baseURL.trim() ||
+    configuredEndpoint.baseURL === 'user_provided' ||
+    selected.apiKey !== configuredEndpoint.apiKey ||
+    selected.baseURL !== configuredEndpoint.baseURL
   ) {
-    invalidFundedEndpoint('Managed endpoint requires server credentials and base URL');
+    invalidFundedEndpoint('Managed endpoint requires unchanged server-owned credentials');
   }
   try {
-    const url = new URL(selected.baseURL);
+    const url = new URL(configuredEndpoint.baseURL);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
       invalidFundedEndpoint('Managed endpoint URL is invalid');
     }
@@ -104,7 +112,7 @@ function validateFundedEndpoint(existing, projection) {
 }
 
 async function applyProjectionInSession(projection, deps, session) {
-  const { findConfigByPrincipal, patchConfigFields, tenantId } = deps;
+  const { findConfigByPrincipal, patchConfigFields, tenantId, baseAppConfig } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
   const existing = Object.fromEntries(
     await Promise.all(
@@ -118,7 +126,7 @@ async function applyProjectionInSession(projection, deps, session) {
 
   // Validate the *effective* USER endpoint before the transaction can
   // advance the canonical revision, not only the new base projection.
-  validateFundedEndpoint(existing, projection);
+  validateFundedEndpoint(existing, projection, baseAppConfig);
 
   for (const id of ids) {
     const current = existing[id];

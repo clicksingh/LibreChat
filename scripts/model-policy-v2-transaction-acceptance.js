@@ -73,6 +73,19 @@ async function main() {
       invalidations += 1;
     },
     startSession: () => mongoose.startSession(),
+    tenantId: 'synthetic-qa-tenant',
+    baseAppConfig: {
+      endpoints: {
+        custom: [
+          {
+            name: 'CBHR AI',
+            apiKey: 'qa-only-service-key',
+            baseURL: 'http://bridge.internal',
+            models: { default: ['legacy'] },
+          },
+        ],
+      },
+    },
   };
 
   await runAsSystem(async () => {
@@ -120,14 +133,33 @@ async function main() {
       20,
     );
 
+    // This script is restricted above to an isolated throwaway database.
+    // Seed the same explicit tenant that the service-side publisher binds.
+    const tagged = await mongoose.connection.db
+      .collection('configs')
+      .updateMany(
+        { principalType: 'role', principalId: { $in: ['__base__', 'USER', 'ADMIN'] } },
+        { $set: { tenantId: deps.tenantId } },
+      );
+    if (tagged.matchedCount !== 3) throw new Error('Synthetic tenant fixture incomplete');
+
     const first = await commitManagedModelPolicy(
       payload({ expectedVersion: 0, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
       deps,
     );
     const policy1 = await readPolicy(db);
-    const base1 = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
-    const user1 = await db.findConfigByPrincipal('role', 'USER', { includeInactive: true });
-    const admin1 = await db.findConfigByPrincipal('role', 'ADMIN', { includeInactive: true });
+    const base1 = await db.findConfigByPrincipal('role', '__base__', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
+    const user1 = await db.findConfigByPrincipal('role', 'USER', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
+    const admin1 = await db.findConfigByPrincipal('role', 'ADMIN', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
 
     if (
       first.transition !== 'create' ||
@@ -166,7 +198,10 @@ async function main() {
       payload({ expectedVersion: 1, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
       deps,
     );
-    const baseRetry = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
+    const baseRetry = await db.findConfigByPrincipal('role', '__base__', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
     const policyRetry = await readPolicy(db);
     if (
       retry.transition !== 'noop' ||
@@ -183,9 +218,18 @@ async function main() {
       deps,
     );
     const policy2 = await readPolicy(db);
-    const base2 = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
-    const user2 = await db.findConfigByPrincipal('role', 'USER', { includeInactive: true });
-    const admin2 = await db.findConfigByPrincipal('role', 'ADMIN', { includeInactive: true });
+    const base2 = await db.findConfigByPrincipal('role', '__base__', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
+    const user2 = await db.findConfigByPrincipal('role', 'USER', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
+    const admin2 = await db.findConfigByPrincipal('role', 'ADMIN', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
 
     if (
       second.transition !== 'advance' ||
@@ -229,9 +273,18 @@ async function main() {
 
     const policyAfter = await readPolicy(db);
     const revision3 = await db.getModelPolicyRevision(3);
-    const baseAfter = await db.findConfigByPrincipal('role', '__base__', { includeInactive: true });
-    const userAfter = await db.findConfigByPrincipal('role', 'USER', { includeInactive: true });
-    const adminAfter = await db.findConfigByPrincipal('role', 'ADMIN', { includeInactive: true });
+    const baseAfter = await db.findConfigByPrincipal('role', '__base__', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
+    const userAfter = await db.findConfigByPrincipal('role', 'USER', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
+    const adminAfter = await db.findConfigByPrincipal('role', 'ADMIN', {
+      includeInactive: true,
+      tenantId: deps.tenantId,
+    });
 
     if (
       policyAfter.head?.version !== beforeFailure.headVersion ||

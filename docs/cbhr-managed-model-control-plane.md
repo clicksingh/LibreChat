@@ -78,9 +78,11 @@ was a bounded canary and CodeAPI retention stays \`preview\`.
 
 The publisher must not create a managed endpoint from only a name/model or
 commit a canonical revision whose effective USER configuration remains stale.
-Inside the transaction it now requires an existing base managed endpoint
-with company-owned credentials and an HTTP(S) base URL, computes the
-effective USER endpoint over any higher-priority USER override, and rejects:
+Inside the transaction it now requires a managed endpoint in the
+already validated server/YAML configuration with company-owned credentials
+and an HTTP(S) base URL. The effective USER endpoint is evaluated through
+validated YAML, tenant-scoped \`__base__\` role Config, the proposed
+published base patch, and tenant-scoped USER Config in merge order; it rejects:
 an unconfigured endpoint; ambiguous marked defaults; an overridden managed
 model list; or an overridden company API key/URL. The whole transaction rolls
 back on rejection, including the canonical version. Cache invalidation is
@@ -89,6 +91,9 @@ regression cases cover these failure modes.
 
 This is a narrow fail-closed acceptance boundary. Publishing an unrelated
 endpoint through a raw request body cannot bootstrap credentials.
+Keys can remain in the validated server configuration and need not be
+duplicated in Config documents. The isolated replica-set transaction harness
+is updated to use a synthetic tenant and synthetic YAML credential fixture.
 Future per-user/group policy layers and complete live config-service E2E
 acceptance remain independent release obligations before enabling the
 listener. Production MongoDB remains standalone, and the listener remains

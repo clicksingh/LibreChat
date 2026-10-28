@@ -58,6 +58,19 @@ const validBaseConfig = {
   },
 };
 
+const validBaseAppConfig = {
+  endpoints: {
+    custom: [
+      {
+        name: 'CBHR AI',
+        apiKey: 'company-service-key',
+        baseURL: 'http://litellm:4000/v1',
+        models: { default: ['previous-model'] },
+      },
+    ],
+  },
+};
+
 function fakeDeps(seed = {}) {
   let docs = clone({ __base__: validBaseConfig, ...seed });
   let headVersion = 0;
@@ -101,6 +114,7 @@ function fakeDeps(seed = {}) {
     invalidations: () => invalidations,
     startSession: async () => makeSession(),
     tenantId: 'test-tenant',
+    baseAppConfig: clone(validBaseAppConfig),
     findConfigByPrincipal: async (_type, id) => docs[id] || null,
     patchConfigFields: async (_type, id, _model, fields, priority, session) => {
       if (!session) throw Error('session required');
@@ -204,6 +218,24 @@ describe('transactional model policy publisher', () => {
     expect(deps.invalidations()).toBe(0);
   });
 
+  test('inherits company API credentials from validated YAML when role Config stores none', async () => {
+    const base = clone(validBaseConfig);
+    delete base.overrides.endpoints.custom[0].apiKey;
+    const deps = fakeDeps({ __base__: base });
+    const result = await commitManagedModelPolicy(makeInput(), deps);
+    expect(result.transition).toBe('create');
+    expect(result.policyVersion).toBe(1);
+    expect(deps.docs.__base__.overrides.endpoints.custom[0].apiKey).toBeUndefined();
+    expect(deps.docs.__base__.overrides.endpoints.custom[0].models.default).toEqual(['model-b']);
+  });
+
+  test('creates a scoped role projection without copying YAML credentials into Mongo', async () => {
+    const deps = fakeDeps({ __base__: null });
+    const result = await commitManagedModelPolicy(makeInput(), deps);
+    expect(result.policyVersion).toBe(1);
+    expect(deps.docs.__base__.overrides.endpoints.custom[0].apiKey).toBeUndefined();
+  });
+
   test('rejects publication to a new endpoint with no configured company credentials', async () => {
     const deps = fakeDeps();
     const input = makeInput();
@@ -300,6 +332,7 @@ describe('transactional model policy publisher', () => {
       },
     });
 
+    deps.baseAppConfig.endpoints.custom[0].baseURL = 'http://internal-bridge:4000/v1';
     const result = await commitManagedModelPolicy(makeInput(), deps);
 
     expect(result).toMatchObject({

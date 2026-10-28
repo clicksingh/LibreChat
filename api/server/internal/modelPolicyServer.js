@@ -2,16 +2,20 @@ const express = require('express');
 const mongoose = require('mongoose');
 const { logger, runAsSystem } = require('@librechat/data-schemas');
 const db = require('../../models');
-const { invalidateConfigCaches } = require('../services/Config');
+const { getAppConfig, invalidateConfigCaches } = require('../services/Config');
 const {
   createModelPolicyServiceAuth,
   fileTokenLoader,
 } = require('../middleware/modelPolicyServiceAuth');
 const { commitManagedModelPolicy } = require('../services/Config/modelPolicyPublisher');
 
-function defaultPublisher(input, tenantId) {
+async function defaultPublisher(input, tenantId) {
+  // Read the already validated YAML/server configuration as the authority for
+  // company endpoint credentials; role Config may override only model policy.
+  const baseAppConfig = await getAppConfig({ baseOnly: true });
   return runAsSystem(() =>
     commitManagedModelPolicy(input, {
+      baseAppConfig,
       findConfigByPrincipal: db.findConfigByPrincipal,
       patchConfigFields: db.patchConfigFields,
       commitModelPolicyRevision: db.commitModelPolicyRevision,
