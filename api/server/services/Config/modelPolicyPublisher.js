@@ -39,6 +39,18 @@ function invalidFundedEndpoint(message) {
 
 function validateFundedEndpoint(existing, projection, baseAppConfig) {
   const managedPatch = projection.roles.__base__.endpoints.custom[0];
+  const basePriority = existing.__base__?.priority ?? DEFAULT_PRIORITY.__base__;
+  const userPriority = existing.USER?.priority ?? DEFAULT_PRIORITY.USER;
+  // The runtime resolver sorts Config documents by ascending priority.
+  // Publication below assumes __base__ precedes USER; refuse any reversed
+  // or tied order, which could make the effective funded endpoint diverge.
+  if (
+    !Number.isSafeInteger(basePriority) ||
+    !Number.isSafeInteger(userPriority) ||
+    basePriority >= userPriority
+  ) {
+    invalidFundedEndpoint('Managed role Config priority order is incompatible');
+  }
   // Credentials are owned by the validated server/YAML base configuration.
   // The Config projection need not (and must not) duplicate the API key.
   const configured = baseAppConfig?.endpoints?.custom;

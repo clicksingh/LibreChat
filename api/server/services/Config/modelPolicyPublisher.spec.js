@@ -236,6 +236,38 @@ describe('transactional model policy publisher', () => {
     expect(deps.docs.__base__.overrides.endpoints.custom[0].apiKey).toBeUndefined();
   });
 
+  test('rejects inverted base and USER Config priorities before canonical commit', async () => {
+    const base = clone(validBaseConfig);
+    base.priority = 30;
+    const deps = fakeDeps({
+      __base__: base,
+      USER: {
+        priority: 20,
+        overrides: {
+          endpoints: {
+            custom: [{ name: 'CBHR AI', baseURL: 'http://litellm:4000/v1' }],
+          },
+        },
+      },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects equal base/USER priorities instead of relying on unstable tie order', async () => {
+    const base = clone(validBaseConfig);
+    base.priority = 20;
+    const deps = fakeDeps({ __base__: base, USER: { priority: 20, overrides: {} } });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
   test('rejects a USER tombstone deleting the published managed endpoint', async () => {
     const deps = fakeDeps({
       USER: { priority: 20, tombstones: ['endpoints.custom'], overrides: {} },

@@ -111,3 +111,13 @@ The preset name is used only when it matches the selected endpoint and
 model; ambiguous marked defaults fail closed. This preserves the existing
 legacy-only fallback only before a marked company default is available.
 Synthetic regressions verify rollback and legacy-preset bypass denial.
+
+
+## Role priority ordering
+
+The runtime Config resolver sorts role Config documents by ascending priority.
+The publisher's effective USER validation requires a strict \`__base__\` priority
+less than USER priority, rejecting inverted or equal priorities as a 422
+transaction error. Canonical version and role projections roll back on this
+failure. Changing role priorities is a separate reviewed Config operation,
+not an implicit side effect of model publication.
