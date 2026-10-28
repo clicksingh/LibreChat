@@ -20,6 +20,11 @@ function getPathAndDescendantsRegex(fieldPath: string): RegExp {
 
 export function createConfigMethods(mongoose: typeof import('mongoose')): {
   listAllConfigs: (filter?: { isActive?: boolean }, session?: ClientSession) => Promise<IConfig[]>;
+  // Explicitly tenant-bound service-side publication preflight.
+  listActiveNonRoleConfigsForTenant: (
+    tenantId: string,
+    session: ClientSession,
+  ) => Promise<IConfig[]>;
   findConfigByPrincipal: (
     principalType: PrincipalType,
     principalId: string | Types.ObjectId,
@@ -101,6 +106,27 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
     return await Config.findOne(filter)
       .session(session ?? null)
       .lean<IConfig>();
+  }
+
+  async function listActiveNonRoleConfigsForTenant(
+    tenantId: string,
+    session: ClientSession,
+  ): Promise<IConfig[]> {
+    if (
+      !session ||
+      typeof tenantId !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(tenantId)
+    ) {
+      throw new Error('Tenant and transaction session are required');
+    }
+    const Config = mongoose.models.Config as Model<IConfig>;
+    return await Config.find({
+      tenantId,
+      isActive: true,
+      principalType: { $ne: PrincipalType.ROLE },
+    })
+      .session(session)
+      .lean<IConfig[]>();
   }
 
   async function listAllConfigs(
@@ -355,6 +381,7 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
   }
 
   return {
+    listActiveNonRoleConfigsForTenant,
     listAllConfigs,
     findConfigByPrincipal,
     getApplicableConfigs,

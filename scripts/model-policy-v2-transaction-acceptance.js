@@ -67,6 +67,7 @@ async function main() {
   let invalidations = 0;
   const deps = {
     findConfigByPrincipal: db.findConfigByPrincipal,
+    listActiveNonRoleConfigsForTenant: db.listActiveNonRoleConfigsForTenant,
     patchConfigFields: db.patchConfigFields,
     commitModelPolicyRevision: db.commitModelPolicyRevision,
     invalidateConfigCaches: async () => {

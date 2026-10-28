@@ -23,6 +23,7 @@ describe('real replica-set managed-model policy transactions', () => {
     getModelPolicyHead: (tenantId: string) => Promise<{ tenantId: string; version: number } | null>;
     getModelPolicyRevision: (tenantId: string, version: number) => Promise<object | null>;
     commitModelPolicyRevision: ModelPolicyCommitDeps['commitModelPolicyRevision'];
+    listActiveNonRoleConfigsForTenant: ModelPolicyCommitDeps['listActiveNonRoleConfigsForTenant'];
   };
   let db: ModelPolicyDb;
   let invalidations = 0;
@@ -49,6 +50,7 @@ describe('real replica-set managed-model policy transactions', () => {
   function depsFor(tenantId: string): ModelPolicyCommitDeps {
     return {
       findConfigByPrincipal: db.findConfigByPrincipal,
+      listActiveNonRoleConfigsForTenant: db.listActiveNonRoleConfigsForTenant,
       patchConfigFields: db.patchConfigFields,
       commitModelPolicyRevision: db.commitModelPolicyRevision,
       startSession: () => mongoose.startSession(),

@@ -42,6 +42,10 @@ type ModelPolicyCommitResult = {
 };
 
 export interface ModelPolicyCommitDeps {
+  listActiveNonRoleConfigsForTenant: (
+    tenantId: string,
+    session: ClientSession,
+  ) => Promise<RoleConfig[]>;
   findConfigByPrincipal: (
     type: string,
     id: string,
@@ -101,6 +105,46 @@ export function mergeEndpointList(
   return list;
 }
 
+function rejectDuplicateEndpointNames(entries: Endpoint[] | undefined, label: string): void {
+  if (!entries) return;
+  const names = entries.map((ep) => ep?.name);
+  if (
+    names.some((name) => typeof name !== 'string' || !name) ||
+    new Set(names).size !== names.length
+  ) {
+    invalidFundedEndpoint('Ambiguous or duplicate endpoint names in ' + label);
+  }
+}
+
+function validateNonRoleConfigs(configs: RoleConfig[], endpointName: string): void {
+  for (const config of configs) {
+    const tombstones = config.tombstones;
+    if (
+      tombstones != null &&
+      (!Array.isArray(tombstones) ||
+        tombstones.some(
+          (path) =>
+            typeof path !== 'string' ||
+            path === 'endpoints' ||
+            path === 'endpoints.custom' ||
+            path.startsWith('endpoints.custom.'),
+        ))
+    ) {
+      invalidFundedEndpoint('User or group Config can suppress the managed endpoint');
+    }
+    const custom = config.overrides?.endpoints?.custom;
+    if (custom != null) {
+      if (!Array.isArray(custom)) {
+        invalidFundedEndpoint('Invalid user or group endpoint overrides');
+      }
+      rejectDuplicateEndpointNames(custom, 'user/group Config');
+      if (custom.some((ep) => ep.name === endpointName || ep.default === true)) {
+        invalidFundedEndpoint('User or group Config can supersede the managed default');
+      }
+    }
+  }
+}
+
 function invalidFundedEndpoint(message: string): never {
   const error = new Error(message);
   throw Object.assign(error, { code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID', status: 422 });
@@ -134,6 +178,7 @@ function validateFundedEndpoint(
   const configured: Endpoint[] = Array.isArray(baseAppConfig?.endpoints?.custom)
     ? baseAppConfig.endpoints.custom
     : [];
+  rejectDuplicateEndpointNames(configured, 'validated base configuration');
   const trusted = configured.filter((ep: Endpoint) => ep?.name === managedPatch.name);
   if (trusted.length !== 1) {
     invalidFundedEndpoint('Managed endpoint must exist in validated server configuration');
@@ -171,6 +216,17 @@ function validateFundedEndpoint(
     ) {
       invalidFundedEndpoint('Invalid role endpoint overrides');
     }
+  }
+
+  for (const [label, role] of [
+    ['__base__', baseEntries],
+    ['USER', userEntries],
+    ['ADMIN', existing.ADMIN?.overrides?.endpoints?.custom],
+  ] as const) {
+    if (role != null && !Array.isArray(role)) {
+      invalidFundedEndpoint('Invalid role endpoint array: ' + label);
+    }
+    rejectDuplicateEndpointNames(role || undefined, label);
   }
 
   // Use the same keyed merge precedence as the actual Config resolver:
@@ -270,7 +326,13 @@ export async function applyProjectionInSession(
   deps: ModelPolicyCommitDeps,
   session: ClientSession,
 ): Promise<ProjectionWrite[]> {
-  const { findConfigByPrincipal, patchConfigFields, tenantId, baseAppConfig } = deps;
+  const {
+    findConfigByPrincipal,
+    listActiveNonRoleConfigsForTenant,
+    patchConfigFields,
+    tenantId,
+    baseAppConfig,
+  } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
   // Mongoose forbids concurrent operations sharing a transaction session.
   const existing: RoleConfigs = {};
@@ -282,6 +344,11 @@ export async function applyProjectionInSession(
       session,
     );
   }
+  const nonRoleConfigs = await listActiveNonRoleConfigsForTenant(tenantId, session);
+  validateNonRoleConfigs(
+    nonRoleConfigs,
+    projection.roles.__base__?.endpoints?.custom?.[0]?.name || '',
+  );
   const writes = [];
 
   // Validate the *effective* USER endpoint before the transaction can
@@ -337,6 +404,7 @@ export async function commitManagedModelPolicy(
 ): Promise<ModelPolicyCommitResult> {
   const {
     findConfigByPrincipal,
+    listActiveNonRoleConfigsForTenant,
     patchConfigFields,
     commitModelPolicyRevision,
     invalidateConfigCaches,
@@ -346,6 +414,7 @@ export async function commitManagedModelPolicy(
 
   if (
     typeof findConfigByPrincipal !== 'function' ||
+    typeof listActiveNonRoleConfigsForTenant !== 'function' ||
     typeof patchConfigFields !== 'function' ||
     typeof commitModelPolicyRevision !== 'function' ||
     typeof invalidateConfigCaches !== 'function' ||

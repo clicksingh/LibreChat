@@ -17,6 +17,7 @@ async function defaultPublisher(input, tenantId) {
     commitManagedModelPolicy(input, {
       baseAppConfig,
       findConfigByPrincipal: db.findConfigByPrincipal,
+      listActiveNonRoleConfigsForTenant: db.listActiveNonRoleConfigsForTenant,
       patchConfigFields: db.patchConfigFields,
       commitModelPolicyRevision: db.commitModelPolicyRevision,
       invalidateConfigCaches,

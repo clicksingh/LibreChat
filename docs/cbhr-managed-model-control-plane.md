@@ -223,3 +223,22 @@ mid-transaction ADMIN patch failure without cache invalidation. Test failure
 blocks a release candidate. This is synthetic infrastructure evidence only:
 it is not a production MongoDB topology migration or authenticated G2
 browser acceptance.
+
+
+## Non-role precedence and duplicate endpoint guard (October 28)
+
+The transaction now reads active non-role (user, group and future non-role)
+Config documents through a tenant-bound query using the same MongoDB session
+as canonical policy CAS. Publication rejects any such document that deletes
+the endpoint hierarchy, overrides the published endpoint by name, or marks a
+different endpoint as the default. The server never silently rewrites
+individual-user or group Configs. A rejected publication does not advance its
+canonical revision or invalidate caches.
+
+The validator rejects duplicate endpoint names in the trusted server config
+and existing __base__, USER, ADMIN role endpoint arrays before mutation,
+including duplicate managed endpoint entries that otherwise create a
+validator/runtime precedence mismatch. A database policy gate is not a
+substitute for write-time protections on future non-role Config changes;
+those future changes must be governed by the central Config service. The
+internal publisher remains disabled in production.

@@ -116,6 +116,7 @@ function fakeDeps(seed = {}) {
     tenantId: 'test-tenant',
     baseAppConfig: clone(validBaseAppConfig),
     findConfigByPrincipal: async (_type, id) => docs[id] || null,
+    listActiveNonRoleConfigsForTenant: async () => clone(docs.__nonRoleConfigs || []),
     patchConfigFields: async (_type, id, _model, fields, priority, session) => {
       if (!session) throw Error('session required');
       const doc = docs[id] || { principalType: 'role', principalId: id, overrides: {}, priority };
@@ -265,6 +266,81 @@ describe('transactional model policy publisher', () => {
         overrides: { endpoints: { custom: [{ name: 'CBHR AI', default: false }] } },
       },
     });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects active per-user endpoint override before version advance', async () => {
+    const deps = fakeDeps({
+      __nonRoleConfigs: [
+        {
+          overrides: {
+            endpoints: {
+              custom: [
+                {
+                  name: 'CBHR AI',
+                  models: { default: ['stale-model'] },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects a group marking another endpoint as default', async () => {
+    const deps = fakeDeps({
+      __nonRoleConfigs: [
+        {
+          overrides: {
+            endpoints: {
+              custom: [
+                {
+                  name: 'External API',
+                  default: true,
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('rejects non-role endpoint tombstones on managed endpoint', async () => {
+    const deps = fakeDeps({ __nonRoleConfigs: [{ tombstones: ['endpoints.custom'] }] });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('rejects duplicate managed endpoint in stored base role', async () => {
+    const base = clone(validBaseConfig);
+    base.overrides.endpoints.custom.push({
+      name: 'CBHR AI',
+      apiKey: 'company-service-key',
+      baseURL: 'http://litellm:4000/v1',
+      models: { default: ['stale-model'] },
+    });
+    const deps = fakeDeps({ __base__: base });
     await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
       code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
       status: 422,
