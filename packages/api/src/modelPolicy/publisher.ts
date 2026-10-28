@@ -207,6 +207,11 @@ function validateFundedEndpoint(
   if (trusted.length !== 1) {
     invalidFundedEndpoint('Managed endpoint must exist in validated server configuration');
   }
+  // The runtime deep-merges addParams. A role override with addParams: {}
+  // cannot remove a model parameter inherited from YAML. Fail closed here.
+  if (hasForbiddenModelParameter(trusted[0])) {
+    invalidFundedEndpoint('Validated server endpoint can override the funded model');
+  }
 
   // The resolver applies role tombstones before merging overrides. If a
   // tombstone deletes the funded endpoint, a matching model list alone is
@@ -258,6 +263,7 @@ function validateFundedEndpoint(
     if (
       managed.some(
         (ep: Endpoint) =>
+          hasForbiddenModelParameter(ep) ||
           (Object.prototype.hasOwnProperty.call(ep, 'models') &&
             (ep.models === null || typeof ep.models !== 'object' || Array.isArray(ep.models))) ||
           (ep.models &&

@@ -295,3 +295,7 @@ records without these bindings must be inventoried and deliberately migrated
 or superseded through a reviewed version transition before activation.
 The production canonical collections were absent in the read-only inventory,
 so no live canonical metadata was changed.
+
+## Inherited endpoint-parameter safety (2026-10-28)
+
+Runtime Config resolution recursively merges managed endpoint addParams from validated server YAML and later role overrides. Publication cannot trust only a shallow projected endpoint for forbidden model parameters: an empty addParams override does not erase an inherited addParams.model. The transactional publisher therefore fails closed if validated YAML or any stored managed role entry contains a model-changing addParams/dropParams value, before version CAS. This guards USER and ADMIN upstream model identity without altering existing running production configurations.

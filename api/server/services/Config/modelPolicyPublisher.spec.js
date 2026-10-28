@@ -379,6 +379,19 @@ describe('transactional model policy publisher', () => {
     expect(deps.invalidations()).toBe(0);
   });
 
+  test('rejects YAML addParams.model hidden by an empty __base__ override', async () => {
+    const base = clone(validBaseConfig);
+    base.overrides.endpoints.custom[0].addParams = {};
+    const deps = fakeDeps({ __base__: base });
+    deps.baseAppConfig.endpoints.custom[0].addParams = { model: 'old-unfunded-model' };
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
   test('rejects ADMIN addParams.model overriding selected catalogue model', async () => {
     const deps = fakeDeps({
       ADMIN: {

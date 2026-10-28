@@ -9,10 +9,16 @@ This is a release gate record, not a deployment authorization.
 - Existing Admin/broker/aibridge rollback images all resolve; rollback-preflight.sh returned ROLLBACK_PREFLIGHT_PASS.
 - New model-policy source is tenant-bound, requires a transaction-capable MongoDB, and keeps its internal listener dark until explicitly configured.
 - Canonical revision source now records endpoint plus ordered deployment model/reasoning bindings so same-ID rebinding must advance CAS. Legacy revision records need explicit reconciliation if discovered.
-- Protected CI for prior PR #41 head 332a981414 was nine of nine applicable workflows SUCCESS. This does not certify later commits.
+- Protected CI at reviewed pre-fix head 9ce8056f8c was nine of nine applicable workflows SUCCESS. Its exact-head Codex review identified a further P1 runtime deep-merge conflict, so its CI does not qualify the subsequent source correction.
 - Read-only live MongoDB hello has setName=null: standalone, not a transaction-capable replica set.
 - Production LibreChat configs collection has exactly three role records; all three lack tenantId. Canonical modelpolicyheads and modelpolicyrevisions collections do not yet exist.
 - Latest source branch adds transactional conflict detection for non-role Config and duplicate endpoints, plus a fail-closed runtime role-only check. Earlier review must be repeated on final exact head.
+
+## Exact-head review correction in progress (not yet certified)
+- Review on 9ce8056f8c identified inherited YAML addParams.model hidden by an empty role addParams override in the publisher's shallow projection check. Actual Config resolution deep-merges those objects, permitting a wrong upstream model.
+- The release branch now rejects model-changing endpoint parameters at their trusted YAML origin and at each managed-role override before policy CAS, with a regression for the inherited-empty-override case.
+- Isolated schemas, data-provider and API builds completed; local Jest remains unqualified due to the host Node 22 ESM dependency loading mismatch. The next pushed exact head must pass protected CI and independent re-review before this finding is closed.
+- The separate authenticated G2, MongoDB migration, Admin/CodeAPI formal review and executed G4 gates remain open. No live publisher activation or retention apply is authorized here.
 
 ## Mandatory production database gate (NOT DONE)
 1. Establish and verify a restorable production backup plus recent filesystem/volume snapshots with an isolated restore proof.
