@@ -168,6 +168,14 @@ function enforceManagedChatEndpoint(req, res, next) {
   if (funded.spec) body.spec = funded.spec;
   else delete body.spec;
   body.agent_id = Constants.EPHEMERAL_AGENT_ID;
+  // A spec-free V2 company default was verified server-side. The legacy
+  // preset-enforcement middleware must not reject this managed selection.
+  // This request-local marker is never sourced from request-body fields.
+  if (!funded.spec) {
+    req.managedCompanyDefault = { endpoint: funded.endpoint, model: funded.model };
+  } else {
+    delete req.managedCompanyDefault;
+  }
   // The /chat/:endpoint route segment is client-controlled too. Keep both
   // views synchronized so future route consumers cannot revive a stale BYOK
   // selection after the body has been normalized.

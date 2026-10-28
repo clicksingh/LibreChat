@@ -121,3 +121,14 @@ less than USER priority, rejecting inverted or equal priorities as a 422
 transaction error. Canonical version and role projections roll back on this
 failure. Changing role priorities is a separate reviewed Config operation,
 not an implicit side effect of model publication.
+
+
+## Server-managed default and downstream legacy spec enforcement
+
+For spec-free centrally funded USER admission, the server normalizer stamps
+a request-local verified company endpoint/model identity after resolving the
+current funded default. Downstream endpoint-option middleware bypasses
+legacy modelSpec enforcement only when that trusted server-side identity
+matches the normalized endpoint/model. Browser request-body fields cannot
+supply this marker, ADMIN and other requests retain existing legacy spec
+enforcement, and the published funded default remains authoritative.
