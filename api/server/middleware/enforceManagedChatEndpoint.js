@@ -68,6 +68,35 @@ function resolveFundedDefault(config) {
   return { endpoint: custom.name, model: selected, spec: matchingSpec };
 }
 
+/**
+ * Once the transactional publisher is enabled, per-user/group Config merges
+ * are never allowed to redefine the funded USER endpoint. The role-only
+ * effective config is the canonical runtime admission authority; if the
+ * request's merged config differs, deny rather than silently use stale BYOK.
+ * Both Config views come from the existing tenant-scoped service.
+ */
+async function isTrustedRoleOnlyDefault(req, funded) {
+  if (!process.env.MODEL_POLICY_INTERNAL_PORT) return true;
+  if (!req.user?.tenantId) return false;
+  const { getAppConfig } = require('~/server/services/Config');
+  const roleConfig = await getAppConfig({ role: SystemRoles.USER, tenantId: req.user.tenantId });
+  const roleFunded = resolveFundedDefault(roleConfig);
+  if (!roleFunded || roleFunded.endpoint !== funded.endpoint || roleFunded.model !== funded.model)
+    return false;
+  const currentEndpoint = req.config?.endpoints?.custom?.find(
+    (entry) => entry?.name === funded.endpoint && entry.default === true,
+  );
+  const trustedEndpoint = roleConfig?.endpoints?.custom?.find(
+    (entry) => entry?.name === roleFunded.endpoint && entry.default === true,
+  );
+  return Boolean(
+    currentEndpoint &&
+      trustedEndpoint &&
+      currentEndpoint.apiKey === trustedEndpoint.apiKey &&
+      currentEndpoint.baseURL === trustedEndpoint.baseURL,
+  );
+}
+
 function isExplicitPersistedAgent(body) {
   return (
     isAgentsEndpoint(body.endpoint) &&
@@ -77,7 +106,7 @@ function isExplicitPersistedAgent(body) {
   );
 }
 
-function enforceManagedChatEndpoint(req, res, next) {
+async function enforceManagedChatEndpoint(req, res, next) {
   if (req.user?.role === SystemRoles.ADMIN) {
     return next();
   }
@@ -121,6 +150,24 @@ function enforceManagedChatEndpoint(req, res, next) {
       error: 'Managed model unavailable',
       message: 'The company-provided model is temporarily unavailable.',
     });
+  }
+
+  if (process.env.MODEL_POLICY_INTERNAL_PORT) {
+    try {
+      if (!(await isTrustedRoleOnlyDefault(req, funded))) {
+        logger.error('[managed-endpoint] User/group Config drift from role-only funded default');
+        return res.status(503).json({
+          error: 'Managed model unavailable',
+          message: 'The company-provided model is temporarily unavailable.',
+        });
+      }
+    } catch (error) {
+      logger.error('[managed-endpoint] Role-only policy verification failed', error);
+      return res.status(503).json({
+        error: 'Managed model unavailable',
+        message: 'The company-provided model is temporarily unavailable.',
+      });
+    }
   }
 
   // A persisted agent must first pass the existing resource VIEW ACL.

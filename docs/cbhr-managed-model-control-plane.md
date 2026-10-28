@@ -242,3 +242,20 @@ validator/runtime precedence mismatch. A database policy gate is not a
 substitute for write-time protections on future non-role Config changes;
 those future changes must be governed by the central Config service. The
 internal publisher remains disabled in production.
+
+
+## USER runtime authority after publication
+
+When the internal model-policy publisher is enabled, the ordinary USER chat
+normalizer additionally obtains the tenant-scoped role-only effective config
+from the same Config service and compares the published funded
+endpoint/model/API-key reference/baseURL against the full request-effective
+config. If later user or group Config edits alter the funded model or
+credential destination, chat fails closed with 503 instead of using the stale
+or redirected endpoint. ADMIN continues to use its separate managed
+catalogue. The extra check is dark until the model-policy publisher is
+enabled; production currently retains the previous pre-activation behavior.
+
+This fail-closed check does not make a legacy Config mutation acceptable:
+central Config writes must still be reviewed to prevent future
+role/tenant-policy conflicts at the source.

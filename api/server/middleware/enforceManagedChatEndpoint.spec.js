@@ -8,6 +8,9 @@ const {
   rejectNonAdminRemoteAgentApi,
 } = require('./enforceManagedChatEndpoint');
 
+jest.mock('~/server/services/Config', () => ({ getAppConfig: jest.fn() }));
+const { getAppConfig } = require('~/server/services/Config');
+
 const COMPANY_ENDPOINT = 'CBHR AI';
 const COMPANY_MODEL = 'zai/glm-5.3-flash';
 const COMPANY_SPEC = 'cbhr-managed-default';
@@ -51,6 +54,74 @@ const invoke = (req) => {
   enforceManagedChatEndpoint(req, res, next);
   return { res, next };
 };
+
+describe('V2 active USER runtime authority against later user/group override drift', () => {
+  let previousPort;
+  beforeEach(() => {
+    previousPort = process.env.MODEL_POLICY_INTERNAL_PORT;
+    process.env.MODEL_POLICY_INTERNAL_PORT = '29099';
+    jest.clearAllMocks();
+  });
+  afterEach(() => {
+    if (previousPort === undefined) delete process.env.MODEL_POLICY_INTERNAL_PORT;
+    else process.env.MODEL_POLICY_INTERNAL_PORT = previousPort;
+  });
+
+  async function invokePublished(req) {
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    const next = jest.fn();
+    await enforceManagedChatEndpoint(req, res, next);
+    return { res, next };
+  }
+
+  it('admits the company default when tenant role-only and user-effective configs agree', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const req = makeReq({ endpoint: 'forged', model: 'forged', text: 'hi' });
+    req.user.tenantId = 'tenant-qa';
+    req.config = JSON.parse(JSON.stringify(roleConfig));
+    const { res, next } = await invokePublished(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(getAppConfig).toHaveBeenCalledWith({ role: SystemRoles.USER, tenantId: 'tenant-qa' });
+    expect(req.body.model).toBe(COMPANY_MODEL);
+  });
+
+  it('rejects stale user/group models even after successful publication', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const userConfig = JSON.parse(JSON.stringify(roleConfig));
+    userConfig.endpoints.custom[0].models.default = ['stale-user-model'];
+    const req = makeReq(
+      { endpoint: 'forged', model: 'stale-user-model' },
+      SystemRoles.USER,
+      userConfig,
+    );
+    req.user.tenantId = 'tenant-qa';
+    const { res, next } = await invokePublished(req);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects user/group API key or URL replacement with unchanged model', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const userConfig = JSON.parse(JSON.stringify(roleConfig));
+    userConfig.endpoints.custom[0].baseURL = 'http://alternate.invalid/v1';
+    const req = makeReq(
+      { endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL },
+      SystemRoles.USER,
+      userConfig,
+    );
+    req.user.tenantId = 'tenant-qa';
+    const { res, next } = await invokePublished(req);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+});
 
 describe('server-enforced company-funded endpoint for ordinary USER chats', () => {
   it.each([
