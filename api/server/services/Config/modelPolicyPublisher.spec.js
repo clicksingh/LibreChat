@@ -135,6 +135,8 @@ function fakeDeps(seed = {}) {
     },
     commitModelPolicyRevision: async (candidate, options, session) => {
       if (!session) throw Error('session required');
+      if (options.tenantId !== 'test-tenant')
+        throw Error('tenant must match bound service identity');
       if (options.expectedVersion !== headVersion) {
         const error = Error('Managed-model policy changed; reload and retry');
         error.code = 'MODEL_POLICY_REVISION_CONFLICT';
@@ -234,6 +236,38 @@ describe('transactional model policy publisher', () => {
     const result = await commitManagedModelPolicy(makeInput(), deps);
     expect(result.policyVersion).toBe(1);
     expect(deps.docs.__base__.overrides.endpoints.custom[0].apiKey).toBeUndefined();
+  });
+
+  test('rejects ADMIN below base so the published catalogue cannot be overwritten', async () => {
+    const deps = fakeDeps({
+      ADMIN: { priority: 5, overrides: {} },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
+  test('rejects ADMIN priority equal to base before publication', async () => {
+    const deps = fakeDeps({ ADMIN: { priority: 10, overrides: {} } });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('rejects ADMIN ancestor tombstone hiding the funded endpoint', async () => {
+    const deps = fakeDeps({
+      ADMIN: { priority: 20, tombstones: ['endpoints'], overrides: {} },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_FUNDED_ENDPOINT_INVALID',
+      status: 422,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
   });
 
   test('rejects inverted base and USER Config priorities before canonical commit', async () => {

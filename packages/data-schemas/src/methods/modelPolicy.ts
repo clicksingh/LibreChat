@@ -16,6 +16,14 @@ export const MODEL_POLICY_AUDIENCES: Readonly<IModelPolicyAudiences> = Object.fr
   ADMIN: 'managed-catalog' as const,
 });
 
+const MODEL_POLICY_TENANT_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+function validateTenantId(tenantId: string): void {
+  if (typeof tenantId !== 'string' || !MODEL_POLICY_TENANT_ID.test(tenantId)) {
+    invalid('A valid model-policy tenant id is required');
+  }
+}
+
 const MAX_DEPLOYMENTS = 128;
 const SAFE_DEPLOYMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
@@ -108,8 +116,13 @@ export function sameModelPolicyCandidate(
 }
 
 export interface ModelPolicyMethods {
-  getModelPolicyHead(key?: string, session?: ClientSession): Promise<IModelPolicyHead | null>;
+  getModelPolicyHead(
+    tenantId: string,
+    key?: string,
+    session?: ClientSession,
+  ): Promise<IModelPolicyHead | null>;
   getModelPolicyRevision(
+    tenantId: string,
     version: number,
     session?: ClientSession,
   ): Promise<IModelPolicyRevision | null>;
@@ -117,6 +130,7 @@ export interface ModelPolicyMethods {
     candidate: IModelPolicyCandidate,
     options: {
       expectedVersion: number;
+      tenantId: string;
       actor?: string;
       source?: string;
       key?: string;
@@ -130,19 +144,23 @@ export function createModelPolicyMethods(mongoose: typeof import('mongoose')): M
   const Revision: Model<IModelPolicyRevisionDocument> = createModelPolicyRevisionModel(mongoose);
 
   async function getModelPolicyHead(
+    tenantId: string,
     key = MODEL_POLICY_KEY,
     session?: ClientSession,
   ): Promise<IModelPolicyHead | null> {
-    return Head.findOne({ key })
+    validateTenantId(tenantId);
+    return Head.findOne({ tenantId, key })
       .session(session ?? null)
       .lean<IModelPolicyHead>();
   }
 
   async function getModelPolicyRevision(
+    tenantId: string,
     version: number,
     session?: ClientSession,
   ): Promise<IModelPolicyRevision | null> {
-    return Revision.findOne({ version })
+    validateTenantId(tenantId);
+    return Revision.findOne({ tenantId, version })
       .session(session ?? null)
       .lean<IModelPolicyRevision>();
   }
@@ -151,6 +169,7 @@ export function createModelPolicyMethods(mongoose: typeof import('mongoose')): M
     candidate: IModelPolicyCandidate,
     options: {
       expectedVersion: number;
+      tenantId: string;
       actor?: string;
       source?: string;
       key?: string;
@@ -158,19 +177,21 @@ export function createModelPolicyMethods(mongoose: typeof import('mongoose')): M
     session?: ClientSession,
   ): Promise<{ version: number; revision: IModelPolicyRevision; noop: boolean }> {
     const normalized = normalizeModelPolicyCandidate(candidate);
+    const tenantId = options?.tenantId;
+    validateTenantId(tenantId);
     const expectedVersion = options?.expectedVersion;
     if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
       invalid('expectedVersion must be a non-negative integer');
     }
 
     const key = options?.key || MODEL_POLICY_KEY;
-    const currentHead = await getModelPolicyHead(key, session);
+    const currentHead = await getModelPolicyHead(tenantId, key, session);
     if (expectedVersion === 0 ? currentHead != null : currentHead?.version !== expectedVersion) {
       conflict();
     }
 
     if (currentHead) {
-      const currentRevision = await getModelPolicyRevision(currentHead.version, session);
+      const currentRevision = await getModelPolicyRevision(tenantId, currentHead.version, session);
       if (!currentRevision) invalid('Active model-policy revision is missing');
       if (sameModelPolicyCandidate(currentRevision, normalized)) {
         return { version: currentHead.version, revision: currentRevision, noop: true };
@@ -184,6 +205,7 @@ export function createModelPolicyMethods(mongoose: typeof import('mongoose')): M
         [
           {
             ...normalized,
+            tenantId,
             version: nextVersion,
             parentVersion: expectedVersion,
             publishedBy: String(options?.actor || 'system'),
@@ -202,7 +224,7 @@ export function createModelPolicyMethods(mongoose: typeof import('mongoose')): M
     if (expectedVersion === 0) {
       try {
         await Head.create(
-          [{ key, version: nextVersion, schemaVersion: MODEL_POLICY_SCHEMA_VERSION }],
+          [{ tenantId, key, version: nextVersion, schemaVersion: MODEL_POLICY_SCHEMA_VERSION }],
           session ? { session } : undefined,
         );
       } catch (error: unknown) {
@@ -211,7 +233,7 @@ export function createModelPolicyMethods(mongoose: typeof import('mongoose')): M
       }
     } else {
       const result = await Head.updateOne(
-        { key, version: expectedVersion },
+        { tenantId, key, version: expectedVersion },
         { $set: { version: nextVersion, schemaVersion: MODEL_POLICY_SCHEMA_VERSION } },
         session ? { session } : undefined,
       );

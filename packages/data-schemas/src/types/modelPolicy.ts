@@ -16,6 +16,7 @@ export interface IModelPolicyCandidate {
 }
 
 export interface IModelPolicyHead {
+  tenantId: string;
   _id?: Types.ObjectId;
   key: string;
   version: number;
@@ -25,6 +26,7 @@ export interface IModelPolicyHead {
 }
 
 export interface IModelPolicyRevision extends IModelPolicyCandidate {
+  tenantId: string;
   _id?: Types.ObjectId;
   version: number;
   parentVersion: number;

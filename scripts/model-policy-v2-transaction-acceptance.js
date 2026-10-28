@@ -39,9 +39,9 @@ function managedEndpoint(doc) {
   return doc?.overrides?.endpoints?.custom?.find((item) => item?.name === 'CBHR AI');
 }
 
-async function readPolicy(db) {
-  const head = await db.getModelPolicyHead();
-  const revision = head ? await db.getModelPolicyRevision(head.version) : null;
+async function readPolicy(db, tenantId) {
+  const head = await db.getModelPolicyHead(tenantId);
+  const revision = head ? await db.getModelPolicyRevision(tenantId, head.version) : null;
   return { head, revision };
 }
 
@@ -124,7 +124,7 @@ async function main() {
           custom: [
             {
               name: 'CBHR AI',
-              customParams: { reasoningProfiles: { keep: {} } },
+              customParams: { unrelatedFlag: true, reasoningProfiles: { keep: {} } },
               models: { default: ['legacy'] },
             },
           ],
@@ -147,7 +147,7 @@ async function main() {
       payload({ expectedVersion: 0, defaultKey: 'alpha', order: ['alpha', 'beta'] }),
       deps,
     );
-    const policy1 = await readPolicy(db);
+    const policy1 = await readPolicy(db, deps.tenantId);
     const base1 = await db.findConfigByPrincipal('role', '__base__', {
       includeInactive: true,
       tenantId: deps.tenantId,
@@ -179,7 +179,7 @@ async function main() {
     ) {
       throw new Error('USER projection/preservation mismatch');
     }
-    if (managedEndpoint(admin1).customParams.reasoningProfiles.keep == null) {
+    if (managedEndpoint(admin1)?.customParams?.unrelatedFlag !== true) {
       throw new Error('ADMIN unrelated params lost');
     }
     if (
@@ -202,7 +202,7 @@ async function main() {
       includeInactive: true,
       tenantId: deps.tenantId,
     });
-    const policyRetry = await readPolicy(db);
+    const policyRetry = await readPolicy(db, deps.tenantId);
     if (
       retry.transition !== 'noop' ||
       retry.policyNoop !== true ||
@@ -217,7 +217,7 @@ async function main() {
       payload({ expectedVersion: 1, defaultKey: 'beta', order: ['beta', 'alpha'] }),
       deps,
     );
-    const policy2 = await readPolicy(db);
+    const policy2 = await readPolicy(db, deps.tenantId);
     const base2 = await db.findConfigByPrincipal('role', '__base__', {
       includeInactive: true,
       tenantId: deps.tenantId,
@@ -254,9 +254,9 @@ async function main() {
 
     const failingDeps = {
       ...deps,
-      patchConfigFields: async (type, id, model, fields, priority, session) => {
+      patchConfigFields: async (type, id, model, fields, priority, session, tenantId) => {
         if (id === 'ADMIN') throw new Error('synthetic mid-transaction ADMIN write failure');
-        return db.patchConfigFields(type, id, model, fields, priority, session);
+        return db.patchConfigFields(type, id, model, fields, priority, session, tenantId);
       },
     };
 
@@ -271,8 +271,8 @@ async function main() {
     }
     if (!rolledBack) throw new Error('failure injection did not trigger');
 
-    const policyAfter = await readPolicy(db);
-    const revision3 = await db.getModelPolicyRevision(3);
+    const policyAfter = await readPolicy(db, deps.tenantId);
+    const revision3 = await db.getModelPolicyRevision(deps.tenantId, 3);
     const baseAfter = await db.findConfigByPrincipal('role', '__base__', {
       includeInactive: true,
       tenantId: deps.tenantId,

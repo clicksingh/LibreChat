@@ -4,7 +4,8 @@ import type { IModelPolicyHeadDocument, IModelPolicyRevisionDocument } from '~/t
 export const modelPolicyHeadSchema: Schema<IModelPolicyHeadDocument> =
   new Schema<IModelPolicyHeadDocument>(
     {
-      key: { type: String, required: true, unique: true, index: true },
+      tenantId: { type: String, required: true, trim: true },
+      key: { type: String, required: true },
       version: { type: Number, required: true, min: 1 },
       schemaVersion: { type: Number, required: true, min: 1, default: 1 },
     },
@@ -14,7 +15,8 @@ export const modelPolicyHeadSchema: Schema<IModelPolicyHeadDocument> =
 export const modelPolicyRevisionSchema: Schema<IModelPolicyRevisionDocument> =
   new Schema<IModelPolicyRevisionDocument>(
     {
-      version: { type: Number, required: true, unique: true, index: true, min: 1 },
+      tenantId: { type: String, required: true, trim: true },
+      version: { type: Number, required: true, min: 1 },
       parentVersion: { type: Number, required: true, min: 0 },
       schemaVersion: { type: Number, required: true, min: 1, default: 1 },
       companyDefaultDeploymentId: { type: String, required: true, trim: true },
@@ -37,3 +39,8 @@ export const modelPolicyRevisionSchema: Schema<IModelPolicyRevisionDocument> =
     },
     { timestamps: false },
   );
+
+// A single database may host more than one tenant. Neither policy revisions
+// nor the mutable head may rely on globally unique version numbers.
+modelPolicyHeadSchema.index({ tenantId: 1, key: 1 }, { unique: true });
+modelPolicyRevisionSchema.index({ tenantId: 1, version: 1 }, { unique: true });

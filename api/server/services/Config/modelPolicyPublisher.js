@@ -41,13 +41,15 @@ function validateFundedEndpoint(existing, projection, baseAppConfig) {
   const managedPatch = projection.roles.__base__.endpoints.custom[0];
   const basePriority = existing.__base__?.priority ?? DEFAULT_PRIORITY.__base__;
   const userPriority = existing.USER?.priority ?? DEFAULT_PRIORITY.USER;
-  // The runtime resolver sorts Config documents by ascending priority.
-  // Publication below assumes __base__ precedes USER; refuse any reversed
-  // or tied order, which could make the effective funded endpoint diverge.
+  const adminPriority = existing.ADMIN?.priority ?? DEFAULT_PRIORITY.ADMIN;
+  // Runtime sorts Config documents by ascending priority. Both role
+  // catalogues must override __base__, never be replaced by it.
   if (
     !Number.isSafeInteger(basePriority) ||
     !Number.isSafeInteger(userPriority) ||
-    basePriority >= userPriority
+    !Number.isSafeInteger(adminPriority) ||
+    basePriority >= userPriority ||
+    basePriority >= adminPriority
   ) {
     invalidFundedEndpoint('Managed role Config priority order is incompatible');
   }
@@ -64,7 +66,7 @@ function validateFundedEndpoint(existing, projection, baseAppConfig) {
   // The resolver applies role tombstones before merging overrides. If a
   // tombstone deletes the funded endpoint, a matching model list alone is
   // insufficient evidence that USER chat can actually resolve that model.
-  for (const id of ['__base__', 'USER']) {
+  for (const id of ['__base__', 'USER', 'ADMIN']) {
     const tombstones = existing[id]?.tombstones;
     if (
       tombstones != null &&
@@ -146,14 +148,16 @@ function validateFundedEndpoint(existing, projection, baseAppConfig) {
 async function applyProjectionInSession(projection, deps, session) {
   const { findConfigByPrincipal, patchConfigFields, tenantId, baseAppConfig } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
-  const existing = Object.fromEntries(
-    await Promise.all(
-      ids.map(async (id) => [
-        id,
-        await findConfigByPrincipal(ROLE, id, { includeInactive: true, tenantId }, session),
-      ]),
-    ),
-  );
+  // Mongoose forbids concurrent operations sharing a transaction session.
+  const existing = {};
+  for (const id of ids) {
+    existing[id] = await findConfigByPrincipal(
+      ROLE,
+      id,
+      { includeInactive: true, tenantId },
+      session,
+    );
+  }
   const writes = [];
 
   // Validate the *effective* USER endpoint before the transaction can
@@ -241,6 +245,7 @@ async function commitManagedModelPolicy(input, deps) {
         plan.candidate,
         {
           expectedVersion: plan.expectedVersion,
+          tenantId,
           actor: plan.actor,
           source: plan.source,
         },

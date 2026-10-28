@@ -10,9 +10,15 @@ The canonical architecture and migration plan lives in the companion `clicksingh
 6. Reasoning UI renders canonical verified capability metadata for the selected deployment. No model-name switches or raw provider transport strings in the frontend.
 7. Browser E2E is a release gate: USER live default change without logout, ADMIN multi-model selection, capability-specific controls, forged request denial, and upstream request verification.
 
-## Phase 2 implementation status
+## Phase 2 implementation status (2026-10-27)
 
-The branch contains an **unmounted** service-auth primitive (`modelPolicyServiceAuth`) and typed projection builder (`modelPolicyProjection`). They establish the service identity and USER/ADMIN projection contract only; they do not expose an endpoint or mutate config yet. Targeted Jest: 7/7 PASS; local Prettier/ESLint PASS. The publisher must next reuse LibreChat's existing Admin config validation/persistence/cache invalidation path and add revision/idempotence semantics before it can be mounted in staging.
+The branch contains service-token authentication, a mounted-when-enabled internal
+publisher, a typed policy projection, transactional canonical revision / role
+Config commits, and post-commit cache invalidation. **The production publisher
+is not enabled.** Production MongoDB remains standalone; migration to a
+transaction-capable replica set and live service-to-service/browser acceptance
+remain release gates. Earlier descriptions of these components as unmounted
+or yet to be wired were historical implementation notes, not present status.
 
 ## Transactional publication boundary
 
@@ -20,16 +26,17 @@ The internal publisher is the only runtime writer for the canonical `modelpolicy
 
 The CBHR Admin service is the control-plane client and supplies `expectedVersion`, actor/source metadata, deployment IDs and the role contract. It must not pre-commit the canonical policy itself before calling LibreChat. Same policy at the current expected version is a no-op; stale/concurrent expected versions fail closed with 409; a projection failure rolls back both the canonical revision and any earlier role writes.
 
-There is intentionally **no separate publication-marker/replay collection**. One canonical revision stream is sufficient and avoids dual authority.
+There is intentionally **no second publication-marker/replay collection** in
+the current canonical publisher. The canonical head/revision stream and atomic
+role Config projections are the sole authoritative write contract.
+The older prototype \`modelpolicypublications\` state machine is not a
+dependency of this route and must not be enabled as a second policy authority.
 
-
-The internal publisher must persist its last applied external policy revision in the same Mongo transaction as the base, USER, and ADMIN Config updates. Cache invalidation happens only after transaction commit. Same version plus same digest is idempotent; same version plus different digest is a conflict; lower version is stale; a newer revision advances only through the configured monotonic rule. This avoids creating a second partial-publication problem inside LibreChat.
-
-
-
-The branch now includes a dedicated LibreChat-owned model-policy publication state contract: `modelpolicypublications` stores the last applied external policy revision and SHA-256 content digest. The method layer defines monotonic transitions: first publication must be revision 1; same revision plus same digest is an idempotent no-op; same revision with different content, stale revisions, revision gaps, and concurrent CAS changes fail closed. The state is derived integration metadata only. It is not the canonical model policy, and it is not yet wired into the runtime publisher route.
-
-The next step is to execute the state transition and the three owned Config projections inside one Mongo transaction, then invalidate effective config caches only after commit. Only after a real staging transaction/rollback test will the internal route be mounted.
+**Tenant migration remains an activation blocker:** Config projections and
+canonical head/revision reads, CAS writes, and unique indexes are now
+tenant-scoped in source. Existing databases may still carry legacy globally
+unique indexes and unscoped documents. The publisher must stay disabled until
+the migration and index inventory have independently verified this boundary.
 
 ## Phase 2 real transaction acceptance
 
@@ -52,8 +59,9 @@ The internal policy publisher requires a fixed **server-side**
 bearer token file and port. A caller cannot choose the tenant in a publish
 body. Role Config reads and writes carry this exact tenant filter, including
 new upserts. A missing tenant refuses listener startup / policy publication.
-The canonical version stream remains one service-instance policy authority,
-not an invitation to administer multiple tenants with one bearer identity.
+The canonical head/revision keys are now tenant-scoped, but each listener's
+service token remains bound to exactly one configured tenant. The request body
+cannot choose or override that tenant.
 
 Publication also rejects an inactive \`__base__\`, \`USER\`, or \`ADMIN\`
 Config inside the same transaction. A disabled projection may be reactivated
@@ -132,3 +140,24 @@ legacy modelSpec enforcement only when that trusted server-side identity
 matches the normalized endpoint/model. Browser request-body fields cannot
 supply this marker, ADMIN and other requests retain existing legacy spec
 enforcement, and the published funded default remains authoritative.
+
+
+## Canonical tenant-index migration gate (not executed in production)
+
+Source schema now requires \`tenantId\` on both canonical collections and
+declares unique \`{tenantId: 1, key: 1}\` for \`modelpolicyheads\` and unique
+\`{tenantId: 1, version: 1}\` for \`modelpolicyrevisions\`.
+Canonical queries and transaction writes include the bound tenant ID.
+The publisher forwards the same fixed tenant to Config projection and
+canonical revision methods.
+
+Before enabling the publisher in any persistent environment, an independently
+authorized migration must inventory existing canonical records and MongoDB
+indexes, reconcile/assign their tenant ownership without guessing, and replace
+legacy global unique \`key_1\` / \`version_1\` indexes with the compound
+unique indexes. Do not use automatic destructive \`syncIndexes\` in production,
+drop indexes blindly, or backfill tenant IDs onto unrelated records.
+Verify two isolated synthetic tenants can each CAS from version 0 to version
+1 without reading one another's head or revisions. This migration has **not**
+been run on production. Transaction-capable MongoDB and an authenticated
+service-to-service/browser end-to-end acceptance are still required.
