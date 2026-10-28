@@ -82,6 +82,7 @@ function fakeDeps(seed = {}) {
     writes,
     invalidations: () => invalidations,
     startSession: async () => makeSession(),
+    tenantId: 'test-tenant',
     findConfigByPrincipal: async (_type, id) => docs[id] || null,
     patchConfigFields: async (_type, id, _model, fields, priority, session) => {
       if (!session) throw Error('session required');
@@ -144,6 +145,47 @@ function fakeDeps(seed = {}) {
 }
 
 describe('transactional model policy publisher', () => {
+  test('does not open a session when the authenticated instance has no explicit tenant', async () => {
+    const deps = fakeDeps({});
+    delete deps.tenantId;
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_TENANT_REQUIRED',
+      status: 503,
+    });
+    expect(deps.headVersion).toBe(0);
+  });
+
+  test('scopes every Config read and write to the fixed instance tenant', async () => {
+    const deps = fakeDeps({});
+    const reads = [];
+    const writes = [];
+    const originalFind = deps.findConfigByPrincipal;
+    const originalPatch = deps.patchConfigFields;
+    deps.findConfigByPrincipal = async (...args) => {
+      reads.push(args[2]?.tenantId);
+      return originalFind(...args);
+    };
+    deps.patchConfigFields = async (...args) => {
+      writes.push(args[6]);
+      return originalPatch(...args);
+    };
+    await commitManagedModelPolicy(makeInput(), deps);
+    expect(reads).toEqual(['test-tenant', 'test-tenant', 'test-tenant']);
+    expect(writes).toEqual(['test-tenant', 'test-tenant', 'test-tenant']);
+  });
+
+  test('rolls back the canonical policy if an owned projection is inactive', async () => {
+    const deps = fakeDeps({
+      USER: { isActive: false, priority: 20, overrides: {} },
+    });
+    await expect(commitManagedModelPolicy(makeInput(), deps)).rejects.toMatchObject({
+      code: 'MODEL_POLICY_INACTIVE_PROJECTION',
+      status: 409,
+    });
+    expect(deps.headVersion).toBe(0);
+    expect(deps.invalidations()).toBe(0);
+  });
+
   test('commits canonical deployment policy and preserves unrelated LibreChat config', async () => {
     const deps = fakeDeps({
       __base__: {

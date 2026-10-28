@@ -44,3 +44,32 @@ This closes the Phase 2 **atomicity** gate. Remaining Phase 2 work is service-to
 The typed model-policy command now accepts optional reasoning capability metadata per deployment. LibreChat validates the finite transport contract and effort IDs, then materializes `customParams.reasoningProfiles` only on the ADMIN endpoint projection while preserving unrelated custom parameters. USER never receives the override metadata.
 
 The command also supports an explicit `refreshConfigCaches` flag. This exists for the migration window where Admin still writes non-policy compatibility fields such as title/summarize and tokenConfig before the publisher call; LibreChat therefore invalidates effective config caches when policy-owned role fields changed **or** an explicit refresh was requested. A same-policy/reasoning-only retry can remain canonical-revision-idempotent while still refreshing changed derived metadata.
+
+## 2026-10-27 PR #41 integration-review corrections
+
+The internal policy publisher requires a fixed **server-side**
+\`MODEL_POLICY_TENANT_ID\` when its listener is enabled, in addition to its
+bearer token file and port. A caller cannot choose the tenant in a publish
+body. Role Config reads and writes carry this exact tenant filter, including
+new upserts. A missing tenant refuses listener startup / policy publication.
+The canonical version stream remains one service-instance policy authority,
+not an invitation to administer multiple tenants with one bearer identity.
+
+Publication also rejects an inactive \`__base__\`, \`USER\`, or \`ADMIN\`
+Config inside the same transaction. A disabled projection may be reactivated
+by the standard separately authorized Config administration procedure, not by
+silently advancing a policy that chat would not consume.
+
+Ordinary USER chat admission now accepts exactly one marked-default centrally
+credentialed custom endpoint even when no legacy default \`modelSpec\` exists.
+A missing default, multiple marked defaults, user-provided credentials, or
+invalid model still fails closed. Existing valid preset-based behavior is
+preserved as a migration compatibility path.
+
+**Production activation remains gated.** The current production MongoDB is a
+standalone server, not a replica set, and existing role Config documents do
+not yet have explicit tenant IDs. Do not set the internal publisher port,
+backfill production Config, enable policy publication, or claim end-to-end
+model-policy V2 activation until database topology/migration and live browser
+admission tests are independently reviewed. The active V2 LibreChat image
+was a bounded canary and CodeAPI retention stays \`preview\`.

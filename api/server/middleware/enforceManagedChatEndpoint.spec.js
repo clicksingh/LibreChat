@@ -275,6 +275,45 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     expect(res.status).toHaveBeenCalledWith(503);
   });
 
+  it('admits the unique funded V2 default without a legacy modelSpec', () => {
+    const config = makeConfig();
+    delete config.modelSpecs;
+    config.endpoints.custom[0].default = true;
+    const req = makeReq(
+      { endpoint: 'openAI', model: 'unfunded', spec: 'forged' },
+      SystemRoles.USER,
+      config,
+    );
+    const { next, res } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.body).toMatchObject({
+      endpoint: COMPANY_ENDPOINT,
+      model: COMPANY_MODEL,
+      endpointType: EModelEndpoint.custom,
+    });
+    expect(req.body).not.toHaveProperty('spec');
+    expect(resolveFundedDefault(config)).toEqual({
+      endpoint: COMPANY_ENDPOINT,
+      model: COMPANY_MODEL,
+      spec: undefined,
+    });
+  });
+
+  it('refuses ambiguous or uncredentialed V2 defaults without a legacy modelSpec', () => {
+    const config = makeConfig();
+    delete config.modelSpecs;
+    config.endpoints.custom[0].default = true;
+    config.endpoints.custom.push({
+      ...config.endpoints.custom[0],
+      name: 'Second Central Endpoint',
+    });
+    expect(resolveFundedDefault(config)).toBeNull();
+    config.endpoints.custom[1].default = false;
+    config.endpoints.custom[0].apiKey = 'user_provided';
+    expect(resolveFundedDefault(config)).toBeNull();
+  });
+
   it('only uses the configured default spec and centrally authenticated endpoint', () => {
     expect(resolveFundedDefault(makeConfig())).toEqual({
       endpoint: COMPANY_ENDPOINT,

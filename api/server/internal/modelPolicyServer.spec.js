@@ -17,11 +17,18 @@ const SECRET = '0123456789abcdef0123456789abcdef';
 function appWith(publish) {
   return createModelPolicyInternalApp({
     loadExpectedToken: async () => SECRET,
+    tenantId: 'test-tenant',
     publish,
   });
 }
 
 describe('internal model-policy publisher listener', () => {
+  test('refuses an internal listener without a bound tenant', () => {
+    expect(() => createModelPolicyInternalApp({ loadExpectedToken: async () => SECRET })).toThrow(
+      'A fixed model-policy tenant id is required',
+    );
+  });
+
   test('rejects requests without the service token before publication', async () => {
     const publish = jest.fn();
     const response = await request(appWith(publish)).post('/publish').send({
@@ -57,6 +64,7 @@ describe('internal model-policy publisher listener', () => {
       noop: false,
     });
     expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls[0][1]).toBe('test-tenant');
   });
 
   test('returns deterministic policy conflicts without exposing internal data', async () => {

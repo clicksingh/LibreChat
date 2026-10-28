@@ -23,7 +23,7 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
   findConfigByPrincipal: (
     principalType: PrincipalType,
     principalId: string | Types.ObjectId,
-    options?: { includeInactive?: boolean },
+    options?: { includeInactive?: boolean; tenantId?: string },
     session?: ClientSession,
   ) => Promise<IConfig | null>;
   getApplicableConfigs: (
@@ -46,6 +46,7 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
     fields: Record<string, unknown>,
     priority: number,
     session?: ClientSession,
+    tenantId?: string,
   ) => Promise<IConfig | null>;
   tombstoneConfigField: (
     principalType: PrincipalType,
@@ -78,14 +79,22 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
   async function findConfigByPrincipal(
     principalType: PrincipalType,
     principalId: string | Types.ObjectId,
-    options?: { includeInactive?: boolean },
+    options?: { includeInactive?: boolean; tenantId?: string },
     session?: ClientSession,
   ): Promise<IConfig | null> {
     const Config = mongoose.models.Config as Model<IConfig>;
-    const filter: { principalType: PrincipalType; principalId: string; isActive?: boolean } = {
+    const filter: {
+      principalType: PrincipalType;
+      principalId: string;
+      isActive?: boolean;
+      tenantId?: string;
+    } = {
       principalType,
       principalId: principalId.toString(),
     };
+    if (options?.tenantId) {
+      filter.tenantId = options.tenantId;
+    }
     if (!options?.includeInactive) {
       filter.isActive = true;
     }
@@ -206,6 +215,7 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
     fields: Record<string, unknown>,
     priority: number,
     session?: ClientSession,
+    tenantId?: string,
   ): Promise<IConfig | null> {
     const Config = mongoose.models.Config as Model<IConfig>;
 
@@ -237,7 +247,7 @@ export function createConfigMethods(mongoose: typeof import('mongoose')): {
     }
 
     return await Config.findOneAndUpdate(
-      { principalType, principalId: principalId.toString() },
+      { principalType, principalId: principalId.toString(), ...(tenantId ? { tenantId } : {}) },
       update,
       options,
     );

@@ -30,16 +30,24 @@ function resolveFundedDefault(config) {
             configured.some((ep) => ep?.name === entry.preset.endpoint),
         )
       : undefined;
-  const custom = Array.isArray(configured)
-    ? configured.find((entry) => entry?.name === spec?.preset?.endpoint)
-    : undefined;
+  // V2 owns the server-side default endpoint without requiring a legacy
+  // concrete modelSpec. Never fall back to an arbitrary first endpoint.
+  const v2Defaults = Array.isArray(configured)
+    ? configured.filter((entry) => entry?.default === true && typeof entry.name === 'string')
+    : [];
+  let custom;
+  if (spec) {
+    custom = configured.find((entry) => entry?.name === spec.preset.endpoint);
+  } else if (v2Defaults.length === 1) {
+    custom = v2Defaults[0];
+  }
   const selected = Array.isArray(custom?.models?.default) ? custom.models.default[0] : undefined;
   const validModel =
     typeof selected === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]{0,255}$/.test(selected);
   const apiKey = custom?.apiKey;
   const baseURL = custom?.baseURL;
   if (
-    !spec ||
+    !custom ||
     typeof apiKey !== 'string' ||
     !apiKey.trim() ||
     apiKey === 'user_provided' ||
@@ -50,7 +58,7 @@ function resolveFundedDefault(config) {
   ) {
     return null;
   }
-  return { endpoint: spec.preset.endpoint, model: selected, spec: spec.name };
+  return { endpoint: custom.name, model: selected, spec: spec?.name };
 }
 
 function isExplicitPersistedAgent(body) {
@@ -150,7 +158,8 @@ function enforceManagedChatEndpoint(req, res, next) {
   body.endpoint = funded.endpoint;
   body.endpointType = EModelEndpoint.custom;
   body.model = funded.model;
-  body.spec = funded.spec;
+  if (funded.spec) body.spec = funded.spec;
+  else delete body.spec;
   body.agent_id = Constants.EPHEMERAL_AGENT_ID;
   // The /chat/:endpoint route segment is client-controlled too. Keep both
   // views synchronized so future route consumers cannot revive a stale BYOK

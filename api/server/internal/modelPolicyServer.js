@@ -9,7 +9,7 @@ const {
 } = require('../middleware/modelPolicyServiceAuth');
 const { commitManagedModelPolicy } = require('../services/Config/modelPolicyPublisher');
 
-function defaultPublisher(input) {
+function defaultPublisher(input, tenantId) {
   return runAsSystem(() =>
     commitManagedModelPolicy(input, {
       findConfigByPrincipal: db.findConfigByPrincipal,
@@ -17,11 +17,16 @@ function defaultPublisher(input) {
       commitModelPolicyRevision: db.commitModelPolicyRevision,
       invalidateConfigCaches,
       startSession: () => mongoose.startSession(),
+      tenantId,
     }),
   );
 }
 
-function createModelPolicyInternalApp({ loadExpectedToken, publish = defaultPublisher } = {}) {
+function createModelPolicyInternalApp({
+  loadExpectedToken,
+  publish = defaultPublisher,
+  tenantId,
+} = {}) {
   if (typeof loadExpectedToken !== 'function') {
     throw new TypeError('loadExpectedToken is required');
   }
@@ -29,6 +34,9 @@ function createModelPolicyInternalApp({ loadExpectedToken, publish = defaultPubl
     throw new TypeError('publish is required');
   }
 
+  if (typeof tenantId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(tenantId)) {
+    throw new TypeError('A fixed model-policy tenant id is required');
+  }
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '64kb' }));
@@ -36,7 +44,7 @@ function createModelPolicyInternalApp({ loadExpectedToken, publish = defaultPubl
 
   app.post('/publish', async (req, res) => {
     try {
-      const result = await publish(req.body);
+      const result = await publish(req.body, tenantId);
       return res.status(200).json({
         ok: true,
         policyVersion: result.policyVersion,
@@ -71,6 +79,7 @@ function startModelPolicyInternalServer({
   port = Number(process.env.MODEL_POLICY_INTERNAL_PORT || 0),
   host = process.env.MODEL_POLICY_INTERNAL_HOST || '0.0.0.0',
   tokenFile = process.env.MODEL_POLICY_SERVICE_TOKEN_FILE,
+  tenantId = process.env.MODEL_POLICY_TENANT_ID,
 } = {}) {
   if (!Number.isInteger(port) || port <= 0 || port > 65535 || !tokenFile) {
     return Promise.resolve(null);
@@ -78,6 +87,7 @@ function startModelPolicyInternalServer({
 
   const app = createModelPolicyInternalApp({
     loadExpectedToken: fileTokenLoader(tokenFile),
+    tenantId,
   });
 
   return new Promise((resolve, reject) => {

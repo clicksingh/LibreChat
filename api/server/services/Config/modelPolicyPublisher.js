@@ -31,13 +31,13 @@ function mergeEndpointList(current, endpointPatch) {
 }
 
 async function applyProjectionInSession(projection, deps, session) {
-  const { findConfigByPrincipal, patchConfigFields } = deps;
+  const { findConfigByPrincipal, patchConfigFields, tenantId } = deps;
   const ids = ['__base__', 'USER', 'ADMIN'];
   const existing = Object.fromEntries(
     await Promise.all(
       ids.map(async (id) => [
         id,
-        await findConfigByPrincipal(ROLE, id, { includeInactive: true }, session),
+        await findConfigByPrincipal(ROLE, id, { includeInactive: true, tenantId }, session),
       ]),
     ),
   );
@@ -45,6 +45,13 @@ async function applyProjectionInSession(projection, deps, session) {
 
   for (const id of ids) {
     const current = existing[id];
+    // Do not advance the canonical policy when an owned effective Config is disabled.
+    if (current?.isActive === false) {
+      const error = new Error('Managed-model projection is inactive');
+      error.code = 'MODEL_POLICY_INACTIVE_PROJECTION';
+      error.status = 409;
+      throw error;
+    }
     const fields = {};
     const rolePatch = projection.roles[id];
 
@@ -71,6 +78,7 @@ async function applyProjectionInSession(projection, deps, session) {
       fields,
       current?.priority ?? DEFAULT_PRIORITY[id],
       session,
+      tenantId,
     );
     writes.push({ principalId: id, fields: Object.keys(fields) });
   }
@@ -85,6 +93,7 @@ async function commitManagedModelPolicy(input, deps) {
     commitModelPolicyRevision,
     invalidateConfigCaches,
     startSession,
+    tenantId,
   } = deps || {};
 
   if (
@@ -97,6 +106,14 @@ async function commitManagedModelPolicy(input, deps) {
     throw new TypeError('model-policy commit dependencies are required');
   }
 
+  // The bearer token is an instance-level service identity. It must be bound
+  // to one explicitly configured tenant, never to the caller's request body.
+  if (typeof tenantId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(tenantId)) {
+    const error = new Error('Model policy tenant is not configured');
+    error.code = 'MODEL_POLICY_TENANT_REQUIRED';
+    error.status = 503;
+    throw error;
+  }
   const plan = buildModelPolicyCommitPlan(input);
   const session = await startSession();
   let result;
