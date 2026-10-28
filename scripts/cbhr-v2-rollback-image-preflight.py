@@ -25,7 +25,7 @@ TARGETS = {
 def run(*args):
     return subprocess.check_output(args, text=True, stderr=subprocess.PIPE).strip()
 
-def composed_service(service, chain, root):
+def composed_document(chain, root):
     for path in chain:
         if not path.is_file():
             raise RuntimeError(f'Missing active Compose input: {path}')
@@ -34,7 +34,10 @@ def composed_service(service, chain, root):
         argv.extend(['-f', str(path)])
     argv.extend(['config', '--format', 'json'])
     config = json.loads(run(*argv))
-    return config['services'][service]['image']
+    return config
+
+def composed_service(service, chain, root):
+    return composed_document(chain, root)['services'][service]['image']
 
 def main():
     if not MANIFEST.is_file():
@@ -64,6 +67,11 @@ def main():
         elif compose_image != 'mongo:7.0':
             raise RuntimeError('Mongo 7.0 runtime pin changed')
         print(f'PASS {container}: {compose_image} {live_digest[:19]}')
+    fallback = Path(__file__).with_name('cbhr-v2-current-baseline-api-image.override.yml')
+    fallback_chain = [*API_CHAIN[:-1], fallback]
+    if composed_document(API_CHAIN, BASE) != composed_document(fallback_chain, BASE):
+        raise RuntimeError('Version-controlled baseline API image override is not Compose-equivalent')
+    print('PASS image-only fallback: exact 11-service Compose config equivalence')
     print('CBHR_V2_CURRENT_ROLLBACK_IMAGE_PREFLIGHT_PASS')
     print('READ_ONLY: no deploy, rollback, database change, or file mutation')
 

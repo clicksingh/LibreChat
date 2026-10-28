@@ -1,0 +1,3 @@
+services:
+  api:
+    image: cbhr-ai:v2-integrated-7f1f7f6fd
