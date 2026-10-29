@@ -6,7 +6,11 @@ import type {
   TConversation,
   TPreset,
 } from 'librechat-data-provider';
-import { getManagedNewChatPreset, applyManagedNewChatPreset } from '../managedDefault';
+import {
+  getManagedNewChatPreset,
+  applyManagedNewChatPreset,
+  reconcileManagedDraftModel,
+} from '../managedDefault';
 
 const managedSpec = {
   name: 'cbhr-managed-default',
@@ -131,5 +135,39 @@ describe('Managed USER company-provided model default', () => {
         modelsConfig: models,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe('live company default refresh', () => {
+  const current = {
+    conversationId: Constants.NEW_CONVO as string,
+    endpoint: 'CBHR AI',
+    model: 'old-default',
+    spec: 'cbhr-managed-default',
+    chatProjectId: 'saved-project',
+    workspaceId: 'saved-workspace',
+    title: 'New Chat',
+    createdAt: '',
+    updatedAt: '',
+  } as unknown as TConversation;
+  const next = { model: 'glm-5.3-flash', spec: 'cbhr-managed-default' };
+  it('updates the blank managed draft without losing project/workspace context', () => {
+    expect(reconcileManagedDraftModel(current, next, true)).toEqual({
+      ...current,
+      model: 'glm-5.3-flash',
+    });
+  });
+  it('is stable once the draft reflects the new company default', () => {
+    const changed = reconcileManagedDraftModel(current, next, true) as TConversation;
+    expect(reconcileManagedDraftModel(changed, next, true)).toBe(changed);
+  });
+  it('never changes existing chats, admins, or explicit agent drafts', () => {
+    expect(
+      reconcileManagedDraftModel({ ...current, conversationId: 'saved' }, next, true)?.model,
+    ).toBe('old-default');
+    expect(reconcileManagedDraftModel(current, next, false)).toBe(current);
+    expect(
+      reconcileManagedDraftModel({ ...current, agent_id: 'selected' }, next, true)?.model,
+    ).toBe('old-default');
   });
 });

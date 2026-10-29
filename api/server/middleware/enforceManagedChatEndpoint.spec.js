@@ -8,6 +8,9 @@ const {
   rejectNonAdminRemoteAgentApi,
 } = require('./enforceManagedChatEndpoint');
 
+jest.mock('~/server/services/Config', () => ({ getAppConfig: jest.fn() }));
+const { getAppConfig } = require('~/server/services/Config');
+
 const COMPANY_ENDPOINT = 'CBHR AI';
 const COMPANY_MODEL = 'zai/glm-5.3-flash';
 const COMPANY_SPEC = 'cbhr-managed-default';
@@ -51,6 +54,91 @@ const invoke = (req) => {
   enforceManagedChatEndpoint(req, res, next);
   return { res, next };
 };
+
+describe('V2 active USER runtime authority against later user/group override drift', () => {
+  let previousPort;
+  beforeEach(() => {
+    previousPort = process.env.MODEL_POLICY_INTERNAL_PORT;
+    process.env.MODEL_POLICY_INTERNAL_PORT = '29099';
+    jest.clearAllMocks();
+  });
+  afterEach(() => {
+    if (previousPort === undefined) delete process.env.MODEL_POLICY_INTERNAL_PORT;
+    else process.env.MODEL_POLICY_INTERNAL_PORT = previousPort;
+  });
+
+  async function invokePublished(req) {
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    const next = jest.fn();
+    await enforceManagedChatEndpoint(req, res, next);
+    return { res, next };
+  }
+
+  it('admits the company default when tenant role-only and user-effective configs agree', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const req = makeReq({ endpoint: 'forged', model: 'forged', text: 'hi' });
+    req.user.tenantId = 'tenant-qa';
+    req.config = JSON.parse(JSON.stringify(roleConfig));
+    const { res, next } = await invokePublished(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(getAppConfig).toHaveBeenCalledWith({ role: SystemRoles.USER, tenantId: 'tenant-qa' });
+    expect(req.body.model).toBe(COMPANY_MODEL);
+  });
+
+  it('rejects stale user/group models even after successful publication', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const userConfig = JSON.parse(JSON.stringify(roleConfig));
+    userConfig.endpoints.custom[0].models.default = ['stale-user-model'];
+    const req = makeReq(
+      { endpoint: 'forged', model: 'stale-user-model' },
+      SystemRoles.USER,
+      userConfig,
+    );
+    req.user.tenantId = 'tenant-qa';
+    const { res, next } = await invokePublished(req);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects later endpoint addParams.model overriding the same funded model', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const userConfig = JSON.parse(JSON.stringify(roleConfig));
+    userConfig.endpoints.custom[0].addParams = { model: 'unfunded-model' };
+    const req = makeReq(
+      { endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL },
+      SystemRoles.USER,
+      userConfig,
+    );
+    req.user.tenantId = 'tenant-qa';
+    const { res, next } = await invokePublished(req);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects user/group API key or URL replacement with unchanged model', async () => {
+    const roleConfig = makeConfig();
+    roleConfig.endpoints.custom[0].default = true;
+    getAppConfig.mockResolvedValue(roleConfig);
+    const userConfig = JSON.parse(JSON.stringify(roleConfig));
+    userConfig.endpoints.custom[0].baseURL = 'http://alternate.invalid/v1';
+    const req = makeReq(
+      { endpoint: COMPANY_ENDPOINT, model: COMPANY_MODEL },
+      SystemRoles.USER,
+      userConfig,
+    );
+    req.user.tenantId = 'tenant-qa';
+    const { res, next } = await invokePublished(req);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
+  });
+});
 
 describe('server-enforced company-funded endpoint for ordinary USER chats', () => {
   it.each([
@@ -273,6 +361,86 @@ describe('server-enforced company-funded endpoint for ordinary USER chats', () =
     const { res, next } = invoke(req);
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(503);
+  });
+
+  it('admits the unique funded V2 default without a legacy modelSpec', () => {
+    const config = makeConfig();
+    delete config.modelSpecs;
+    config.endpoints.custom[0].default = true;
+    const req = makeReq(
+      { endpoint: 'openAI', model: 'unfunded', spec: 'forged' },
+      SystemRoles.USER,
+      config,
+    );
+    const { next, res } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+    expect(req.body).toMatchObject({
+      endpoint: COMPANY_ENDPOINT,
+      model: COMPANY_MODEL,
+      endpointType: EModelEndpoint.custom,
+    });
+    expect(req.body).not.toHaveProperty('spec');
+    expect(resolveFundedDefault(config)).toEqual({
+      endpoint: COMPANY_ENDPOINT,
+      model: COMPANY_MODEL,
+      spec: undefined,
+    });
+  });
+
+  it('refuses ambiguous or uncredentialed V2 defaults without a legacy modelSpec', () => {
+    const config = makeConfig();
+    delete config.modelSpecs;
+    config.endpoints.custom[0].default = true;
+    config.endpoints.custom.push({
+      ...config.endpoints.custom[0],
+      name: 'Second Central Endpoint',
+    });
+    expect(resolveFundedDefault(config)).toBeNull();
+    config.endpoints.custom[1].default = false;
+    config.endpoints.custom[0].apiKey = 'user_provided';
+    expect(resolveFundedDefault(config)).toBeNull();
+  });
+
+  it('gives the server-marked funded default precedence over a conflicting legacy preset', () => {
+    const config = makeConfig();
+    config.endpoints.custom[0].default = true;
+    config.endpoints.custom.push({
+      name: 'Legacy Privileged Endpoint',
+      apiKey: 'server-key',
+      baseURL: 'http://legacy.internal/v1',
+      models: { default: ['old-model'] },
+    });
+    config.modelSpecs.list[0].preset.endpoint = 'Legacy Privileged Endpoint';
+    config.modelSpecs.list[0].preset.model = 'old-model';
+    expect(resolveFundedDefault(config)).toEqual({
+      endpoint: COMPANY_ENDPOINT,
+      model: COMPANY_MODEL,
+      spec: undefined,
+    });
+    const req = makeReq(
+      { endpoint: 'Legacy Privileged Endpoint', model: 'old-model', spec: COMPANY_SPEC },
+      SystemRoles.USER,
+      config,
+    );
+    const { next } = invoke(req);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(req.body.endpoint).toBe(COMPANY_ENDPOINT);
+    expect(req.body.model).toBe(COMPANY_MODEL);
+    expect(req.body).not.toHaveProperty('spec');
+  });
+
+  it('refuses multiple marked defaults even if a legacy preset selects one', () => {
+    const config = makeConfig();
+    config.endpoints.custom[0].default = true;
+    config.endpoints.custom.push({
+      name: 'Another Default',
+      default: true,
+      apiKey: 'server-key',
+      baseURL: 'http://another.internal/v1',
+      models: { default: ['other-model'] },
+    });
+    expect(resolveFundedDefault(config)).toBeNull();
   });
 
   it('only uses the configured default spec and centrally authenticated endpoint', () => {

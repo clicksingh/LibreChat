@@ -3,6 +3,10 @@
  * calls and return values. Must be declared before require('./buildEndpointOption')
  * so the destructured reference in the middleware captures the wrapper.
  */
+// The middleware tests do not render images. Avoid loading the native
+// image backend from the linked CI-sized test dependency tree.
+jest.mock('sharp', () => jest.fn());
+
 jest.mock('librechat-data-provider', () => {
   const actual = jest.requireActual('librechat-data-provider');
   return {
@@ -487,6 +491,131 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       tenantId: undefined,
     });
     expect(req.body.endpointOption.attachments).toBe(attachments);
+  });
+
+  it('admits an active company-funded ADMIN catalogue model despite legacy enforce', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      { endpoint: 'CBHR AI', endpointType: EModelEndpoint.custom, model: 'catalogue-model-b' },
+      {
+        endpoints: {
+          custom: [
+            {
+              name: 'CBHR AI',
+              default: true,
+              apiKey: 'company-key',
+              baseURL: 'http://bridge.internal/v1',
+              models: { default: ['catalogue-model-a', 'catalogue-model-b'] },
+            },
+          ],
+        },
+        modelSpecs: {
+          enforce: true,
+          list: [{ name: 'legacy', preset: { endpoint: 'CBHR AI', model: 'catalogue-model-a' } }],
+        },
+      },
+    );
+    req.baseUrl = '/api/agents/chat';
+    req.user = { id: 'admin-1', role: 'ADMIN' };
+    const next = jest.fn();
+    const res = createRes();
+    const { handleError } = require('@librechat/api');
+    await buildEndpointOption(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(handleError).not.toHaveBeenCalled();
+    expect(req.body.endpointOption?.model).toBe('catalogue-model-b');
+  });
+
+  it('retains legacy modelSpec enforcement for unlisted ADMIN models', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      { endpoint: 'CBHR AI', endpointType: EModelEndpoint.custom, model: 'forged-unknown' },
+      {
+        endpoints: {
+          custom: [
+            {
+              name: 'CBHR AI',
+              default: true,
+              apiKey: 'company-key',
+              baseURL: 'http://bridge.internal/v1',
+              models: { default: ['catalogue-model-a'] },
+            },
+          ],
+        },
+        modelSpecs: {
+          enforce: true,
+          list: [{ name: 'legacy', preset: { endpoint: 'CBHR AI', model: 'catalogue-model-a' } }],
+        },
+      },
+    );
+    req.baseUrl = '/api/agents/chat';
+    req.user = { id: 'admin-1', role: 'ADMIN' };
+    const next = jest.fn();
+    const res = createRes();
+    const { handleError } = require('@librechat/api');
+    await buildEndpointOption(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(handleError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ text: 'No model spec selected' }),
+    );
+  });
+
+  it('permits server-verified V2 funded default despite conflicting enforced legacy spec', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      {
+        endpoint: 'CBHR AI',
+        endpointType: EModelEndpoint.custom,
+        model: 'current-company-model',
+        agent_id: 'agent_ephemeral',
+      },
+      {
+        modelSpecs: {
+          enforce: true,
+          list: [{ name: 'legacy-only', preset: { endpoint: 'Legacy', model: 'old-model' } }],
+        },
+      },
+    );
+    req.baseUrl = '/api/agents/chat';
+    req.user = { id: 'staff-user', role: 'USER' };
+    req.managedCompanyDefault = { endpoint: 'CBHR AI', model: 'current-company-model' };
+    const next = jest.fn();
+    const res = createRes();
+    const { handleError } = require('@librechat/api');
+
+    await buildEndpointOption(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(handleError).not.toHaveBeenCalled();
+  });
+
+  it('does not allow a browser request-body marker to bypass modelSpec enforcement', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({});
+    const req = createReq(
+      {
+        endpoint: 'CBHR AI',
+        endpointType: EModelEndpoint.custom,
+        model: 'forged-model',
+        managedCompanyDefault: { endpoint: 'CBHR AI', model: 'forged-model' },
+      },
+      {
+        modelSpecs: {
+          enforce: true,
+          list: [{ name: 'legacy-only', preset: { endpoint: 'Legacy', model: 'old-model' } }],
+        },
+      },
+    );
+    req.baseUrl = '/api/agents/chat';
+    req.user = { id: 'staff-user', role: 'USER' };
+    const next = jest.fn();
+    const res = createRes();
+    const { handleError } = require('@librechat/api');
+    await buildEndpointOption(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(handleError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ text: 'No model spec selected' }),
+    );
   });
 
   it('should not enter the enforce branch when modelSpecs.list is empty', async () => {

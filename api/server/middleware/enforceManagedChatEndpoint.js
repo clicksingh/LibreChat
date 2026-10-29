@@ -30,16 +30,27 @@ function resolveFundedDefault(config) {
             configured.some((ep) => ep?.name === entry.preset.endpoint),
         )
       : undefined;
-  const custom = Array.isArray(configured)
-    ? configured.find((entry) => entry?.name === spec?.preset?.endpoint)
-    : undefined;
+  // V2 owns the server-side default endpoint without requiring a legacy
+  // concrete modelSpec. Never fall back to an arbitrary first endpoint.
+  const v2Defaults = Array.isArray(configured)
+    ? configured.filter((entry) => entry?.default === true && typeof entry.name === 'string')
+    : [];
+  let custom;
+  if (v2Defaults.length > 0) {
+    // The centrally published default outranks any retained legacy preset.
+    // Multiple server-marked defaults are ambiguous, even when a legacy spec exists.
+    if (v2Defaults.length !== 1) return null;
+    custom = v2Defaults[0];
+  } else if (spec) {
+    custom = configured.find((entry) => entry?.name === spec.preset.endpoint);
+  }
   const selected = Array.isArray(custom?.models?.default) ? custom.models.default[0] : undefined;
   const validModel =
     typeof selected === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:/@+-]{0,255}$/.test(selected);
   const apiKey = custom?.apiKey;
   const baseURL = custom?.baseURL;
   if (
-    !spec ||
+    !custom ||
     typeof apiKey !== 'string' ||
     !apiKey.trim() ||
     apiKey === 'user_provided' ||
@@ -50,7 +61,38 @@ function resolveFundedDefault(config) {
   ) {
     return null;
   }
-  return { endpoint: spec.preset.endpoint, model: selected, spec: spec.name };
+  const matchingSpec =
+    spec?.preset?.endpoint === custom.name && spec?.preset?.model === selected
+      ? spec.name
+      : undefined;
+  return { endpoint: custom.name, model: selected, spec: matchingSpec };
+}
+
+/**
+ * Once the transactional publisher is enabled, per-user/group Config merges
+ * are never allowed to redefine the funded USER endpoint. The role-only
+ * effective config is the canonical runtime admission authority; if the
+ * request's merged config differs, deny rather than silently use stale BYOK.
+ * Both Config views come from the existing tenant-scoped service.
+ */
+async function isTrustedRoleOnlyDefault(req, funded) {
+  if (!req.user?.tenantId) return false;
+  const { getAppConfig } = require('~/server/services/Config');
+  const roleConfig = await getAppConfig({ role: SystemRoles.USER, tenantId: req.user.tenantId });
+  const roleFunded = resolveFundedDefault(roleConfig);
+  if (!roleFunded || roleFunded.endpoint !== funded.endpoint || roleFunded.model !== funded.model)
+    return false;
+  const currentEndpoint = req.config?.endpoints?.custom?.find(
+    (entry) => entry?.name === funded.endpoint && entry.default === true,
+  );
+  const trustedEndpoint = roleConfig?.endpoints?.custom?.find(
+    (entry) => entry?.name === roleFunded.endpoint && entry.default === true,
+  );
+  return Boolean(
+    currentEndpoint &&
+      trustedEndpoint &&
+      JSON.stringify(currentEndpoint) === JSON.stringify(trustedEndpoint),
+  );
 }
 
 function isExplicitPersistedAgent(body) {
@@ -108,6 +150,34 @@ function enforceManagedChatEndpoint(req, res, next) {
     });
   }
 
+  // Preserve the synchronous contract when the publisher is dark.
+  // The lightweight Node VM contract runner has no process global.
+  if (typeof process !== 'undefined' && Number(process.env?.MODEL_POLICY_INTERNAL_PORT) > 0) {
+    return isTrustedRoleOnlyDefault(req, funded)
+      .then((trusted) => {
+        if (!trusted) {
+          logger.error('[managed-endpoint] User/group Config drift from role-only funded default');
+          return res.status(503).json({
+            error: 'Managed model unavailable',
+            message: 'The company-provided model is temporarily unavailable.',
+          });
+        }
+        return finalizeManagedChatEndpoint(req, res, next, funded);
+      })
+      .catch((error) => {
+        logger.error('[managed-endpoint] Role-only policy verification failed', error);
+        return res.status(503).json({
+          error: 'Managed model unavailable',
+          message: 'The company-provided model is temporarily unavailable.',
+        });
+      });
+  }
+  return finalizeManagedChatEndpoint(req, res, next, funded);
+}
+
+function finalizeManagedChatEndpoint(req, res, next, funded) {
+  const body = req.body;
+
   // A persisted agent must first pass the existing resource VIEW ACL.
   // We defer the model check until AFTER the access-control middleware, so
   // unauthorized callers cannot use the model guard to inspect agent data.
@@ -150,8 +220,17 @@ function enforceManagedChatEndpoint(req, res, next) {
   body.endpoint = funded.endpoint;
   body.endpointType = EModelEndpoint.custom;
   body.model = funded.model;
-  body.spec = funded.spec;
+  if (funded.spec) body.spec = funded.spec;
+  else delete body.spec;
   body.agent_id = Constants.EPHEMERAL_AGENT_ID;
+  // A spec-free V2 company default was verified server-side. The legacy
+  // preset-enforcement middleware must not reject this managed selection.
+  // This request-local marker is never sourced from request-body fields.
+  if (!funded.spec) {
+    req.managedCompanyDefault = { endpoint: funded.endpoint, model: funded.model };
+  } else {
+    delete req.managedCompanyDefault;
+  }
   // The /chat/:endpoint route segment is client-controlled too. Keep both
   // views synchronized so future route consumers cannot revive a stale BYOK
   // selection after the body has been normalized.

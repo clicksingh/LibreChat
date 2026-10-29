@@ -39,6 +39,7 @@ export * from './auditLog';
 export * from './group';
 /* Config */
 export * from './config';
+export * from './modelPolicy';
 /* Admin */
 export * from './admin';
 /* Web */

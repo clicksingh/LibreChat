@@ -9,6 +9,7 @@ const { logger } = require('@librechat/data-schemas');
 const {
   EndpointURLs,
   EModelEndpoint,
+  SystemRoles,
   isAgentsEndpoint,
   parseCompactConvo,
   getDefaultParamsEndpoint,
@@ -56,8 +57,38 @@ async function buildEndpointOption(req, res, next) {
   }
 
   const appConfig = req.config;
+  // Only the server-side managed endpoint normalizer can provide this marker.
+  // It pins the company endpoint/model and bypasses a conflicting *legacy*
+  // modelSpec after the current centrally funded default was verified.
+  const managedDefault = req.managedCompanyDefault;
+  const managedAdminEndpoint =
+    req.user?.role === SystemRoles.ADMIN
+      ? appConfig?.endpoints?.custom?.find((ep) => ep?.name === endpoint && ep?.default === true)
+      : undefined;
+  const isManagedAdminCatalogue =
+    req.user?.role === SystemRoles.ADMIN &&
+    endpointType === EModelEndpoint.custom &&
+    Array.isArray(managedAdminEndpoint?.models?.default) &&
+    managedAdminEndpoint.models.default.includes(req.body.model) &&
+    typeof managedAdminEndpoint.apiKey === 'string' &&
+    managedAdminEndpoint.apiKey.trim().length > 0 &&
+    managedAdminEndpoint.apiKey !== 'user_provided' &&
+    typeof managedAdminEndpoint.baseURL === 'string' &&
+    managedAdminEndpoint.baseURL.trim().length > 0 &&
+    managedAdminEndpoint.baseURL !== 'user_provided';
+  const isTrustedManagedDefault =
+    req.user?.role !== SystemRoles.ADMIN &&
+    typeof managedDefault?.endpoint === 'string' &&
+    typeof managedDefault?.model === 'string' &&
+    managedDefault.endpoint === endpoint &&
+    managedDefault.model === req.body.model;
   let appliedModelSpecPrivateFields = new Set();
-  if (appConfig.modelSpecs?.list?.length && appConfig.modelSpecs?.enforce) {
+  if (
+    !isTrustedManagedDefault &&
+    !isManagedAdminCatalogue &&
+    appConfig.modelSpecs?.list?.length &&
+    appConfig.modelSpecs?.enforce
+  ) {
     /** @type {{ list: TModelSpec[] }}*/
     const { list } = appConfig.modelSpecs;
     const rawSpec = req.body.spec;
@@ -97,7 +128,12 @@ async function buildEndpointOption(req, res, next) {
       logger.error(`Error parsing model spec for endpoint ${endpoint}`, error);
       return handleError(res, { text: 'Error parsing model spec' });
     }
-  } else if (parsedBody.spec && appConfig.modelSpecs?.list) {
+  } else if (
+    !isTrustedManagedDefault &&
+    !isManagedAdminCatalogue &&
+    parsedBody.spec &&
+    appConfig.modelSpecs?.list
+  ) {
     const modelSpec = findModelSpecByName(appConfig.modelSpecs, parsedBody.spec);
     if (modelSpec) {
       if (!isModelSpecEndpointMatch(modelSpec, endpoint)) {

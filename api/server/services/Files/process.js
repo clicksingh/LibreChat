@@ -39,7 +39,10 @@ const { getOpenAIClient } = require('~/server/controllers/assistants/helpers');
 const { loadAuthValues } = require('~/server/services/Tools/credentials');
 const { getFileStrategy } = require('~/server/utils/getFileStrategy');
 const { checkCapability } = require('~/server/services/Config');
-const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
+const {
+  isRunCodeUseAllowed,
+  resolveWorkspaceContext,
+} = require('~/server/services/Endpoints/agents/authorization');
 const { LB_QueueAsyncCall } = require('~/server/utils/queue');
 const { getRetentionExpiry, getAgentFileRetentionExpiry } = require('./retention');
 const { getStrategyFunctions } = require('./strategies');
@@ -701,14 +704,21 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
       throw new Error('Code execution is not enabled for Agents');
     }
     const { handleFileUpload: uploadCodeEnvFile } = getStrategyFunctions(FileSources.execute_code);
-    const stream = fs.createReadStream(file.path);
-    /* Resource identity for codeapi's sessionKey:
-     * - chat attachments (messageAttachment=true): `kind: 'user'`, codeapi
-     *   buckets under `<tenant>:user:<authContext.userId>` regardless of `id`.
-     * - agent setup files (messageAttachment=false): `kind: 'agent'`, shared
-     *   per agent identity. `id` carries the agent id. */
-    const codeKind = messageAttachment === true ? 'user' : 'agent';
-    const codeId = messageAttachment === true ? req.user.id : agent_id;
+    /* Upload under the server-verified chat workspace. For a new project
+     * chat, resolveWorkspaceContext verifies current EDIT permission before
+     * CodeAPI receives a signed project claim. Agent setup remains isolated. */
+    const workspaceContext = messageAttachment ? await resolveWorkspaceContext(req) : undefined;
+    let codeKind = 'agent';
+    let codeId = agent_id;
+    if (messageAttachment) {
+      if (workspaceContext?.kind === 'project') {
+        codeKind = 'project';
+        codeId = workspaceContext.workspaceId;
+      } else {
+        codeKind = 'user';
+        codeId = req.user.id;
+      }
+    }
     /* Upload under the same sanitized filename LC stores in its DB
      * (`fileInfo.filename` below uses `sanitizeFilename(originalname)`).
      * Codeapi/file_server use this as the on-disk name in the sandbox
@@ -718,6 +728,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
      * (with spaces / special chars) drift from what LC tells the model
      * is available, causing FileNotFoundError on the first reference. */
     const sandboxFilename = sanitizeFilename(file.originalname);
+    const stream = fs.createReadStream(file.path);
     const uploaded = await uploadCodeEnvFile({
       req,
       stream,
@@ -733,6 +744,7 @@ const processAgentFileUpload = async ({ req, res, metadata, sseStream }) => {
      * mode and the file would lose its sandbox reference on subsequent
      * priming turns. */
     fileInfoMetadata = {
+      ...(codeKind === 'project' ? { workspaceFileAttachment: true } : {}),
       codeEnvRef: {
         kind: codeKind,
         id: codeId,

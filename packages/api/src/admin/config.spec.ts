@@ -1,4 +1,4 @@
-import { isValidFieldPath, getTopLevelSection } from './config';
+import { isValidFieldPath, getTopLevelSection, isManagedPolicyConfigWriteBlocked } from './config';
 
 describe('isValidFieldPath', () => {
   it('accepts simple dot paths', () => {
@@ -60,5 +60,31 @@ describe('getTopLevelSection', () => {
 
   it('returns the whole string when no dots', () => {
     expect(getTopLevelSection('interface')).toBe('interface');
+  });
+});
+
+describe('managed publisher ownership of generic Admin Config mutations', () => {
+  it('stays dark until the dedicated publisher is enabled', () => {
+    expect(isManagedPolicyConfigWriteBlocked('role', 'USER', ['endpoints'], false)).toBe(false);
+    expect(isManagedPolicyConfigWriteBlocked('user', 'u1', ['endpoints.custom'], false)).toBe(
+      false,
+    );
+  });
+
+  it('reserves canonical role Configs for the transactional publisher', () => {
+    for (const id of ['__base__', 'USER', 'ADMIN']) {
+      expect(isManagedPolicyConfigWriteBlocked('role', id, [], true)).toBe(true);
+    }
+    expect(
+      isManagedPolicyConfigWriteBlocked('role', 'OTHER', ['interface.modelSelect'], true),
+    ).toBe(false);
+  });
+
+  it('rejects user or group endpoint changes while allowing unrelated settings', () => {
+    expect(isManagedPolicyConfigWriteBlocked('user', 'u1', ['endpoints.custom'], true)).toBe(true);
+    expect(isManagedPolicyConfigWriteBlocked('group', 'g1', ['endpoints'], true)).toBe(true);
+    expect(isManagedPolicyConfigWriteBlocked('group', 'g1', ['interface.modelSelect'], true)).toBe(
+      false,
+    );
   });
 });
