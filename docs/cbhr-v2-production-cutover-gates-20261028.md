@@ -36,6 +36,13 @@ This is a release gate record, not a deployment authorization.
 - Stopped that disposable standalone, re-used its exact data volume in MongoDB 7 replica-set mode, initialized a single-node `rsdrill` set, confirmed primary, and confirmed an intentionally aborted Config transaction persisted no change. The disposable container and volume were removed.
 - This verifies **mechanical topology conversion on restored data**, not a write-frozen production snapshot, correct production tenant identity, tested live application URI failover, or an authorized maintenance change. Keep the production MongoDB standalone and publisher listener dark until all live gates are met.
 
+## Production tenant provenance read-only gate (BLOCKED, not a deployment)
+
+- `python3 scripts/cbhr-v2-mongo-tenant-readonly-preflight.py` inventories only Mongo version/replica-set state, role-Config identities and `tenantId` presence, index shape, non-role Config counts, canonical revision presence, and aggregate user tenancy. It never supplies an inferred ID, exports user records, changes Mongo, or restarts a service. An exit code of 2 is the expected gate failure until actual blockers are resolved.
+- October 28 live output: MongoDB 7.0.37 is standalone; exactly three active role Configs (`__base__`, `USER`, `ADMIN`) exist without `tenantId`, zero non-role Configs, the existing compound unique tenant index is present, and canonical head/revision collections are absent.
+- The 12 users lacking `tenantId` are **inventory only, not an automatic migration blocker**. The current `getApplicableConfigs` path selects base and supplied principal roles without tenant filtering. This also means role tenant tagging alone does **not prove cross-tenant runtime isolation**; establish the actual fixed single-tenant service/organization binding before any publication.
+- Determine authoritative `MODEL_POLICY_TENANT_ID` from the controlled publisher/service contract. Do not copy a guessed organization slug or synthesize a tenant value on production. Verify indexes and confirm that the scoped role Configs cannot collide with alternate tenant records. Perform any tagging only in the explicitly authorized write-frozen maintenance window.
+
 ## Mandatory production database gate (NOT DONE)
 1. Establish and verify a restorable production backup plus recent filesystem/volume snapshots with an isolated restore proof.
 2. Freeze Config/model-policy writes, identify the actual bound tenant from authoritative tenancy records, and verify exactly which three current role documents belong to it. Never guess or bulk-backfill tenants without evidence.
