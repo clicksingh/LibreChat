@@ -801,7 +801,7 @@ const CHUNK_APPEND_BATCH_LUA =
  * a same-epoch terminal transition deleted or retained the final timeline.
  *
  *   KEYS: [runSteps, job]
- *   ARGV: [runStepsJson, runningTtl, expectCreatedAt | ""]
+ *   ARGV: [runStepsJson, runningTtl, expectCreatedAt | "", nowMs]
  */
 const RUNSTEPS_SAVE_LUA =
   'local currentCreatedAt = redis.call("HGET", KEYS[2], "createdAt") ' +
@@ -811,6 +811,10 @@ const RUNSTEPS_SAVE_LUA =
   'if currentStatus ~= "running" and currentStatus ~= "requires_action" then return 0 end ' +
   'redis.call("SET", KEYS[1], ARGV[1]) ' +
   'local run = tonumber(ARGV[2]) ' +
+  'if currentStatus == "running" then ' +
+  'redis.call("HSET", KEYS[2], "lastActiveAt", ARGV[4]) ' +
+  'local jobTtl = redis.call("TTL", KEYS[2]) ' +
+  'if jobTtl >= 0 and jobTtl < run then redis.call("EXPIRE", KEYS[2], run) end end ' +
   'local target = run ' +
   'if redis.call("HGET", KEYS[2], "status") == "requires_action" then ' +
   'local jt = redis.call("TTL", KEYS[2]) ' +
@@ -3798,6 +3802,7 @@ export class RedisJobStore implements IJobStoreV2 {
       JSON.stringify(runSteps),
       String(this.runningStorageTtlSeconds()),
       expectedCreatedAt != null ? String(expectedCreatedAt) : '',
+      String(Date.now()),
     );
   }
 
