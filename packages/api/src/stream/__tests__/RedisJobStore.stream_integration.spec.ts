@@ -1069,11 +1069,7 @@ describe('RedisJobStore Integration Tests', () => {
 
       // Simulate a generation whose last persisted stream chunk is stale even
       // though the agent graph is still progressing through model/tool steps.
-      await store.updateJob(
-        streamId,
-        { lastActiveAt: Date.now() - 120_000 },
-        job.createdAt,
-      );
+      await store.updateJob(streamId, { lastActiveAt: Date.now() - 120_000 }, job.createdAt);
 
       await store.saveRunSteps!(
         streamId,
