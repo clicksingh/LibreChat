@@ -878,7 +878,8 @@ export interface IJobStoreV2 extends IJobStore {
    * stream that is still producing output.
    *
    * In-memory: updates an internal last-activity timestamp used by cleanup().
-   * Redis: no-op — the running-job TTL is already refreshed on each appendChunk.
+   * Redis: persists a throttled epoch-fenced heartbeat so liveness does not
+   * depend exclusively on chunk persistence.
    *
    * @param streamId - The stream identifier
    * @param expectedCreatedAt - Optional generation identity. When supplied, replacement activity

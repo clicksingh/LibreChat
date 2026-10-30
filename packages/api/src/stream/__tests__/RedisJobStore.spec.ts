@@ -808,6 +808,7 @@ describe('RedisJobStore', () => {
     expect(saveCall[0]).toContain('currentCreatedAt ~= ARGV[3]');
     expect(saveCall[0]).toContain('currentStatus ~= "running"');
     expect(saveCall[0]).toContain('currentStatus ~= "requires_action"');
+    expect(saveCall[0]).toContain('"lastActiveAt"');
     expect(saveCall.slice(1)).toEqual([
       2,
       'stream:{stream-runstep-guarded}:runsteps',
@@ -815,6 +816,7 @@ describe('RedisJobStore', () => {
       JSON.stringify(runSteps),
       '1500',
       '100',
+      expect.any(String),
     ]);
   });
 

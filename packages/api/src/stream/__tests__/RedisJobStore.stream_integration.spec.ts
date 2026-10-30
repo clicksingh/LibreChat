@@ -1055,6 +1055,69 @@ describe('RedisJobStore Integration Tests', () => {
       await store.destroy();
     });
 
+    test('saveRunSteps refreshes running-job liveness so active long jobs are not reaped', async () => {
+      if (!ioredisClient) {
+        return;
+      }
+
+      const { RedisJobStore } = await import('../implementations/RedisJobStore');
+      const store = new RedisJobStore(ioredisClient, { runningTtl: 60 });
+      await store.initialize();
+
+      const streamId = `runsteps-liveness-${Date.now()}`;
+      const job = await store.createJob(streamId, 'user-1', streamId);
+
+      // Simulate a generation whose last persisted stream chunk is stale even
+      // though the agent graph is still progressing through model/tool steps.
+      await store.updateJob(streamId, { lastActiveAt: Date.now() - 120_000 }, job.createdAt);
+
+      await store.saveRunSteps!(
+        streamId,
+        [{ id: 'step-live', type: 'tool_call' }] as never,
+        job.createdAt,
+      );
+
+      expect(await store.cleanup()).toBe(0);
+      const refreshed = await store.getJob(streamId);
+      expect(refreshed?.status).toBe('running');
+      expect(refreshed?.lastActiveAt).toBeGreaterThan(Date.now() - 5_000);
+
+      await store.destroy();
+    });
+
+    test('recordActivity keeps an actively emitting Redis job alive independently of chunks', async () => {
+      if (!ioredisClient) {
+        return;
+      }
+
+      const { RedisJobStore } = await import('../implementations/RedisJobStore');
+      const store = new RedisJobStore(ioredisClient, { runningTtl: 1 });
+      await store.initialize();
+
+      const streamId = `explicit-heartbeat-${Date.now()}`;
+      const job = await store.createJob(streamId, 'user-1', streamId);
+
+      await store.updateJob(streamId, { lastActiveAt: Date.now() - 10_000 }, job.createdAt);
+
+      const heartbeatStartedAt = Date.now();
+      store.recordActivity(streamId, job.createdAt);
+
+      let refreshed = await store.getJob(streamId);
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if ((refreshed?.lastActiveAt ?? 0) >= heartbeatStartedAt) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        refreshed = await store.getJob(streamId);
+      }
+
+      expect(refreshed?.lastActiveAt).toBeGreaterThanOrEqual(heartbeatStartedAt);
+      expect(await store.cleanup()).toBe(0);
+      expect((await store.getJob(streamId))?.status).toBe('running');
+
+      await store.destroy();
+    });
+
     test('appendChunk gives the approval TTL when the chunk key did not exist at pause time', async () => {
       if (!ioredisClient) {
         return;

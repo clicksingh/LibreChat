@@ -801,8 +801,33 @@ const CHUNK_APPEND_BATCH_LUA =
  * a same-epoch terminal transition deleted or retained the final timeline.
  *
  *   KEYS: [runSteps, job]
- *   ARGV: [runStepsJson, runningTtl, expectCreatedAt | ""]
+ *   ARGV: [runStepsJson, runningTtl, expectCreatedAt | "", nowMs]
  */
+/**
+ * Epoch-fenced running-job heartbeat. Chunk persistence also refreshes
+ * lastActiveAt, but liveness must not depend on chunk batching/backpressure:
+ * an actively emitting provider must not be reaped merely because its durable
+ * chunk path is delayed. The manager throttles calls through recordActivity().
+ *
+ * KEYS: [job, generationEpoch]
+ * ARGV: [expectCreatedAt | "", nowMs, runningStorageTtl, generationEpochGraceTtl]
+ */
+const RECORD_ACTIVITY_LUA =
+  'local currentCreatedAt = redis.call("HGET", KEYS[1], "createdAt") ' +
+  'if not currentCreatedAt then return 0 end ' +
+  'if ARGV[1] ~= "" and currentCreatedAt ~= ARGV[1] then return 0 end ' +
+  'if redis.call("HGET", KEYS[1], "status") ~= "running" then return 0 end ' +
+  'redis.call("HSET", KEYS[1], "lastActiveAt", ARGV[2]) ' +
+  'local target = tonumber(ARGV[3]) ' +
+  'local jobTtl = redis.call("TTL", KEYS[1]) ' +
+  'if jobTtl >= 0 and jobTtl < target then redis.call("EXPIRE", KEYS[1], target) end ' +
+  'local retainedEpoch = redis.call("GET", KEYS[2]) ' +
+  'if retainedEpoch == currentCreatedAt then ' +
+  'local epochTarget = target + tonumber(ARGV[4]) ' +
+  'local epochTtl = redis.call("TTL", KEYS[2]) ' +
+  'if epochTtl >= 0 and epochTtl < epochTarget then redis.call("EXPIRE", KEYS[2], epochTarget) end end ' +
+  'return 1';
+
 const RUNSTEPS_SAVE_LUA =
   'local currentCreatedAt = redis.call("HGET", KEYS[2], "createdAt") ' +
   'if not currentCreatedAt then return 0 end ' +
@@ -811,6 +836,10 @@ const RUNSTEPS_SAVE_LUA =
   'if currentStatus ~= "running" and currentStatus ~= "requires_action" then return 0 end ' +
   'redis.call("SET", KEYS[1], ARGV[1]) ' +
   'local run = tonumber(ARGV[2]) ' +
+  'if currentStatus == "running" then ' +
+  'redis.call("HSET", KEYS[2], "lastActiveAt", ARGV[4]) ' +
+  'local jobTtl = redis.call("TTL", KEYS[2]) ' +
+  'if jobTtl >= 0 and jobTtl < run then redis.call("EXPIRE", KEYS[2], run) end end ' +
   'local target = run ' +
   'if redis.call("HGET", KEYS[2], "status") == "requires_action" then ' +
   'local jt = redis.call("TTL", KEYS[2]) ' +
@@ -1437,6 +1466,11 @@ const PARKED_RECOVERY_TTL_S: number = 300;
 const STEER_RECEIPT_MAX_PER_STREAM: number = 100;
 /** Grace window for publishing terminal/reaper events after the live job hash expires. */
 const GENERATION_EPOCH_GRACE_TTL_S: number = 300;
+/** Explicit Redis liveness heartbeat. GenerationJobManager calls recordActivity
+ * on every emitted event; throttle the durable heartbeat so long streams are
+ * protected independently of chunk persistence without adding per-token Redis
+ * traffic. */
+const REDIS_ACTIVITY_HEARTBEAT_INTERVAL_MS = 5000;
 /** A terminal record carrying an uncommitted final event must survive the
  * persistence-owner timeout even when completedTtl is configured to zero. */
 const TERMINAL_PERSISTENCE_RETENTION_TTL_S: number = 300;
@@ -1571,6 +1605,8 @@ export class RedisJobStore implements IJobStoreV2 {
   private ttl: typeof DEFAULT_TTL;
   /** Coalescable chunk appends awaiting their window flush, per stream */
   private pendingAppends = new Map<string, PendingChunkAppendBatch>();
+  /** Last explicit liveness heartbeat issued per stream/generation. */
+  private activityHeartbeats = new Map<string, { createdAt?: number; issuedAt: number }>();
   /** Durable-append coalescing window; 0 keeps every append on the per-event path */
   private readonly coalesceWindowMs: number;
 
@@ -1683,6 +1719,10 @@ export class RedisJobStore implements IJobStoreV2 {
     this.deleteLocalEntry(this.localGraphCache, streamId, expectedCreatedAt);
     this.deleteLocalEntry(this.localContentParts, streamId, expectedCreatedAt);
     this.deleteLocalEntry(this.localCollectedUsageCache, streamId, expectedCreatedAt);
+    const heartbeat = this.activityHeartbeats.get(streamId);
+    if (heartbeat && (expectedCreatedAt == null || heartbeat.createdAt === expectedCreatedAt)) {
+      this.activityHeartbeats.delete(streamId);
+    }
   }
 
   private clearPredecessorLocalState(streamId: string, createdAt: number): void {
@@ -1697,6 +1737,10 @@ export class RedisJobStore implements IJobStoreV2 {
     const usageEntry = this.localCollectedUsageCache.get(streamId);
     if (usageEntry && (usageEntry.createdAt == null || usageEntry.createdAt < createdAt)) {
       this.deleteLocalEntry(this.localCollectedUsageCache, streamId, undefined, usageEntry);
+    }
+    const heartbeat = this.activityHeartbeats.get(streamId);
+    if (heartbeat && (heartbeat.createdAt == null || heartbeat.createdAt < createdAt)) {
+      this.activityHeartbeats.delete(streamId);
     }
   }
 
@@ -2520,6 +2564,48 @@ export class RedisJobStore implements IJobStoreV2 {
     return true;
   }
 
+  /**
+   * Refresh running-job liveness independently of chunk persistence.
+   * GenerationJobManager invokes this on every emitted event; this method
+   * throttles Redis writes to one heartbeat per stream/generation per interval.
+   */
+  recordActivity(streamId: string, expectedCreatedAt?: number): void {
+    const now = Date.now();
+    const previous = this.activityHeartbeats.get(streamId);
+    if (
+      previous != null &&
+      previous.createdAt === expectedCreatedAt &&
+      now - previous.issuedAt < REDIS_ACTIVITY_HEARTBEAT_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    const heartbeat = { createdAt: expectedCreatedAt, issuedAt: now };
+    this.activityHeartbeats.set(streamId, heartbeat);
+    void this.redis
+      .eval(
+        RECORD_ACTIVITY_LUA,
+        2,
+        KEYS.job(streamId),
+        KEYS.generationEpoch(streamId),
+        expectedCreatedAt != null ? String(expectedCreatedAt) : '',
+        String(now),
+        String(this.runningStorageTtlSeconds()),
+        String(GENERATION_EPOCH_GRACE_TTL_S),
+      )
+      .then((refreshed) => {
+        if (refreshed !== 1 && this.activityHeartbeats.get(streamId) === heartbeat) {
+          this.activityHeartbeats.delete(streamId);
+        }
+      })
+      .catch((error) => {
+        if (this.activityHeartbeats.get(streamId) === heartbeat) {
+          this.activityHeartbeats.delete(streamId);
+        }
+        logger.error('[RedisJobStore] Failed to record job activity:', error);
+      });
+  }
+
   async hasJob(streamId: string): Promise<boolean> {
     const exists = await this.redis.exists(KEYS.job(streamId));
     return exists === 1;
@@ -2865,6 +2951,7 @@ export class RedisJobStore implements IJobStoreV2 {
     this.localGraphCache.clear();
     this.localContentParts.clear();
     this.localCollectedUsageCache.clear();
+    this.activityHeartbeats.clear();
     // Don't close the Redis connection - it's shared
     logger.info('[RedisJobStore] Destroyed');
   }
@@ -3798,6 +3885,7 @@ export class RedisJobStore implements IJobStoreV2 {
       JSON.stringify(runSteps),
       String(this.runningStorageTtlSeconds()),
       expectedCreatedAt != null ? String(expectedCreatedAt) : '',
+      String(Date.now()),
     );
   }
 
