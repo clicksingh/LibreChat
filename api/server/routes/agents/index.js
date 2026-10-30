@@ -15,6 +15,7 @@ const {
   createMessageFilterPii,
 } = require('@librechat/api');
 const { createSseStreamTelemetry } = require('@librechat/api/telemetry');
+const { createSseTransportHeartbeat } = require('./sseHeartbeat');
 const { logger } = require('@librechat/data-schemas');
 const {
   uaParser,
@@ -223,6 +224,7 @@ router.get('/chat/stream/:streamId', async (req, res) => {
   res.setHeader(GENERATION_PROTOCOL_HEADER, String(generationProtocolVersion));
   res.flushHeaders();
   streamTelemetry.recordHeadersFlushed();
+  createSseTransportHeartbeat(res);
 
   logger.debug(`[AgentStream] Client subscribed to ${streamId}, resume: ${isResume}`);
 
