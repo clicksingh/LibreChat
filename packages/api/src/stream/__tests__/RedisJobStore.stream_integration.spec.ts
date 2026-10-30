@@ -1085,6 +1085,39 @@ describe('RedisJobStore Integration Tests', () => {
       await store.destroy();
     });
 
+    test('recordActivity keeps an actively emitting Redis job alive independently of chunks', async () => {
+      if (!ioredisClient) {
+        return;
+      }
+
+      const { RedisJobStore } = await import('../implementations/RedisJobStore');
+      const store = new RedisJobStore(ioredisClient, { runningTtl: 1 });
+      await store.initialize();
+
+      const streamId = `explicit-heartbeat-${Date.now()}`;
+      const job = await store.createJob(streamId, 'user-1', streamId);
+
+      await store.updateJob(streamId, { lastActiveAt: Date.now() - 10_000 }, job.createdAt);
+
+      const heartbeatStartedAt = Date.now();
+      store.recordActivity(streamId, job.createdAt);
+
+      let refreshed = await store.getJob(streamId);
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if ((refreshed?.lastActiveAt ?? 0) >= heartbeatStartedAt) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        refreshed = await store.getJob(streamId);
+      }
+
+      expect(refreshed?.lastActiveAt).toBeGreaterThanOrEqual(heartbeatStartedAt);
+      expect(await store.cleanup()).toBe(0);
+      expect((await store.getJob(streamId))?.status).toBe('running');
+
+      await store.destroy();
+    });
+
     test('appendChunk gives the approval TTL when the chunk key did not exist at pause time', async () => {
       if (!ioredisClient) {
         return;
