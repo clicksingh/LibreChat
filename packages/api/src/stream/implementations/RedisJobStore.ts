@@ -2573,7 +2573,8 @@ export class RedisJobStore implements IJobStoreV2 {
     const now = Date.now();
     const previous = this.activityHeartbeats.get(streamId);
     if (
-      previous?.createdAt === expectedCreatedAt &&
+      previous != null &&
+      previous.createdAt === expectedCreatedAt &&
       now - previous.issuedAt < REDIS_ACTIVITY_HEARTBEAT_INTERVAL_MS
     ) {
       return;
