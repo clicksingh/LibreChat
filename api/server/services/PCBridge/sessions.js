@@ -154,8 +154,19 @@ function createSessions({
     } catch (err) {
       // A successful native registration followed by a DB failure must not
       // leave an MCP server with no owning session.
-      if (registeredName)
-        await unregister({ userId: doc.userId, serverName: registeredName }).catch(() => {});
+      if (registeredName) {
+        try {
+          await unregister({ userId: doc.userId, serverName: registeredName });
+        } catch {
+          // Do not forget a server that has already been created if its
+          // compensation fails. The session reaper will retry removal.
+          await collection.updateOne(
+            { sessionId, state: 'activating' },
+            { $set: { state: 'cleanup_pending', serverName: registeredName, expiresAt: now() } },
+          );
+          throw err;
+        }
+      }
       await collection.updateOne(
         { sessionId, state: 'activating' },
         { $set: { state: 'claimed' } },

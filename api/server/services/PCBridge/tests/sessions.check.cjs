@@ -60,9 +60,10 @@ function db() {
     },
   };
 }
-function fixture() {
+function fixture({ failUnregisterOnce = false } = {}) {
   const collection = db();
   let fixtureRegistered = true;
+  let unregisterFailuresRemaining = failUnregisterOnce ? 1 : 0;
   let current = new Date('2026-11-03T08:00:00.000Z');
   const events = [];
   const provider = {
@@ -97,6 +98,10 @@ function fixture() {
     },
     unregister: async (input) => {
       events.push(['unregister', input.serverName]);
+      if (unregisterFailuresRemaining > 0) {
+        unregisterFailuresRemaining -= 1;
+        throw new Error('Temporary MCP cleanup outage');
+      }
     },
     isRegistered: async () => fixtureRegistered,
   });
@@ -224,7 +229,6 @@ test('browser deletion is detected at next heartbeat and tears tunnel down', asy
   assert.ok(events.some((x) => x[0] === 'destroy'));
 });
 
-
 test('an abandoned activating session expires and the tunnel is reaped', async () => {
   const { service, collection, advance, events } = fixture();
   const session = await service.claim({ code: 'valid', port: 8845 });
@@ -239,13 +243,16 @@ test('disconnect can cancel an in-flight activation and prevent an orphan', asyn
   const { service, collection, events } = fixture();
   const session = await service.claim({ code: 'valid', port: 8845 });
   collection.rows[0].state = 'activating';
-  assert.equal(await service.disconnect({
-    sessionId: session.sessionId, sessionSecret: session.sessionSecret,
-  }), true);
+  assert.equal(
+    await service.disconnect({
+      sessionId: session.sessionId,
+      sessionSecret: session.sessionSecret,
+    }),
+    true,
+  );
   assert.equal(collection.rows[0].state, 'closed');
   assert.ok(events.some((item) => item[0] === 'destroy'));
 });
-
 
 test('an interrupted disconnect is eventually reaped, unblocking a new PC session', async () => {
   const { service, collection, advance, events } = fixture();
@@ -255,4 +262,27 @@ test('an interrupted disconnect is eventually reaped, unblocking a new PC sessio
   assert.equal(await service.reap(), 1);
   assert.equal(collection.rows[0].state, 'closed');
   assert.ok(events.some((item) => item[0] === 'destroy'));
+});
+
+test('failed registration compensation retains cleanup state for the reaper', async () => {
+  const { service, collection, events } = fixture({ failUnregisterOnce: true });
+  const s = await service.claim({ code: 'valid', port: 8845 });
+  const originalUpdate = collection.updateOne;
+  collection.updateOne = async (filter, patch) => {
+    if (patch.$set.state === 'active') return { modifiedCount: 0 };
+    return originalUpdate(filter, patch);
+  };
+  await assert.rejects(
+    service.activate({
+      sessionId: s.sessionId,
+      sessionSecret: s.sessionSecret,
+      bearerToken: 'x'.repeat(48),
+    }),
+    /changed during activation/,
+  );
+  assert.equal(collection.rows[0].state, 'cleanup_pending');
+  assert.equal(collection.rows[0].serverName, 'cbhr_pc');
+  assert.equal(await service.reap(), 1);
+  assert.equal(collection.rows[0].state, 'closed');
+  assert.equal(events.filter((event) => event[0] === 'unregister').length, 2);
 });
