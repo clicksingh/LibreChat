@@ -1,7 +1,8 @@
-﻿import { useState } from 'react';
-import { Monitor } from 'lucide-react';
+﻿import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
 import { request } from 'librechat-data-provider';
-import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
+import { Monitor } from 'lucide-react';
+import { useState } from 'react';
+import { useLocalize } from '~/hooks';
 
 interface PairingTicket {
   code: string;
@@ -14,6 +15,7 @@ interface PairingTicket {
  * ever leaves the browser for the desktop through this component.
  */
 export default function PCBridgeConnect() {
+  const localize = useLocalize();
   const [open, setOpen] = useState(false);
   const [ticket, setTicket] = useState<PairingTicket | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ export default function PCBridgeConnect() {
       setTicket(next);
     } catch {
       setTicket(null);
-      setError('Could not create a PC connection code. Please try again.');
+      setError(localize('com_ui_pc_connection_code_error'));
     } finally {
       setBusy(false);
     }
@@ -50,20 +52,20 @@ export default function PCBridgeConnect() {
           setOpen(true);
           void startPairing();
         }}
-        aria-label="Connect your PC"
+        aria-label={localize('com_ui_connect_pc')}
       >
         <Monitor className="size-4" aria-hidden="true" />
-        <span>Connect PC</span>
+        <span>{localize('com_ui_connect_pc')}</span>
       </Button>
       <OGDialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
         <OGDialogTemplate
-          title="Connect your computer"
-          description="Open CBHR PC Bridge on your computer and enter this one-time code."
+          title={localize('com_ui_connect_your_computer')}
+          description={localize('com_ui_open_pc_bridge_enter_code')}
           className="w-11/12 max-w-md"
           main={
             <div className="space-y-4 py-2">
               {busy && (
-                <p className="text-sm text-text-secondary">Creating your connection code...</p>
+                <p className="text-sm text-text-secondary">{localize('com_ui_creating_pc_connection_code')}</p>
               )}
               {error && (
                 <p role="alert" className="text-sm text-text-destructive">
@@ -74,17 +76,15 @@ export default function PCBridgeConnect() {
                 <>
                   <div
                     className="rounded-lg border border-border-medium bg-surface-secondary px-4 py-5 text-center font-mono text-xl font-semibold tracking-wide"
-                    aria-label="PC pairing code"
+                    aria-label={localize('com_ui_pc_pairing_code')}
                   >
                     {ticket.code}
                   </div>
                   <p className="text-sm text-text-secondary">
-                    Valid for three minutes and usable only once. Keep this window open while you
-                    connect.
+                    {localize('com_ui_pc_pairing_code_validity')}
                   </p>
                   <p className="text-xs text-text-secondary">
-                    You never need to provide your password, browser token, or Cloudflare
-                    credentials to the desktop helper.
+                    {localize('com_ui_pc_pairing_security_note')}
                   </p>
                 </>
               )}
@@ -97,7 +97,7 @@ export default function PCBridgeConnect() {
               onClick={() => void startPairing()}
               disabled={busy}
             >
-              Generate new code
+              {localize('com_ui_generate_new_code')}
             </Button>
           }
         />
