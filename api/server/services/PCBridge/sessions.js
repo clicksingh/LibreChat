@@ -145,6 +145,7 @@ function createSessions({
             serverName: registeredName,
             lastSeenAt: now(),
             expiresAt: new Date(now().getTime() + ACTIVE_HEARTBEAT_WINDOW_MS),
+            purgeAfter: new Date(now().getTime() + PURGE_MS),
           },
         },
       );
@@ -162,7 +163,14 @@ function createSessions({
           // compensation fails. The session reaper will retry removal.
           await collection.updateOne(
             { sessionId, state: 'activating' },
-            { $set: { state: 'cleanup_pending', serverName: registeredName, expiresAt: now() } },
+            {
+              $set: {
+                state: 'cleanup_pending',
+                serverName: registeredName,
+                expiresAt: now(),
+                purgeAfter: new Date(now().getTime() + PURGE_MS),
+              },
+            },
           );
           throw err;
         }
@@ -201,6 +209,7 @@ function createSessions({
         $set: {
           lastSeenAt: observedAt,
           expiresAt: new Date(observedAt.getTime() + ACTIVE_HEARTBEAT_WINDOW_MS),
+          purgeAfter: new Date(observedAt.getTime() + PURGE_MS),
         },
       },
     );
@@ -224,13 +233,25 @@ function createSessions({
     if (failures.length) {
       await collection.updateOne(
         { sessionId: doc.sessionId, state: 'disconnecting' },
-        { $set: { state: 'cleanup_pending', expiresAt: now() } },
+        {
+          $set: {
+            state: 'cleanup_pending',
+            expiresAt: now(),
+            purgeAfter: new Date(now().getTime() + PURGE_MS),
+          },
+        },
       );
       throw failures[0];
     }
     await collection.updateOne(
       { sessionId: doc.sessionId, state: 'disconnecting' },
-      { $set: { state: 'closed', expiresAt: now() } },
+      {
+        $set: {
+          state: 'closed',
+          expiresAt: now(),
+          purgeAfter: new Date(now().getTime() + PURGE_MS),
+        },
+      },
     );
     return true;
   }

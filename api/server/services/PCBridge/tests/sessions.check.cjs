@@ -286,3 +286,23 @@ test('failed registration compensation retains cleanup state for the reaper', as
   assert.equal(collection.rows[0].state, 'closed');
   assert.equal(events.filter((event) => event[0] === 'unregister').length, 2);
 });
+
+test('heartbeat extends TTL retention so a live session cannot be purged', async () => {
+  const { service, collection, advance } = fixture();
+  const session = await service.claim({ code: 'valid', port: 8845 });
+  await service.activate({
+    sessionId: session.sessionId,
+    sessionSecret: session.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  });
+  const before = collection.rows[0].purgeAfter;
+  advance(ACTIVE_HEARTBEAT_WINDOW_MS - 1000);
+  assert.equal(
+    await service.heartbeat({
+      sessionId: session.sessionId,
+      sessionSecret: session.sessionSecret,
+    }),
+    true,
+  );
+  assert.ok(collection.rows[0].purgeAfter > before);
+});
