@@ -1,15 +1,15 @@
-import { Button, FilterInput, OGDialogTrigger, TooltipAnchor } from '@librechat/client';
-import { SystemRoles, PermissionTypes, Permissions } from 'librechat-data-provider';
-import { Plus } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { SystemRoles, PermissionTypes, Permissions } from 'librechat-data-provider';
+import { Button, FilterInput, OGDialogTrigger, TooltipAnchor } from '@librechat/client';
+import { useAuthContext, useHasAccess, useLocalize, useMCPServerManager } from '~/hooks';
 import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import { PanelContent, PanelFooter } from '~/components/ui';
-import { useAuthContext, useHasAccess, useLocalize, useMCPServerManager } from '~/hooks';
 import MCPServerCardSkeleton from './MCPServerCardSkeleton';
 import MCPAdminSettings from './MCPAdminSettings';
 import MCPServerDialog from './MCPServerDialog';
-import MCPServerList from './MCPServerList';
 import PCBridgeConnect from './PCBridgeConnect';
+import MCPServerList from './MCPServerList';
 
 export default function MCPBuilderPanel() {
   const localize = useLocalize();

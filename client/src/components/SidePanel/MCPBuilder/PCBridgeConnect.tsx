@@ -1,7 +1,7 @@
-﻿import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
-import { request } from 'librechat-data-provider';
-import { Monitor } from 'lucide-react';
 import { useState } from 'react';
+import { Monitor } from 'lucide-react';
+import { request } from 'librechat-data-provider';
+﻿import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
 import { useLocalize } from '~/hooks';
 
 interface PairingTicket {
