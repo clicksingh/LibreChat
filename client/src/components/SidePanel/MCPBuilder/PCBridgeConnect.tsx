@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Monitor } from 'lucide-react';
 import { request } from 'librechat-data-provider';
-﻿import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
+import { Button, OGDialog, OGDialogTemplate } from '@librechat/client';
 import { useLocalize } from '~/hooks';
 
 interface PairingTicket {
@@ -65,7 +65,9 @@ export default function PCBridgeConnect() {
           main={
             <div className="space-y-4 py-2">
               {busy && (
-                <p className="text-sm text-text-secondary">{localize('com_ui_creating_pc_connection_code')}</p>
+                <p className="text-sm text-text-secondary">
+                  {localize('com_ui_creating_pc_connection_code')}
+                </p>
               )}
               {error && (
                 <p role="alert" className="text-sm text-text-destructive">
