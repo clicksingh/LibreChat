@@ -43,7 +43,6 @@ const {
 } = require('~/server/services/Config');
 const { getResourcePermissionsMap } = require('~/server/services/PermissionService');
 const { hasCapability } = require('~/server/middleware/roles/capabilities');
-const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { getMCPManager, getMCPServersRegistry } = require('~/config');
 const db = require('~/models');
 
@@ -653,32 +652,9 @@ const createPCBridgeMCPServerController = async (req, res) => {
       MCPConnection.clearCooldown(inspectionServerName);
     }
 
-    let initialized;
-    try {
-      initialized = await reinitMCPServer({
-        user: req.user,
-        serverName: result.serverName,
-        serverConfig: result.config,
-        forceNew: true,
-      });
-    } catch (error) {
-      await removePCBridgeServerSafely({
-        registry,
-        userId,
-        serverName: result.serverName,
-        existingConfig: result.config,
-      });
-      throw error;
-    }
-    let toolNames = Array.isArray(initialized?.tools)
-      ? initialized.tools.map((tool) => tool?.name).filter(Boolean)
-      : [];
-    if (initialized?.success && toolNames.length === 0) {
-      const publishedTools = await getMCPServerTools(userId, result.serverName, result.config);
-      toolNames = getPublishedPCBridgeToolNames(publishedTools, result.serverName);
-    }
-
-    if (!initialized?.success || toolNames.length === 0) {
+    const publishedTools = result.config?.toolFunctions;
+    const toolNames = getPublishedPCBridgeToolNames(publishedTools, result.serverName);
+    if (toolNames.length === 0) {
       await removePCBridgeServerSafely({
         registry,
         userId,

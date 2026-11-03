@@ -53,11 +53,6 @@ jest.mock('~/server/services/Config', () => ({
   invalidateCachedTools: jest.fn(),
 }));
 
-const mockReinitMCPServer = jest.fn();
-jest.mock('~/server/services/Tools/mcp', () => ({
-  reinitMCPServer: (...args) => mockReinitMCPServer(...args),
-}));
-
 const {
   getMCPServersList,
   getMCPServerById,
@@ -135,7 +130,6 @@ beforeEach(async () => {
   mockRegistryInstance.updateServer.mockReset();
   mockRegistryInstance.removeServer.mockReset();
   mockMcpManager.disconnectUserConnection.mockReset().mockResolvedValue(undefined);
-  mockReinitMCPServer.mockReset();
   const cacheService = require('~/server/services/Config');
   cacheService.invalidateCachedTools.mockReset().mockResolvedValue(undefined);
   cacheService.getMCPServerTools.mockReset().mockResolvedValue({ retained: {} });
@@ -501,6 +495,8 @@ describe('DB-backed server mutation fencing', () => {
 
 describe('CBHR PC bridge native registration', () => {
   const bearerToken = 'pc-bridge-test-bearer-0123456789abcdef';
+  const readKey = 'read_file' + Constants.mcp_delimiter + 'cbhr_pc';
+  const listKey = 'list_directory' + Constants.mcp_delimiter + 'cbhr_pc';
   const pcConfig = {
     type: 'streamable-http',
     url: 'https://pc-proof.kelownarealestate.com/mcp',
@@ -511,17 +507,24 @@ describe('CBHR PC bridge native registration', () => {
       authorization_type: 'bearer',
       key: bearerToken,
     },
+    tools: 'read_file, list_directory',
+    toolFunctions: {
+      [readKey]: {
+        type: 'function',
+        function: { name: readKey, description: '', parameters: { type: 'object' } },
+      },
+      [listKey]: {
+        type: 'function',
+        function: { name: listKey, description: '', parameters: { type: 'object' } },
+      },
+    },
   };
 
-  it('registers a managed bridge, initializes tools, and never returns the bearer secret', async () => {
+  it('registers a managed bridge from the native inspection result and never returns the bearer secret', async () => {
     const user = await createUser();
     mockRegistryInstance.addServer.mockResolvedValue({
       serverName: 'cbhr_pc',
       config: pcConfig,
-    });
-    mockReinitMCPServer.mockResolvedValue({
-      success: true,
-      tools: [{ name: 'read_file' }, { name: 'list_directory' }],
     });
     const res = createRes();
 
@@ -538,14 +541,6 @@ describe('CBHR PC bridge native registration', () => {
 
     expect(mockRegistryInstance.addServer).toHaveBeenCalledTimes(1);
     expect(mockRegistryInstance.addServer.mock.calls[0][0]).toMatch(/^cbhr_pc_/);
-    expect(mockReinitMCPServer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        user,
-        serverName: 'cbhr_pc',
-        serverConfig: pcConfig,
-        forceNew: true,
-      }),
-    );
     expect(res.status).toHaveBeenCalledWith(201);
     const payload = res.json.mock.calls[0][0];
     expect(payload.serverName).toBe('cbhr_pc');
@@ -553,29 +548,14 @@ describe('CBHR PC bridge native registration', () => {
     expect(JSON.stringify(payload)).not.toContain(bearerToken);
   });
 
-  it('accepts tools already published by list_changed when the reinit snapshot is incomplete', async () => {
+  it('does not depend on the mutable user tool cache after native inspection succeeds', async () => {
     const user = await createUser();
     mockRegistryInstance.addServer.mockResolvedValue({
-      serverName: 'cbhr-pc',
+      serverName: 'cbhr_pc',
       config: pcConfig,
     });
-    mockReinitMCPServer.mockResolvedValue({
-      success: true,
-      tools: null,
-    });
     const cacheService = require('~/server/services/Config');
-    const readKey = 'read_file' + Constants.mcp_delimiter + 'cbhr-pc';
-    const listKey = 'list_directory' + Constants.mcp_delimiter + 'cbhr-pc';
-    cacheService.getMCPServerTools.mockResolvedValue({
-      [readKey]: {
-        type: 'function',
-        function: { name: readKey },
-      },
-      [listKey]: {
-        type: 'function',
-        function: { name: listKey },
-      },
-    });
+    cacheService.getMCPServerTools.mockResolvedValue(null);
     const res = createRes();
 
     await createPCBridgeMCPServerController(
@@ -589,19 +569,19 @@ describe('CBHR PC bridge native registration', () => {
       res,
     );
 
+    expect(cacheService.getMCPServerTools).not.toHaveBeenCalled();
+    expect(mockRegistryInstance.removeServer).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json.mock.calls[0][0].tools).toEqual(['read_file', 'list_directory']);
-    expect(mockRegistryInstance.removeServer).not.toHaveBeenCalled();
   });
 
-  it('removes and fences a newly registered bridge when discovery exposes no tools', async () => {
+  it('removes and fences a bridge only when the native inspection exposes no tools', async () => {
     const user = await createUser();
     mockRegistryInstance.addServer.mockResolvedValue({
       serverName: 'cbhr_pc',
-      config: pcConfig,
+      config: { ...pcConfig, tools: '', toolFunctions: {} },
     });
     mockRegistryInstance.removeServer.mockResolvedValue(undefined);
-    mockReinitMCPServer.mockResolvedValue({ success: true, tools: [] });
     const res = createRes();
 
     await createPCBridgeMCPServerController(
@@ -622,14 +602,9 @@ describe('CBHR PC bridge native registration', () => {
     expect(res.status).toHaveBeenCalledWith(502);
   });
 
-  it('rolls back a persisted bridge when MCP initialization throws', async () => {
+  it('does not persist anything when native inspection rejects the bridge', async () => {
     const user = await createUser();
-    mockRegistryInstance.addServer.mockResolvedValue({
-      serverName: 'cbhr_pc',
-      config: pcConfig,
-    });
-    mockRegistryInstance.removeServer.mockResolvedValue(undefined);
-    mockReinitMCPServer.mockRejectedValue(new Error('MCP initialization exploded'));
+    mockRegistryInstance.addServer.mockRejectedValue(new Error('Inspection failed'));
     const res = createRes();
 
     await createPCBridgeMCPServerController(
@@ -637,10 +612,7 @@ describe('CBHR PC bridge native registration', () => {
       res,
     );
 
-    const { invalidateCachedTools } = require('~/server/services/Config');
-    expect(mockRegistryInstance.removeServer).toHaveBeenCalledWith('cbhr_pc', 'DB', user.id);
-    expect(invalidateCachedTools).toHaveBeenCalledTimes(2);
-    expect(mockMcpManager.disconnectUserConnection).toHaveBeenCalledWith(user.id, 'cbhr_pc');
+    expect(mockRegistryInstance.removeServer).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
