@@ -27,6 +27,8 @@ fs.writeFileSync(generatedConfig, generatedYaml);
 
 export default defineConfig({
   ...baseConfig,
+  testIgnore: [],
+  testMatch: ['**/rdc-native-registration.spec.ts'],
   globalSetup: undefined,
   globalTeardown: undefined,
   use: {
