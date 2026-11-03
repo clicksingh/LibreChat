@@ -1,12 +1,26 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createCloudflareServer, PROTECTED_TUNNELS } = require('../cloudflareServer');
 
 const TUNNEL_ID = '11111111-1111-4111-8111-111111111111';
-function fixture({ failDns = false } = {}) {
+function fixture({ failDns = false, dnsVisibleAfter = 1, dnsNeverReady = false } = {}) {
   const calls = [];
   const adminToken = 'admin-token-secret-kept-exclusively-on-server';
+  let dnsChecks = 0;
+  const fakeDnsFetch = async () => {
+    dnsChecks += 1;
+    const ready = !dnsNeverReady && dnsChecks >= dnsVisibleAfter;
+    return {
+      status: 200,
+      ok: true,
+      async json() {
+        return ready
+          ? { Status: 0, Answer: [{ type: 1, data: '104.21.35.185' }] }
+          : { Status: 3 };
+      },
+    };
+  };
   const fakeFetch = async (url, options) => {
     const path = new URL(url).pathname;
     calls.push({ path, method: options.method, headers: options.headers, body: options.body });
@@ -32,9 +46,17 @@ function fixture({ failDns = false } = {}) {
     };
   };
   return {
-    service: createCloudflareServer({ token: adminToken, fetcher: fakeFetch }),
+    service: createCloudflareServer({
+      token: adminToken,
+      fetcher: fakeFetch,
+      dnsFetcher: fakeDnsFetch,
+      sleep: async () => {},
+      dnsReadyTimeoutMs: dnsNeverReady ? 0 : 30000,
+      dnsReadyIntervalMs: 0,
+    }),
     calls,
     adminToken,
+    dnsChecks: () => dnsChecks,
   };
 }
 
@@ -78,4 +100,21 @@ test('invalid port and protected tunnel IDs are rejected before API calls', asyn
 
 test('missing central Cloudflare token fails closed', () => {
   assert.throws(() => createCloudflareServer({ token: '' }), { code: 'CF_NOT_CONFIGURED' });
+});
+
+
+test('provision waits for public DNS visibility before returning the connector', async () => {
+  const { service, dnsChecks } = fixture({ dnsVisibleAfter: 3 });
+  const tunnel = await service.provision({ userId: '6a31557594ab025c7537576e', port: 8845 });
+  assert.equal(tunnel.tunnelId, TUNNEL_ID);
+  assert.equal(dnsChecks(), 3);
+});
+
+test('DNS visibility timeout cleans up the created record and tunnel', async () => {
+  const { service, calls } = fixture({ dnsNeverReady: true });
+  await assert.rejects(service.provision({ userId: '6a31557594ab025c7537576e', port: 8845 }), {
+    code: 'CF_DNS_NOT_READY',
+  });
+  assert.ok(calls.some((x) => x.path.endsWith('/dns_records/dns-123') && x.method === 'DELETE'));
+  assert.ok(calls.some((x) => x.path.endsWith('/cfd_tunnel/' + TUNNEL_ID) && x.method === 'DELETE'));
 });
