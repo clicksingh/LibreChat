@@ -560,6 +560,24 @@ function isPCBridgeConfig(config) {
   }
 }
 
+async function removePCBridgeServerSafely({ registry, userId, serverName, existingConfig }) {
+  const retainedTools = await getMCPServerTools(userId, serverName, existingConfig);
+  await invalidateCachedTools({ userId, serverName });
+  try {
+    await registry.removeServer(serverName, 'DB', userId);
+  } catch (error) {
+    await restoreRetainedServerCatalog({
+      userId,
+      serverName,
+      serverConfig: existingConfig,
+      serverTools: retainedTools,
+    });
+    throw error;
+  }
+  await fenceCommittedMCPMutation({ userId, serverName });
+  await disconnectLocalMCPServer(userId, serverName);
+}
+
 const createPCBridgeMCPServerController = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -599,15 +617,24 @@ const createPCBridgeMCPServerController = async (req, res) => {
       });
     }
 
-    const reservedServerNames = await resolveMcpConfigNames(req);
+    const configNames = await resolveMcpConfigNames(req);
+    const reservedServerNames = [
+      ...new Set([...configNames, ...configNames.map(normalizeServerName)]),
+    ];
     const registry = getMCPServersRegistry();
-    const result = await registry.addServer(
-      'cbhr_pc',
-      validation.data,
-      'DB',
-      userId,
-      reservedServerNames,
-    );
+    const inspectionServerName = 'cbhr_pc_' + randomUUID();
+    let result;
+    try {
+      result = await registry.addServer(
+        inspectionServerName,
+        validation.data,
+        'DB',
+        userId,
+        reservedServerNames,
+      );
+    } finally {
+      MCPConnection.clearCooldown(inspectionServerName);
+    }
 
     const initialized = await reinitMCPServer({
       user: req.user,
@@ -620,14 +647,19 @@ const createPCBridgeMCPServerController = async (req, res) => {
       !Array.isArray(initialized.tools) ||
       initialized.tools.length === 0
     ) {
-      await registry.removeServer(result.serverName, 'DB', userId).catch(() => undefined);
+      await removePCBridgeServerSafely({
+        registry,
+        userId,
+        serverName: result.serverName,
+        existingConfig: result.config,
+      });
       return res.status(502).json({ message: 'PC bridge connected but exposed no MCP tools' });
     }
 
     return res.status(201).json({
       serverName: result.serverName,
       tools: initialized.tools.map((tool) => tool.name),
-      ...redactServerSecrets(result.config),
+      ...redactServerSecrets(result.config, { canEdit: true }),
     });
   } catch (error) {
     logger.error('[createPCBridgeMCPServer]', error);
@@ -655,7 +687,13 @@ const deletePCBridgeMCPServerController = async (req, res) => {
       return res.status(403).json({ message: 'Server is not a CBHR PC bridge' });
     }
 
-    await getMCPServersRegistry().removeServer(serverName, 'DB', userId);
+    const registry = getMCPServersRegistry();
+    await removePCBridgeServerSafely({
+      registry,
+      userId,
+      serverName,
+      existingConfig: config,
+    });
     return res.status(200).json({ message: 'PC bridge deleted successfully' });
   } catch (error) {
     logger.error('[deletePCBridgeMCPServer]', error);

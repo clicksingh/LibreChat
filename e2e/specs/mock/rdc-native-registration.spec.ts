@@ -16,6 +16,7 @@ test('CBHR bridge registers through LibreChat native MCP API and disappears on d
 }) => {
   test.setTimeout(60_000);
   if (!baseURL) throw new Error('baseURL missing');
+  const nativeBaseUrl = baseURL.replace(/^http:\/\/localhost(?=[:/]|$)/, 'http://[::1]');
 
   const server = bridge.createBridgeServer({
     port: PORT,
@@ -49,7 +50,7 @@ test('CBHR bridge registers through LibreChat native MCP API and disappears on d
     expect(token.length).toBeGreaterThan(20);
 
     const created = await lc.register({
-      baseUrl: baseURL,
+      baseUrl: nativeBaseUrl,
       token,
       tunnelUrl: `http://127.0.0.1:${PORT}`,
       bearerToken: BEARER,
@@ -73,7 +74,7 @@ test('CBHR bridge registers through LibreChat native MCP API and disappears on d
     expect(toolText).toContain('list_directory');
 
     const removed = await lc.unregister({
-      baseUrl: baseURL,
+      baseUrl: nativeBaseUrl,
       token,
       serverName,
     });
@@ -86,7 +87,7 @@ test('CBHR bridge registers through LibreChat native MCP API and disappears on d
     if (serverName && token) {
       await lc
         .unregister({
-          baseUrl: baseURL,
+          baseUrl: nativeBaseUrl,
           token,
           serverName,
         })
