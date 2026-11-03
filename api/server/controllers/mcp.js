@@ -560,6 +560,26 @@ function isPCBridgeConfig(config) {
   }
 }
 
+function getPublishedPCBridgeToolNames(serverTools, serverName) {
+  if (!serverTools || typeof serverTools !== 'object') {
+    return [];
+  }
+  const toolNames = [];
+  for (const [toolKey, toolData] of Object.entries(serverTools)) {
+    if (!toolData?.function || !toolKey.includes(Constants.mcp_delimiter)) {
+      continue;
+    }
+    const [toolName] = splitMCPToolKey(toolKey, [
+      serverName,
+      normalizeServerName(serverName),
+    ]);
+    if (toolName) {
+      toolNames.push(toolName);
+    }
+  }
+  return [...new Set(toolNames)];
+}
+
 async function removePCBridgeServerSafely({ registry, userId, serverName, existingConfig }) {
   const retainedTools = await getMCPServerTools(userId, serverName, existingConfig);
   await invalidateCachedTools({ userId, serverName });
@@ -653,11 +673,15 @@ const createPCBridgeMCPServerController = async (req, res) => {
       });
       throw error;
     }
-    if (
-      !initialized?.success ||
-      !Array.isArray(initialized.tools) ||
-      initialized.tools.length === 0
-    ) {
+    let toolNames = Array.isArray(initialized?.tools)
+      ? initialized.tools.map((tool) => tool?.name).filter(Boolean)
+      : [];
+    if (initialized?.success && toolNames.length === 0) {
+      const publishedTools = await getMCPServerTools(userId, result.serverName, result.config);
+      toolNames = getPublishedPCBridgeToolNames(publishedTools, result.serverName);
+    }
+
+    if (!initialized?.success || toolNames.length === 0) {
       await removePCBridgeServerSafely({
         registry,
         userId,
@@ -669,7 +693,7 @@ const createPCBridgeMCPServerController = async (req, res) => {
 
     return res.status(201).json({
       serverName: result.serverName,
-      tools: initialized.tools.map((tool) => tool.name),
+      tools: toolNames,
       ...redactServerSecrets(result.config, { canEdit: true }),
     });
   } catch (error) {

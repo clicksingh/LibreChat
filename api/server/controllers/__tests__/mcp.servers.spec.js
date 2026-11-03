@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { SystemCapabilities } = require('@librechat/data-schemas');
 const {
+  Constants,
   SystemRoles,
   ResourceType,
   AccessRoleIds,
@@ -550,6 +551,47 @@ describe('CBHR PC bridge native registration', () => {
     expect(payload.serverName).toBe('cbhr_pc');
     expect(payload.tools).toEqual(['read_file', 'list_directory']);
     expect(JSON.stringify(payload)).not.toContain(bearerToken);
+  });
+
+  it('accepts tools already published by list_changed when the reinit snapshot is incomplete', async () => {
+    const user = await createUser();
+    mockRegistryInstance.addServer.mockResolvedValue({
+      serverName: 'cbhr-pc',
+      config: pcConfig,
+    });
+    mockReinitMCPServer.mockResolvedValue({
+      success: true,
+      tools: null,
+    });
+    const cacheService = require('~/server/services/Config');
+    const readKey = 'read_file' + Constants.mcp_delimiter + 'cbhr-pc';
+    const listKey = 'list_directory' + Constants.mcp_delimiter + 'cbhr-pc';
+    cacheService.getMCPServerTools.mockResolvedValue({
+      [readKey]: {
+        type: 'function',
+        function: { name: readKey },
+      },
+      [listKey]: {
+        type: 'function',
+        function: { name: listKey },
+      },
+    });
+    const res = createRes();
+
+    await createPCBridgeMCPServerController(
+      {
+        user,
+        body: {
+          url: pcConfig.url,
+          bearerToken,
+        },
+      },
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.json.mock.calls[0][0].tools).toEqual(['read_file', 'list_directory']);
+    expect(mockRegistryInstance.removeServer).not.toHaveBeenCalled();
   });
 
   it('removes and fences a newly registered bridge when discovery exposes no tools', async () => {
