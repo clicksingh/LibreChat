@@ -25,6 +25,8 @@ const {
 } = require('@librechat/api');
 const {
   createMCPServerController,
+  createPCBridgeMCPServerController,
+  deletePCBridgeMCPServerController,
   updateMCPServerController,
   deleteMCPServerController,
   getMCPServersList,
@@ -900,6 +902,29 @@ async function getOAuthHeaders(serverName, userId, configServers) {
   );
   return serverConfig?.oauth_headers ?? {};
 }
+
+/**
+ * Provision the authenticated user's CBHR PC bridge without granting generic
+ * MCP server CREATE permission. The controller accepts only the fixed bridge
+ * config shape and managed CBHR tunnel hostnames.
+ */
+router.post(
+  '/pc-bridge',
+  requireJwtAuth,
+  checkMCPUsePermissions,
+  createPCBridgeMCPServerController,
+);
+
+router.delete(
+  '/pc-bridge/:serverName',
+  requireJwtAuth,
+  checkMCPUsePermissions,
+  canAccessMCPServerResource({
+    requiredPermission: PermissionBits.DELETE,
+    resourceIdParam: 'serverName',
+  }),
+  deletePCBridgeMCPServerController,
+);
 
 /**
 MCP Server CRUD Routes (User-Managed MCP Servers)
