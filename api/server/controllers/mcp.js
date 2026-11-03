@@ -43,6 +43,7 @@ const {
 } = require('~/server/services/Config');
 const { getResourcePermissionsMap } = require('~/server/services/PermissionService');
 const { hasCapability } = require('~/server/middleware/roles/capabilities');
+const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { getMCPManager, getMCPServersRegistry } = require('~/config');
 const db = require('~/models');
 
@@ -406,7 +407,7 @@ function configHasObo(parsedConfig) {
 /**
  * Fields a user without `CONFIGURE_OBO` may modify on an OBO server (allowlist).
  * Any field not on this list is locked: changes to it (add, modify, or remove)
- * require the permission. Allowlisting is fail-closed — when upstream introduces
+ * require the permission. Allowlisting is fail-closed â€” when upstream introduces
  * a new MCP server config field, it lands in the locked set by default until
  * explicitly opted in here. Anything that could redirect the OBO token flow
  * (`url`, `proxy`, `headers`), change scopes (`obo`), or reroute auth (`oauth`,
@@ -504,6 +505,213 @@ const createMCPServerController = async (req, res) => {
   }
 };
 
+const PC_BRIDGE_TITLE = 'CBHR PC';
+const PC_BRIDGE_DOMAIN_SUFFIX = '.kelownarealestate.com';
+
+function normalizePCBridgeUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('PC bridge URL is required');
+  }
+
+  let url;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error('PC bridge URL is invalid');
+  }
+
+  const isLocalCi =
+    process.env.NODE_ENV === 'CI' &&
+    url.protocol === 'http:' &&
+    url.hostname === '127.0.0.1' &&
+    url.port === '8847';
+
+  const hostname = url.hostname.toLowerCase();
+  const isManagedProduction =
+    url.protocol === 'https:' &&
+    url.port === '' &&
+    hostname.endsWith(PC_BRIDGE_DOMAIN_SUFFIX) &&
+    hostname !== PC_BRIDGE_DOMAIN_SUFFIX.slice(1);
+
+  if (!isLocalCi && !isManagedProduction) {
+    throw new Error('PC bridge URL must use a managed CBHR tunnel hostname');
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error('PC bridge URL must not contain credentials, query parameters, or fragments');
+  }
+
+  const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (pathname !== '/mcp') {
+    throw new Error('PC bridge URL must end with /mcp');
+  }
+  url.pathname = '/mcp';
+  return url.toString();
+}
+
+function isPCBridgeConfig(config) {
+  if (!config || config.title !== PC_BRIDGE_TITLE || config.type !== 'streamable-http') {
+    return false;
+  }
+  try {
+    normalizePCBridgeUrl(config.url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function removePCBridgeServerSafely({ registry, userId, serverName, existingConfig }) {
+  const retainedTools = await getMCPServerTools(userId, serverName, existingConfig);
+  await invalidateCachedTools({ userId, serverName });
+  try {
+    await registry.removeServer(serverName, 'DB', userId);
+  } catch (error) {
+    await restoreRetainedServerCatalog({
+      userId,
+      serverName,
+      serverConfig: existingConfig,
+      serverTools: retainedTools,
+    });
+    throw error;
+  }
+  await fenceCommittedMCPMutation({ userId, serverName });
+  await disconnectLocalMCPServer(userId, serverName);
+}
+
+const createPCBridgeMCPServerController = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    const bearerToken =
+      typeof req.body?.bearerToken === 'string' ? req.body.bearerToken.trim() : '';
+    if (bearerToken.length < 24 || bearerToken.length > 512) {
+      return res.status(400).json({ message: 'Invalid PC bridge bearer token' });
+    }
+
+    let url;
+    try {
+      url = normalizePCBridgeUrl(req.body?.url);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    const config = {
+      type: 'streamable-http',
+      url,
+      title: PC_BRIDGE_TITLE,
+      apiKey: {
+        source: 'admin',
+        authorization_type: 'bearer',
+        key: bearerToken,
+      },
+    };
+
+    const validation = MCPServerUserInputSchema.safeParse(config);
+    if (!validation.success) {
+      return res.status(400).json({
+        message: 'Invalid PC bridge configuration',
+        errors: validation.error.errors,
+      });
+    }
+
+    const configNames = await resolveMcpConfigNames(req);
+    const reservedServerNames = [
+      ...new Set([...configNames, ...configNames.map(normalizeServerName)]),
+    ];
+    const registry = getMCPServersRegistry();
+    const inspectionServerName = 'cbhr_pc_' + randomUUID();
+    let result;
+    try {
+      result = await registry.addServer(
+        inspectionServerName,
+        validation.data,
+        'DB',
+        userId,
+        reservedServerNames,
+      );
+    } finally {
+      MCPConnection.clearCooldown(inspectionServerName);
+    }
+
+    let initialized;
+    try {
+      initialized = await reinitMCPServer({
+        user: req.user,
+        serverName: result.serverName,
+        serverConfig: result.config,
+        forceNew: true,
+      });
+    } catch (error) {
+      await removePCBridgeServerSafely({
+        registry,
+        userId,
+        serverName: result.serverName,
+        existingConfig: result.config,
+      });
+      throw error;
+    }
+    if (
+      !initialized?.success ||
+      !Array.isArray(initialized.tools) ||
+      initialized.tools.length === 0
+    ) {
+      await removePCBridgeServerSafely({
+        registry,
+        userId,
+        serverName: result.serverName,
+        existingConfig: result.config,
+      });
+      return res.status(502).json({ message: 'PC bridge connected but exposed no MCP tools' });
+    }
+
+    return res.status(201).json({
+      serverName: result.serverName,
+      tools: initialized.tools.map((tool) => tool.name),
+      ...redactServerSecrets(result.config, { canEdit: true }),
+    });
+  } catch (error) {
+    logger.error('[createPCBridgeMCPServer]', error);
+    const mcpErrorResponse = handleMCPError(error, res);
+    if (mcpErrorResponse) {
+      return mcpErrorResponse;
+    }
+    return res.status(500).json({ message: 'Failed to register PC bridge' });
+  }
+};
+
+const deletePCBridgeMCPServerController = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { serverName } = req.params;
+    if (!userId || !serverName) {
+      return res.status(400).json({ message: 'User and server name are required' });
+    }
+
+    const config = await getMCPServersRegistry().getServerConfig(serverName, userId);
+    if (!config) {
+      return res.status(404).json({ message: 'PC bridge not found' });
+    }
+    if (!isPCBridgeConfig(config)) {
+      return res.status(403).json({ message: 'Server is not a CBHR PC bridge' });
+    }
+
+    const registry = getMCPServersRegistry();
+    await removePCBridgeServerSafely({
+      registry,
+      userId,
+      serverName,
+      existingConfig: config,
+    });
+    return res.status(200).json({ message: 'PC bridge deleted successfully' });
+  } catch (error) {
+    logger.error('[deletePCBridgeMCPServer]', error);
+    return res.status(500).json({ message: 'Failed to delete PC bridge' });
+  }
+};
+
 /**
  * Get MCP server by ID
  */
@@ -555,7 +763,7 @@ const updateMCPServerController = async (req, res) => {
     /**
      * On an existing OBO server, lock down every user-input field except the
      * cosmetic allowlist (title, description, iconPath) for callers without
-     * CONFIGURE_OBO. This closes the OBO redirect vector — without it, a user
+     * CONFIGURE_OBO. This closes the OBO redirect vector â€” without it, a user
      * with UPDATE could change `url` (or `proxy`/`headers`/`customUserVars`)
      * to point OBO-minted tokens at an attacker-controlled endpoint. Adds,
      * modifies, and removes are all caught.
@@ -654,6 +862,8 @@ module.exports = {
   getMCPTools,
   getMCPServersList,
   createMCPServerController,
+  createPCBridgeMCPServerController,
+  deletePCBridgeMCPServerController,
   getMCPServerById,
   updateMCPServerController,
   deleteMCPServerController,

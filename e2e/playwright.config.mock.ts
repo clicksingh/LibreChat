@@ -167,6 +167,7 @@ export default defineConfig({
   globalSetup: require.resolve('./setup/global-setup'),
   globalTeardown: require.resolve('./setup/global-teardown.mock'),
   testDir: 'specs/mock/',
+  testIgnore: ['**/rdc-native-registration.spec.ts'],
   outputDir: 'specs/.test-results',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

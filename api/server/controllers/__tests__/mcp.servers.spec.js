@@ -24,6 +24,7 @@ jest.mock('~/server/services/GraphApiService', () => ({
 
 const mockRegistryInstance = {
   getServerConfig: jest.fn(),
+  addServer: jest.fn(),
   inspectServerUpdate: jest.fn(),
   commitServerUpdate: jest.fn(),
   updateServer: jest.fn(),
@@ -51,9 +52,16 @@ jest.mock('~/server/services/Config', () => ({
   invalidateCachedTools: jest.fn(),
 }));
 
+const mockReinitMCPServer = jest.fn();
+jest.mock('~/server/services/Tools/mcp', () => ({
+  reinitMCPServer: (...args) => mockReinitMCPServer(...args),
+}));
+
 const {
   getMCPServersList,
   getMCPServerById,
+  createPCBridgeMCPServerController,
+  deletePCBridgeMCPServerController,
   updateMCPServerController,
   deleteMCPServerController,
 } = require('~/server/controllers/mcp');
@@ -120,11 +128,13 @@ beforeEach(async () => {
   await User.deleteMany({});
   mockResolveAllMcpConfigs.mockReset();
   mockRegistryInstance.getServerConfig.mockReset();
+  mockRegistryInstance.addServer.mockReset();
   mockRegistryInstance.inspectServerUpdate.mockReset();
   mockRegistryInstance.commitServerUpdate.mockReset();
   mockRegistryInstance.updateServer.mockReset();
   mockRegistryInstance.removeServer.mockReset();
   mockMcpManager.disconnectUserConnection.mockReset().mockResolvedValue(undefined);
+  mockReinitMCPServer.mockReset();
   const cacheService = require('~/server/services/Config');
   cacheService.invalidateCachedTools.mockReset().mockResolvedValue(undefined);
   cacheService.getMCPServerTools.mockReset().mockResolvedValue({ retained: {} });
@@ -485,5 +495,139 @@ describe('DB-backed server mutation fencing', () => {
     });
     expect(mockMcpManager.disconnectUserConnection).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
+
+describe('CBHR PC bridge native registration', () => {
+  const bearerToken = 'pc-bridge-test-bearer-0123456789abcdef';
+  const pcConfig = {
+    type: 'streamable-http',
+    url: 'https://pc-proof.kelownarealestate.com/mcp',
+    title: 'CBHR PC',
+    source: 'user',
+    apiKey: {
+      source: 'admin',
+      authorization_type: 'bearer',
+      key: bearerToken,
+    },
+  };
+
+  it('registers a managed bridge, initializes tools, and never returns the bearer secret', async () => {
+    const user = await createUser();
+    mockRegistryInstance.addServer.mockResolvedValue({
+      serverName: 'cbhr_pc',
+      config: pcConfig,
+    });
+    mockReinitMCPServer.mockResolvedValue({
+      success: true,
+      tools: [{ name: 'read_file' }, { name: 'list_directory' }],
+    });
+    const res = createRes();
+
+    await createPCBridgeMCPServerController(
+      {
+        user,
+        body: {
+          url: pcConfig.url,
+          bearerToken,
+        },
+      },
+      res,
+    );
+
+    expect(mockRegistryInstance.addServer).toHaveBeenCalledTimes(1);
+    expect(mockRegistryInstance.addServer.mock.calls[0][0]).toMatch(/^cbhr_pc_/);
+    expect(mockReinitMCPServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user,
+        serverName: 'cbhr_pc',
+        serverConfig: pcConfig,
+        forceNew: true,
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(201);
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.serverName).toBe('cbhr_pc');
+    expect(payload.tools).toEqual(['read_file', 'list_directory']);
+    expect(JSON.stringify(payload)).not.toContain(bearerToken);
+  });
+
+  it('removes and fences a newly registered bridge when discovery exposes no tools', async () => {
+    const user = await createUser();
+    mockRegistryInstance.addServer.mockResolvedValue({
+      serverName: 'cbhr_pc',
+      config: pcConfig,
+    });
+    mockRegistryInstance.removeServer.mockResolvedValue(undefined);
+    mockReinitMCPServer.mockResolvedValue({ success: true, tools: [] });
+    const res = createRes();
+
+    await createPCBridgeMCPServerController(
+      {
+        user,
+        body: {
+          url: pcConfig.url,
+          bearerToken,
+        },
+      },
+      res,
+    );
+
+    const { invalidateCachedTools } = require('~/server/services/Config');
+    expect(mockRegistryInstance.removeServer).toHaveBeenCalledWith('cbhr_pc', 'DB', user.id);
+    expect(invalidateCachedTools).toHaveBeenCalledTimes(2);
+    expect(mockMcpManager.disconnectUserConnection).toHaveBeenCalledWith(user.id, 'cbhr_pc');
+    expect(res.status).toHaveBeenCalledWith(502);
+  });
+
+  it('rolls back a persisted bridge when MCP initialization throws', async () => {
+    const user = await createUser();
+    mockRegistryInstance.addServer.mockResolvedValue({
+      serverName: 'cbhr_pc',
+      config: pcConfig,
+    });
+    mockRegistryInstance.removeServer.mockResolvedValue(undefined);
+    mockReinitMCPServer.mockRejectedValue(new Error('MCP initialization exploded'));
+    const res = createRes();
+
+    await createPCBridgeMCPServerController(
+      { user, body: { url: pcConfig.url, bearerToken } },
+      res,
+    );
+
+    const { invalidateCachedTools } = require('~/server/services/Config');
+    expect(mockRegistryInstance.removeServer).toHaveBeenCalledWith('cbhr_pc', 'DB', user.id);
+    expect(invalidateCachedTools).toHaveBeenCalledTimes(2);
+    expect(mockMcpManager.disconnectUserConnection).toHaveBeenCalledWith(user.id, 'cbhr_pc');
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+
+  it('deletes only a real CBHR PC bridge through the fenced mutation path', async () => {
+    const user = await createUser();
+    mockRegistryInstance.getServerConfig.mockResolvedValue(pcConfig);
+    mockRegistryInstance.removeServer.mockResolvedValue(undefined);
+    const res = createRes();
+
+    await deletePCBridgeMCPServerController({ user, params: { serverName: 'cbhr_pc' } }, res);
+
+    const { invalidateCachedTools } = require('~/server/services/Config');
+    expect(mockRegistryInstance.removeServer).toHaveBeenCalledWith('cbhr_pc', 'DB', user.id);
+    expect(invalidateCachedTools).toHaveBeenCalledTimes(2);
+    expect(mockMcpManager.disconnectUserConnection).toHaveBeenCalledWith(user.id, 'cbhr_pc');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('refuses to delete a non-PC MCP server through the dedicated bridge endpoint', async () => {
+    const user = await createUser();
+    mockRegistryInstance.getServerConfig.mockResolvedValue({
+      ...pcConfig,
+      title: 'Other MCP Server',
+    });
+    const res = createRes();
+
+    await deletePCBridgeMCPServerController({ user, params: { serverName: 'other_server' } }, res);
+
+    expect(mockRegistryInstance.removeServer).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
   });
 });
