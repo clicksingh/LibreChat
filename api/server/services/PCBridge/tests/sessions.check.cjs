@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -242,6 +242,17 @@ test('disconnect can cancel an in-flight activation and prevent an orphan', asyn
   assert.equal(await service.disconnect({
     sessionId: session.sessionId, sessionSecret: session.sessionSecret,
   }), true);
+  assert.equal(collection.rows[0].state, 'closed');
+  assert.ok(events.some((item) => item[0] === 'destroy'));
+});
+
+
+test('an interrupted disconnect is eventually reaped, unblocking a new PC session', async () => {
+  const { service, collection, advance, events } = fixture();
+  await service.claim({ code: 'valid', port: 8845 });
+  collection.rows[0].state = 'disconnecting';
+  advance(CLAIM_WINDOW_MS + 1);
+  assert.equal(await service.reap(), 1);
   assert.equal(collection.rows[0].state, 'closed');
   assert.ok(events.some((item) => item[0] === 'destroy'));
 });

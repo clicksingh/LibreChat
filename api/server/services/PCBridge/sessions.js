@@ -241,7 +241,7 @@ function createSessions({
   async function reap({ limit = 20 } = {}) {
     const stale = await collection
       .find({
-        state: { $in: ['claimed', 'activating', 'active', 'cleanup_pending'] },
+        state: { $in: ['claimed', 'activating', 'active', 'disconnecting', 'cleanup_pending'] },
         expiresAt: { $lte: now() },
       })
       .limit(Math.min(limit, 100))
