@@ -580,6 +580,28 @@ describe('CBHR PC bridge native registration', () => {
     expect(res.status).toHaveBeenCalledWith(502);
   });
 
+  it('rolls back a persisted bridge when MCP initialization throws', async () => {
+    const user = await createUser();
+    mockRegistryInstance.addServer.mockResolvedValue({
+      serverName: 'cbhr_pc',
+      config: pcConfig,
+    });
+    mockRegistryInstance.removeServer.mockResolvedValue(undefined);
+    mockReinitMCPServer.mockRejectedValue(new Error('MCP initialization exploded'));
+    const res = createRes();
+
+    await createPCBridgeMCPServerController(
+      { user, body: { url: pcConfig.url, bearerToken } },
+      res,
+    );
+
+    const { invalidateCachedTools } = require('~/server/services/Config');
+    expect(mockRegistryInstance.removeServer).toHaveBeenCalledWith('cbhr_pc', 'DB', user.id);
+    expect(invalidateCachedTools).toHaveBeenCalledTimes(2);
+    expect(mockMcpManager.disconnectUserConnection).toHaveBeenCalledWith(user.id, 'cbhr_pc');
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+
   it('deletes only a real CBHR PC bridge through the fenced mutation path', async () => {
     const user = await createUser();
     mockRegistryInstance.getServerConfig.mockResolvedValue(pcConfig);

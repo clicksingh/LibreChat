@@ -636,12 +636,23 @@ const createPCBridgeMCPServerController = async (req, res) => {
       MCPConnection.clearCooldown(inspectionServerName);
     }
 
-    const initialized = await reinitMCPServer({
-      user: req.user,
-      serverName: result.serverName,
-      serverConfig: result.config,
-      forceNew: true,
-    });
+    let initialized;
+    try {
+      initialized = await reinitMCPServer({
+        user: req.user,
+        serverName: result.serverName,
+        serverConfig: result.config,
+        forceNew: true,
+      });
+    } catch (error) {
+      await removePCBridgeServerSafely({
+        registry,
+        userId,
+        serverName: result.serverName,
+        existingConfig: result.config,
+      });
+      throw error;
+    }
     if (
       !initialized?.success ||
       !Array.isArray(initialized.tools) ||
