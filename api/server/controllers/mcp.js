@@ -665,9 +665,9 @@ const createPCBridgeMCPServerController = async (req, res) => {
     }
 
     return res.status(201).json({
+      ...redactServerSecrets(result.config, { canEdit: true }),
       serverName: result.serverName,
       tools: toolNames,
-      ...redactServerSecrets(result.config, { canEdit: true }),
     });
   } catch (error) {
     logger.error('[createPCBridgeMCPServer]', error);
