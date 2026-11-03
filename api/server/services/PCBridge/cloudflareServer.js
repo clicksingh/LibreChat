@@ -66,7 +66,7 @@ function createCloudflareServer({
   }
   async function waitForPublicDns(hostname) {
     const deadline = Date.now() + dnsReadyTimeoutMs;
-    do {
+    while (Date.now() <= deadline) {
       try {
         const response = await dnsFetcher(
           'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(hostname) + '&type=A',
@@ -89,7 +89,7 @@ function createCloudflareServer({
       }
       if (Date.now() >= deadline) break;
       await sleep(dnsReadyIntervalMs);
-    } while (true);
+    }
     const err = new Error('PC bridge hostname did not become publicly resolvable in time');
     err.code = 'CF_DNS_NOT_READY';
     throw err;
