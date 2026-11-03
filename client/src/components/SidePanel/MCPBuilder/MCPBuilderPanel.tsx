@@ -9,6 +9,7 @@ import MCPServerCardSkeleton from './MCPServerCardSkeleton';
 import MCPAdminSettings from './MCPAdminSettings';
 import MCPServerDialog from './MCPServerDialog';
 import MCPServerList from './MCPServerList';
+import PCBridgeConnect from './PCBridgeConnect';
 
 export default function MCPBuilderPanel() {
   const localize = useLocalize();
@@ -19,6 +20,10 @@ export default function MCPBuilderPanel() {
   const hasCreateAccess = useHasAccess({
     permissionType: PermissionTypes.MCP_SERVERS,
     permission: Permissions.CREATE,
+  });
+  const hasUseAccess = useHasAccess({
+    permissionType: PermissionTypes.MCP_SERVERS,
+    permission: Permissions.USE,
   });
   const [showDialog, setShowDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +59,7 @@ export default function MCPBuilderPanel() {
             onChange={(e) => setSearchQuery(e.target.value)}
             containerClassName="flex-1"
           />
+          {hasUseAccess && <PCBridgeConnect />}
           {hasCreateAccess && (
             <MCPServerDialog
               open={showDialog}

@@ -1067,6 +1067,8 @@ router.post(
   createPCBridgeMCPServerController,
 );
 
+router.use('/pc-bridge/pair', require('./pcBridgePairing'));
+
 router.delete(
   '/pc-bridge/:serverName',
   requireJwtAuth,
