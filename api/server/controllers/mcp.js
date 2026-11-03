@@ -569,10 +569,7 @@ function getPublishedPCBridgeToolNames(serverTools, serverName) {
     if (!toolData?.function || !toolKey.includes(Constants.mcp_delimiter)) {
       continue;
     }
-    const [toolName] = splitMCPToolKey(toolKey, [
-      serverName,
-      normalizeServerName(serverName),
-    ]);
+    const [toolName] = splitMCPToolKey(toolKey, [serverName, normalizeServerName(serverName)]);
     if (toolName) {
       toolNames.push(toolName);
     }
