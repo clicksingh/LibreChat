@@ -23,7 +23,7 @@ export default function PCBridgeConnect() {
     setBusy(true);
     setError(null);
     try {
-      const next = await request.post<PairingTicket>('/api/mcp/pc-bridge/pair/start', {});
+      const next = (await request.post('/api/mcp/pc-bridge/pair/start', {})) as PairingTicket;
       setTicket(next);
     } catch {
       setTicket(null);

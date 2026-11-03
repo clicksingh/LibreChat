@@ -134,7 +134,7 @@
     "migrate:code-file-duplicates:dry-run": "node config/migrate-code-file-duplicates.js --dry-run",
     "migrate:code-file-duplicates": "node config/migrate-code-file-duplicates.js",
     "migrate:code-file-duplicates:batch": "node config/migrate-code-file-duplicates.js --batch-size=50",
-    "test:pcbridge-pairing": "node --test api/server/services/PCBridge/__tests__/*.check.cjs"
+    "test:pcbridge-pairing": "node --test api/server/services/PCBridge/tests/*.check.cjs"
   },
   "repository": {
     "type": "git",
