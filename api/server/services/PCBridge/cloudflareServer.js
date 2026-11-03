@@ -69,9 +69,7 @@ function createCloudflareServer({
     do {
       try {
         const response = await dnsFetcher(
-          'https://cloudflare-dns.com/dns-query?name=' +
-            encodeURIComponent(hostname) +
-            '&type=A',
+          'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(hostname) + '&type=A',
           {
             headers: { Accept: 'application/dns-json' },
             signal: AbortSignal.timeout(5000),
