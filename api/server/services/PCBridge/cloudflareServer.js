@@ -167,7 +167,10 @@ function createCloudflareServer({
         comment: 'CBHR PC Bridge employee session',
       });
       dnsRecordId = dns.id;
-      await waitForPublicDns(hostname);
+      // The Cloudflare API has confirmed the proxied DNS record exists.
+      // Public resolver propagation is asynchronous and can exceed this request's
+      // lifetime. Activation already retries the actual MCP endpoint; a session
+      // that never activates is reaped and its tunnel/DNS removed.
       return {
         hostname,
         url: 'https://' + hostname,
