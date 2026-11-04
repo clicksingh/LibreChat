@@ -8,6 +8,7 @@ function fixture({ failDns = false, dnsVisibleAfter = 1, dnsNeverReady = false }
   const calls = [];
   const adminToken = 'admin-token-secret-kept-exclusively-on-server';
   let dnsChecks = 0;
+  const sleepCalls = [];
   const fakeDnsFetch = async () => {
     dnsChecks += 1;
     const ready = !dnsNeverReady && dnsChecks >= dnsVisibleAfter;
@@ -50,13 +51,14 @@ function fixture({ failDns = false, dnsVisibleAfter = 1, dnsNeverReady = false }
       token: adminToken,
       fetcher: fakeFetch,
       dnsFetcher: fakeDnsFetch,
-      sleep: async () => {},
+      sleep: async (ms) => { sleepCalls.push(ms); },
       dnsReadyTimeoutMs: dnsNeverReady ? 0 : 30000,
       dnsReadyIntervalMs: 0,
     }),
     calls,
     adminToken,
     dnsChecks: () => dnsChecks,
+    sleepCalls,
   };
 }
 
@@ -103,11 +105,12 @@ test('missing central Cloudflare token fails closed', () => {
 });
 
 
-test('provision returns after DNS record creation without waiting for external resolver propagation', async () => {
-  const { service, dnsChecks, calls } = fixture({ dnsVisibleAfter: 3 });
+test('provision gives a new DNS record a blind settle window without resolving it first', async () => {
+  const { service, dnsChecks, calls, sleepCalls } = fixture({ dnsVisibleAfter: 3 });
   const tunnel = await service.provision({ userId: '6a31557594ab025c7537576e', port: 8845 });
   assert.equal(tunnel.tunnelId, TUNNEL_ID);
   assert.equal(dnsChecks(), 0);
+  assert.deepEqual(sleepCalls, [8000]);
   assert.ok(calls.some((x) => x.path.endsWith('/dns_records') && x.method === 'POST'));
 });
 
