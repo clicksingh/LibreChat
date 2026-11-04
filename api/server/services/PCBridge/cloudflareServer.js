@@ -13,6 +13,7 @@ const DEFAULT_ZONE = '56a80216044a1ba2063982351e7aeb6b';
 const DOMAIN = 'kelownarealestate.com';
 const DNS_READY_TIMEOUT_MS = 30000;
 const DNS_READY_INTERVAL_MS = 500;
+const DNS_SETTLE_MS = 8000;
 const PROTECTED_TUNNELS = new Set([
   '75ed544f-1ab6-49c6-b6b2-3d01ea0863ef',
   '0fb007e4-de0c-4003-8f8a-2449cbbeb7ce',
@@ -31,6 +32,7 @@ function createCloudflareServer({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   dnsReadyTimeoutMs = DNS_READY_TIMEOUT_MS,
   dnsReadyIntervalMs = DNS_READY_INTERVAL_MS,
+  dnsSettleMs = DNS_SETTLE_MS,
 } = {}) {
   if (!token || token.length < 20) {
     const err = new Error('PC bridge Cloudflare service credential is not configured');
@@ -167,6 +169,12 @@ function createCloudflareServer({
         comment: 'CBHR PC Bridge employee session',
       });
       dnsRecordId = dns.id;
+      // Do not resolve this brand-new random hostname yet. The zone's negative
+      // cache TTL is much longer than the activation retry window; an immediate
+      // NXDOMAIN can poison recursive resolvers for the whole pairing attempt.
+      // Give Cloudflare a short blind settle window, then let activation perform
+      // the first real lookup.
+      await sleep(dnsSettleMs);
       // The Cloudflare API has confirmed the proxied DNS record exists.
       // Public resolver propagation is asynchronous and can exceed this request's
       // lifetime. Activation already retries the actual MCP endpoint; a session
@@ -186,4 +194,4 @@ function createCloudflareServer({
   return { provision, destroy };
 }
 
-module.exports = { createCloudflareServer, PROTECTED_TUNNELS, DNS_READY_TIMEOUT_MS };
+module.exports = { createCloudflareServer, PROTECTED_TUNNELS, DNS_READY_TIMEOUT_MS, DNS_SETTLE_MS };
