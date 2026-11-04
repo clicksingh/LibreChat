@@ -103,18 +103,19 @@ test('missing central Cloudflare token fails closed', () => {
 });
 
 
-test('provision waits for public DNS visibility before returning the connector', async () => {
-  const { service, dnsChecks } = fixture({ dnsVisibleAfter: 3 });
+test('provision returns after DNS record creation without waiting for external resolver propagation', async () => {
+  const { service, dnsChecks, calls } = fixture({ dnsVisibleAfter: 3 });
   const tunnel = await service.provision({ userId: '6a31557594ab025c7537576e', port: 8845 });
   assert.equal(tunnel.tunnelId, TUNNEL_ID);
-  assert.equal(dnsChecks(), 3);
+  assert.equal(dnsChecks(), 0);
+  assert.ok(calls.some((x) => x.path.endsWith('/dns_records') && x.method === 'POST'));
 });
 
-test('DNS visibility timeout cleans up the created record and tunnel', async () => {
+test('unavailable public DNS resolver does not consume a valid provisioning attempt', async () => {
   const { service, calls } = fixture({ dnsNeverReady: true });
-  await assert.rejects(service.provision({ userId: '6a31557594ab025c7537576e', port: 8845 }), {
-    code: 'CF_DNS_NOT_READY',
-  });
+  const tunnel = await service.provision({ userId: '6a31557594ab025c7537576e', port: 8845 });
+  assert.equal(tunnel.tunnelId, TUNNEL_ID);
+  await service.destroy(tunnel);
   assert.ok(calls.some((x) => x.path.endsWith('/dns_records/dns-123') && x.method === 'DELETE'));
   assert.ok(calls.some((x) => x.path.endsWith('/cfd_tunnel/' + TUNNEL_ID) && x.method === 'DELETE'));
 });
