@@ -6,6 +6,27 @@ const ACTIVE_HEARTBEAT_WINDOW_MS = 5 * 60 * 1000;
 const PURGE_MS = 7 * 24 * 60 * 60 * 1000;
 const LIVE_STATES = ['claimed', 'activating', 'active', 'disconnecting', 'cleanup_pending'];
 
+async function publicDnsReady(hostname, fetcher = fetch) {
+  try {
+    const response = await fetcher(
+      'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(hostname) + '&type=A',
+      {
+        headers: { Accept: 'application/dns-json' },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    const payload = await response.json();
+    return Boolean(
+      response.ok &&
+      payload?.Status === 0 &&
+      Array.isArray(payload.Answer) &&
+      payload.Answer.some((answer) => answer?.type === 1),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function hashSecret(secret) {
   return crypto
     .createHash('sha256')
@@ -23,6 +44,7 @@ function createSessions({
   now = () => new Date(),
   randomBytes = crypto.randomBytes,
   randomUUID = crypto.randomUUID,
+  dnsReady = publicDnsReady,
 }) {
   if (!collection || !tickets || !provider || !register || !unregister) {
     throw new TypeError('Pairing session dependencies are required');
@@ -126,6 +148,11 @@ function createSessions({
     if (!doc) return null;
     let registeredName = null;
     try {
+      if (!(await dnsReady(doc.hostname))) {
+        throw Object.assign(new Error('PC bridge hostname is not publicly resolvable yet'), {
+          code: 'CF_DNS_NOT_READY',
+        });
+      }
       const result = await register({
         userId: doc.userId,
         url: doc.url + '/mcp',
