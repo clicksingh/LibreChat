@@ -60,7 +60,7 @@ function db() {
     },
   };
 }
-function fixture({ failUnregisterOnce = false } = {}) {
+function fixture({ failUnregisterOnce = false, dnsReady = async () => true } = {}) {
   const collection = db();
   let fixtureRegistered = true;
   let unregisterFailuresRemaining = failUnregisterOnce ? 1 : 0;
@@ -89,6 +89,7 @@ function fixture({ failUnregisterOnce = false } = {}) {
       },
     },
     provider,
+    dnsReady,
     now: () => new Date(current),
     randomUUID: () => '00000000-0000-4000-8000-000000000222',
     randomBytes: (n) => Buffer.alloc(n, 88),
@@ -139,6 +140,22 @@ test('activate requires the matching secret and registers tools once', async () 
   assert.equal(await service.activate({ ...base, sessionSecret: s.sessionSecret }), null);
   assert.equal(events.filter((x) => x[0] === 'register').length, 1);
 });
+
+test('activation rejects unresolved DNS without publishing MCP tools', async () => {
+  const { service, collection, events } = fixture({ dnsReady: async () => false });
+  const session = await service.claim({ code: 'valid', port: 8845 });
+  await assert.rejects(
+    service.activate({
+      sessionId: session.sessionId,
+      sessionSecret: session.sessionSecret,
+      bearerToken: 'x'.repeat(48),
+    }),
+    { code: 'CF_DNS_NOT_READY' },
+  );
+  assert.equal(collection.rows[0].state, 'claimed');
+  assert.equal(events.filter((event) => event[0] === 'register').length, 0);
+});
+
 test('heartbeat and disconnect enforce the session secret, unregister then destroy', async () => {
   const { service, events } = fixture();
   const s = await service.claim({ code: 'valid', port: 8845 });
