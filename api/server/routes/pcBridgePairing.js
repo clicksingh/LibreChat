@@ -162,8 +162,7 @@ function fail(res, error) {
 router.get('/download/windows', requireJwtAuth, checkMCPUse, async (req, res) => {
   if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
   const releasePath = path.resolve(
-    process.env.CBHR_PC_BRIDGE_WINDOWS_EXE_PATH ||
-      '/app/releases/CBHR-PC-Bridge-1.0.0.exe',
+    process.env.CBHR_PC_BRIDGE_WINDOWS_EXE_PATH || '/app/releases/CBHR-PC-Bridge-1.0.0.exe',
   );
   try {
     const stat = await fs.promises.stat(releasePath);
