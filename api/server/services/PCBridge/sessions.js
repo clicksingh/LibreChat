@@ -18,9 +18,9 @@ async function publicDnsReady(hostname, fetcher = fetch) {
     const payload = await response.json();
     return Boolean(
       response.ok &&
-      payload?.Status === 0 &&
-      Array.isArray(payload.Answer) &&
-      payload.Answer.some((answer) => answer?.type === 1),
+        payload?.Status === 0 &&
+        Array.isArray(payload.Answer) &&
+        payload.Answer.some((answer) => answer?.type === 1),
     );
   } catch {
     return false;
