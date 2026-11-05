@@ -12,7 +12,6 @@ const DEFAULT_ACCOUNT = '0102f078f366b9361dde6122005cd1a9';
 const DEFAULT_ZONE = '56a80216044a1ba2063982351e7aeb6b';
 const DOMAIN = 'kelownarealestate.com';
 const DNS_READY_TIMEOUT_MS = 30000;
-const DNS_READY_INTERVAL_MS = 500;
 const PROTECTED_TUNNELS = new Set([
   '75ed544f-1ab6-49c6-b6b2-3d01ea0863ef',
   '0fb007e4-de0c-4003-8f8a-2449cbbeb7ce',
@@ -27,10 +26,6 @@ function createCloudflareServer({
   accountId = process.env.CBHR_PC_CF_ACCOUNT_ID || DEFAULT_ACCOUNT,
   zoneId = process.env.CBHR_PC_CF_ZONE_ID || DEFAULT_ZONE,
   fetcher = fetch,
-  dnsFetcher = fetch,
-  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  dnsReadyTimeoutMs = DNS_READY_TIMEOUT_MS,
-  dnsReadyIntervalMs = DNS_READY_INTERVAL_MS,
 } = {}) {
   if (!token || token.length < 20) {
     const err = new Error('PC bridge Cloudflare service credential is not configured');
@@ -64,37 +59,6 @@ function createCloudflareServer({
     }
     return payload.result;
   }
-  async function waitForPublicDns(hostname) {
-    const deadline = Date.now() + dnsReadyTimeoutMs;
-    while (Date.now() <= deadline) {
-      try {
-        const response = await dnsFetcher(
-          'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(hostname) + '&type=A',
-          {
-            headers: { Accept: 'application/dns-json' },
-            signal: AbortSignal.timeout(5000),
-          },
-        );
-        const payload = await response.json();
-        if (
-          response.ok &&
-          payload?.Status === 0 &&
-          Array.isArray(payload.Answer) &&
-          payload.Answer.some((answer) => answer?.type === 1)
-        ) {
-          return true;
-        }
-      } catch {
-        // DNS visibility is eventually consistent. Retry until the bounded deadline.
-      }
-      if (Date.now() >= deadline) break;
-      await sleep(dnsReadyIntervalMs);
-    }
-    const err = new Error('PC bridge hostname did not become publicly resolvable in time');
-    err.code = 'CF_DNS_NOT_READY';
-    throw err;
-  }
-
   async function destroy({ tunnelId, dnsRecordId }) {
     if (!tunnelId || PROTECTED_TUNNELS.has(tunnelId)) {
       throw Object.assign(new Error('Protected or invalid tunnel ID'), {
