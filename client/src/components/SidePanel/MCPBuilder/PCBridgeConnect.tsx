@@ -93,14 +93,25 @@ export default function PCBridgeConnect() {
             </div>
           }
           selection={
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void startPairing()}
-              disabled={busy}
-            >
-              {localize('com_ui_generate_new_code')}
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  window.location.href = '/api/mcp/pc-bridge/pair/download/windows';
+                }}
+              >
+                Download PC Bridge v1.0.0
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void startPairing()}
+                disabled={busy}
+              >
+                {localize('com_ui_generate_new_code')}
+              </Button>
+            </div>
           }
         />
       </OGDialog>
