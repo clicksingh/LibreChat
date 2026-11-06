@@ -162,7 +162,7 @@ function fail(res, error) {
 router.get('/download/windows', requireJwtAuth, checkMCPUse, async (req, res) => {
   if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
   const releasePath = path.resolve(
-    process.env.CBHR_PC_BRIDGE_WINDOWS_EXE_PATH || '/app/releases/CBHR-PC-Bridge-1.0.0.exe',
+    process.env.CBHR_PC_BRIDGE_WINDOWS_EXE_PATH || '/app/releases/CBHR-PC-Bridge-Desktop-1.1.1.exe',
   );
   try {
     const stat = await fs.promises.stat(releasePath);
@@ -172,8 +172,8 @@ router.get('/download/windows', requireJwtAuth, checkMCPUse, async (req, res) =>
     return res.status(404).json({ message: 'PC Bridge download is not available' });
   }
   res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('X-CBHR-PC-Bridge-Version', '1.0.0');
-  return res.download(releasePath, 'CBHR-PC-Bridge-1.0.0.exe');
+  res.setHeader('X-CBHR-PC-Bridge-Version', '1.1.1');
+  return res.download(releasePath, 'CBHR-PC-Bridge-Desktop-1.1.1.exe');
 });
 
 /** Authenticated browser: create a 3-minute single-use code. */
