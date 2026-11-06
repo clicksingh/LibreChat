@@ -181,18 +181,18 @@ function fail(res, error) {
 router.get('/download/windows', requireJwtAuth, checkMCPUse, async (req, res) => {
   if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
   const releasePath = path.resolve(
-    process.env.CBHR_PC_BRIDGE_WINDOWS_EXE_PATH || '/app/releases/CBHR-PC-Bridge-Desktop-1.1.1.exe',
+    process.env.CBHR_PC_BRIDGE_WINDOWS_EXE_PATH || '/app/releases/CB-Bridge-1.2.1-x64.msi',
   );
   try {
     const stat = await fs.promises.stat(releasePath);
     if (!stat.isFile()) throw new Error('not a file');
   } catch {
     logger.warn('[PC Bridge] Windows release artifact is unavailable');
-    return res.status(404).json({ message: 'PC Bridge download is not available' });
+    return res.status(404).json({ message: 'CB Bridge download is not available' });
   }
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-CBHR-PC-Bridge-Version', '1.1.1');
-  return res.download(releasePath, 'CBHR-PC-Bridge-Desktop-1.1.1.exe');
+  return res.download(releasePath, 'CB-Bridge-1.2.1-x64.msi');
 });
 
 /** Browser presence signal for attaching a newly paired PC to an existing chat. */
