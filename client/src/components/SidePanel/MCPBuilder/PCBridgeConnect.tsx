@@ -19,6 +19,7 @@ export default function PCBridgeConnect() {
   const [open, setOpen] = useState(false);
   const [ticket, setTicket] = useState<PairingTicket | null>(null);
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function startPairing() {
@@ -32,6 +33,37 @@ export default function PCBridgeConnect() {
       setError(localize('com_ui_pc_connection_code_error'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function downloadWindowsBridge() {
+    setDownloading(true);
+    setError(null);
+    try {
+      // request.getResponse uses LibreChat's authenticated Axios client.
+      // Direct window navigation would omit the bearer token and return 401.
+      const response = await request.getResponse<Blob>(
+        '/api/mcp/pc-bridge/pair/download/windows',
+        {
+          responseType: 'blob',
+          headers: { Accept: 'application/octet-stream' },
+        },
+      );
+      const url = window.URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'CBHR-PC-Bridge-1.0.0.exe';
+      document.body.appendChild(anchor);
+      try {
+        anchor.click();
+      } finally {
+        anchor.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      }
+    } catch {
+      setError('PC Bridge download failed. Please refresh the page and try again.');
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -97,11 +129,10 @@ export default function PCBridgeConnect() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => {
-                  window.location.href = '/api/mcp/pc-bridge/pair/download/windows';
-                }}
+                onClick={() => void downloadWindowsBridge()}
+                disabled={downloading}
               >
-                Download PC Bridge v1.0.0
+                {downloading ? 'Downloading PC Bridge…' : 'Download PC Bridge v1.0.0'}
               </Button>
               <Button
                 type="button"
