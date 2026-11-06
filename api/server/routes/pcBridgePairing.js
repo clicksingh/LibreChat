@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 /**
  * Employee PC device pairing.
  * The web session issues a short-lived code. The PC redeems it once to obtain
@@ -22,6 +22,7 @@ const {
 } = require('~/server/controllers/mcp');
 const { createPairingTickets } = require('~/server/services/PCBridge/pairingTickets');
 const { createSessions } = require('~/server/services/PCBridge/sessions');
+const { reinitMCPServer } = require('~/server/services/Tools/mcp');
 const { createCloudflareServer } = require('~/server/services/PCBridge/cloudflareServer');
 
 const router = Router();
@@ -89,6 +90,23 @@ async function register({ userId, url, bearerToken }) {
   };
 }
 
+async function refreshUserPCTools({ userId, serverName }) {
+  const user = await userForId(userId);
+  const config = await getMCPServersRegistry().getServerConfig(serverName, userId);
+  if (!config || config.title !== 'CBHR PC' || config.type !== 'streamable-http') {
+    throw new Error('PC MCP server no longer exists');
+  }
+  const result = await reinitMCPServer({
+    user,
+    serverName,
+    serverConfig: config,
+    returnOnOAuth: false,
+  });
+  if (!result?.success || !Array.isArray(result.tools)) {
+    throw new Error('PC MCP tool rediscovery failed');
+  }
+  return result.tools.map((tool) => tool.name).filter((name) => typeof name === 'string');
+}
 async function unregister({ userId, serverName }) {
   const user = await userForId(userId);
   const response = fakeResponse();
@@ -117,6 +135,7 @@ async function getServices() {
         provider,
         register,
         unregister,
+        refresh: refreshUserPCTools,
         isRegistered: async ({ userId, serverName }) =>
           Boolean(await getMCPServersRegistry().getServerConfig(serverName, userId)),
       });
@@ -176,6 +195,17 @@ router.get('/download/windows', requireJwtAuth, checkMCPUse, async (req, res) =>
   return res.download(releasePath, 'CBHR-PC-Bridge-Desktop-1.1.1.exe');
 });
 
+/** Browser presence signal for attaching a newly paired PC to an existing chat. */
+router.get('/status', requireJwtAuth, checkMCPUse, async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  try {
+    const { sessions } = await getServices();
+    return res.status(200).json(await sessions.getUserStatus(String(req.user.id)));
+  } catch (error) {
+    return fail(res, error);
+  }
+});
 /** Authenticated browser: create a 3-minute single-use code. */
 router.post('/start', requireJwtAuth, checkMCPUse, async (req, res) => {
   if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
@@ -211,6 +241,15 @@ router.post('/activate', limitActivation, async (req, res) => {
   }
 });
 
+router.post('/refresh', limitActivation, async (req, res) => {
+  try {
+    const { sessions } = await getServices();
+    const result = await sessions.refreshTools(req.body || {});
+    return res.status(result ? 200 : 401).json(result || { message: 'PC session unavailable' });
+  } catch (error) {
+    return fail(res, error);
+  }
+});
 router.post('/heartbeat', limitHeartbeat, async (req, res) => {
   try {
     const { sessions } = await getServices();
