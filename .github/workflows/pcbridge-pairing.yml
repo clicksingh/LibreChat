@@ -1,0 +1,27 @@
+﻿name: PC bridge pairing security tests
+
+on:
+  pull_request:
+    paths:
+      - 'api/server/services/PCBridge/**'
+      - 'api/server/routes/pcBridgePairing.js'
+      - 'client/src/components/SidePanel/MCPBuilder/**'
+      - '.github/workflows/pcbridge-pairing.yml'
+      - 'package.json'
+  push:
+    paths:
+      - 'api/server/services/PCBridge/**'
+      - 'api/server/routes/pcBridgePairing.js'
+      - '.github/workflows/pcbridge-pairing.yml'
+      - 'package.json'
+
+jobs:
+  pairing-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm run test:pcbridge-pairing

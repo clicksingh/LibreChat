@@ -1,13 +1,14 @@
-import { useState, useRef, useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { SystemRoles, PermissionTypes, Permissions } from 'librechat-data-provider';
 import { Button, FilterInput, OGDialogTrigger, TooltipAnchor } from '@librechat/client';
-import { useLocalize, useMCPServerManager, useHasAccess, useAuthContext } from '~/hooks';
+import { useAuthContext, useHasAccess, useLocalize, useMCPServerManager } from '~/hooks';
 import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
-import { PanelFooter, PanelContent } from '~/components/ui';
+import { PanelContent, PanelFooter } from '~/components/ui';
 import MCPServerCardSkeleton from './MCPServerCardSkeleton';
 import MCPAdminSettings from './MCPAdminSettings';
 import MCPServerDialog from './MCPServerDialog';
+import PCBridgeConnect from './PCBridgeConnect';
 import MCPServerList from './MCPServerList';
 
 export default function MCPBuilderPanel() {
@@ -19,6 +20,10 @@ export default function MCPBuilderPanel() {
   const hasCreateAccess = useHasAccess({
     permissionType: PermissionTypes.MCP_SERVERS,
     permission: Permissions.CREATE,
+  });
+  const hasUseAccess = useHasAccess({
+    permissionType: PermissionTypes.MCP_SERVERS,
+    permission: Permissions.USE,
   });
   const [showDialog, setShowDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +59,7 @@ export default function MCPBuilderPanel() {
             onChange={(e) => setSearchQuery(e.target.value)}
             containerClassName="flex-1"
           />
+          {hasUseAccess && <PCBridgeConnect />}
           {hasCreateAccess && (
             <MCPServerDialog
               open={showDialog}
