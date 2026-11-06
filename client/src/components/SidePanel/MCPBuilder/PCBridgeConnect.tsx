@@ -42,13 +42,10 @@ export default function PCBridgeConnect() {
     try {
       // request.getResponse uses LibreChat's authenticated Axios client.
       // Direct window navigation would omit the bearer token and return 401.
-      const response = await request.getResponse<Blob>(
-        '/api/mcp/pc-bridge/pair/download/windows',
-        {
-          responseType: 'blob',
-          headers: { Accept: 'application/octet-stream' },
-        },
-      );
+      const response = await request.getResponse<Blob>('/api/mcp/pc-bridge/pair/download/windows', {
+        responseType: 'blob',
+        headers: { Accept: 'application/octet-stream' },
+      });
       const url = window.URL.createObjectURL(response.data);
       const anchor = document.createElement('a');
       anchor.href = url;
