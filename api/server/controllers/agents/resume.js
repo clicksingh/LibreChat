@@ -1,4 +1,5 @@
 const { logger } = require('@librechat/data-schemas');
+const { artifactRefs } = require('./agentFailure');
 const { Constants, EModelEndpoint } = require('librechat-data-provider');
 const {
   GenerationJobManager,
@@ -310,7 +311,7 @@ async function finalizeResumedTurn({
     endpoint: meta.endpoint,
     iconURL: meta.iconURL,
     model: meta.model,
-    unfinished: preemptIncomplete,
+    unfinished: preemptIncomplete || Boolean(client?.interruptionReceipt),
     error: false,
     isCreatedByUser: false,
     user: userId,
@@ -345,6 +346,10 @@ async function finalizeResumedTurn({
       ? { summaryUsedTokens: cumulativeMeta.summaryUsedTokens }
       : {}),
   };
+  if (client?.interruptionReceipt) {
+    client.interruptionReceipt.artifactRefs = artifactRefs(content, attachments);
+    responseMetadata.interruption = client.interruptionReceipt;
+  }
   if (Object.keys(responseMetadata).length > 0) {
     responseMessage.metadata = responseMetadata;
   }
@@ -362,8 +367,8 @@ async function finalizeResumedTurn({
   // until the winner has persisted and published its FINAL.
   const terminalClaim = await GenerationJobManager.claimTerminalJob(
     streamId,
-    'complete',
-    undefined,
+    client?.interruptionReceipt ? 'error' : 'complete',
+    client?.interruptionMessage,
     job.createdAt,
     { persistencePending: true },
   );
