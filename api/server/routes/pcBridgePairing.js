@@ -100,6 +100,7 @@ async function refreshUserPCTools({ userId, serverName }) {
     user,
     serverName,
     serverConfig: config,
+    forceNew: true,
     returnOnOAuth: false,
   });
   if (!result?.success || !Array.isArray(result.tools)) {
@@ -173,6 +174,14 @@ function fail(res, error) {
   }
   if (code === 'CF_NOT_CONFIGURED')
     return res.status(503).json({ message: 'PC connection service is not configured' });
+  if (['CF_DNS_NOT_READY', 'PC_ENDPOINT_NOT_READY', 'PC_MCP_NOT_READY'].includes(code)) {
+    return res.status(503).json({
+      message: 'CB Bridge tunnel is not ready for MCP tools. Retry the connection shortly.',
+    });
+  }
+  if (code === 'PC_SESSION_EXPIRED') {
+    return res.status(410).json({ message: 'PC connection expired. Start pairing again.' });
+  }
   logger.error('[PC Bridge Pairing]', { code: code || error?.name || 'unknown' });
   return res.status(502).json({ message: 'PC connection could not be completed' });
 }

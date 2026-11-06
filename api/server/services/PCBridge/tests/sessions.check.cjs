@@ -60,7 +60,8 @@ function db() {
     },
   };
 }
-function fixture({ failUnregisterOnce = false, dnsReady = async () => true } = {}) {
+function fixture({ failUnregisterOnce = false, dnsReady = async () => true, endpointReady = async () => true,
+  registerFailures = 0, refreshFailure = false } = {}) {
   const collection = db();
   let fixtureRegistered = true;
   let unregisterFailuresRemaining = failUnregisterOnce ? 1 : 0;
@@ -90,11 +91,18 @@ function fixture({ failUnregisterOnce = false, dnsReady = async () => true } = {
     },
     provider,
     dnsReady,
+    endpointReady,
+    sleep: async () => {},
     now: () => new Date(current),
     randomUUID: () => '00000000-0000-4000-8000-000000000222',
     randomBytes: (n) => Buffer.alloc(n, 88),
     register: async (input) => {
       events.push(['register', input.userId]);
+      if (registerFailures-- > 0) {
+        throw Object.assign(new Error('Cloudflare 1033 / HTTP 530'), {
+          code: 'PC_MCP_REGISTRATION_FAILED',
+        });
+      }
       return { serverName: 'cbhr_pc', tools: ['read_file', 'list_directory'] };
     },
     unregister: async (input) => {
@@ -106,6 +114,7 @@ function fixture({ failUnregisterOnce = false, dnsReady = async () => true } = {
     },
     refresh: async ({ userId, serverName }) => {
       events.push(['refresh', userId, serverName]);
+      if (refreshFailure) throw new Error('Tool discovery failed');
       return ['read_file'];
     },
     isRegistered: async () => fixtureRegistered,
@@ -379,4 +388,46 @@ test('heartbeat extends TTL retention so a live session cannot be purged', async
     true,
   );
   assert.ok(collection.rows[0].purgeAfter > before);
+});
+
+test('Cloudflare warmup registration errors retry and eventually activate', async () => {
+  const { service, events } = fixture({ registerFailures: 2 });
+  const s = await service.claim({ code: 'valid', port: 8845 });
+  const active = await service.activate({ sessionId: s.sessionId, sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48) });
+  assert.equal(active.serverName, 'cbhr_pc');
+  assert.equal(events.filter((event) => event[0] === 'register').length, 3);
+  assert.equal((await service.getUserStatus(USER)).connected, true);
+});
+
+test('permanent MCP initialize failure leaves no active or orphan registration', async () => {
+  const { service, collection, events } = fixture({ registerFailures: 20 });
+  const s = await service.claim({ code: 'valid', port: 8845 });
+  await assert.rejects(service.activate({ sessionId: s.sessionId,
+    sessionSecret: s.sessionSecret, bearerToken: 'x'.repeat(48) }),
+  { code: 'PC_MCP_NOT_READY' });
+  assert.equal(collection.rows[0].state, 'claimed');
+  assert.equal(collection.rows[0].serverName, null);
+  assert.deepEqual(await service.getUserStatus(USER), { connected: false });
+  assert.equal(events.filter((event) => event[0] === 'register').length, 5);
+});
+
+test('failed local tool rediscovery does not increment revision', async () => {
+  const { service } = fixture({ refreshFailure: true });
+  const s = await service.claim({ code: 'valid', port: 8845 });
+  await service.activate({ sessionId: s.sessionId, sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48) });
+  await assert.rejects(service.refreshTools({ sessionId: s.sessionId,
+    sessionSecret: s.sessionSecret }), /Tool discovery failed/);
+  assert.equal((await service.getUserStatus(USER)).toolRevision, 1);
+});
+
+test('browser status never reports Connected after registered MCP removal', async () => {
+  const { service, removeInPlatform } = fixture();
+  const s = await service.claim({ code: 'valid', port: 8845 });
+  await service.activate({ sessionId: s.sessionId, sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48) });
+  assert.equal((await service.getUserStatus(USER)).connected, true);
+  removeInPlatform();
+  assert.deepEqual(await service.getUserStatus(USER), { connected: false });
 });

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { logger, redactMessage } = require('@librechat/data-schemas');
 const { tool: toolFn, DynamicStructuredTool } = require('@librechat/agents/langchain/tools');
 const {
@@ -93,6 +94,8 @@ const { getLogStores } = require('~/cache');
 const { createDocumentVisualQATool } = require('~/server/services/Tools/documentVisualQA');
 const { createAgentManagementTool } = require('~/server/services/Tools/agentManagement');
 const { isRunCodeUseAllowed } = require('~/server/services/Endpoints/agents/authorization');
+
+const { resolveEffectivePCTools, isPCToolKey } = require('~/server/services/PCBridge/activeTools');
 
 const domainSeparatorRegex = new RegExp(actionDomainSeparator, 'g');
 
@@ -1273,6 +1276,27 @@ async function loadAgentTools({
   definitionsOnly = true,
   accessibleMcpServerNames,
 }) {
+  const existingTools = Array.isArray(agent?.tools) ? agent.tools : [];
+  let effectiveTools = existingTools.filter((name) => !isPCToolKey(name, Constants.mcp_delimiter));
+  try {
+    const collection = mongoose.connection.db?.collection('pcbridgepairingsessions');
+    effectiveTools = await resolveEffectivePCTools({
+      userId: String(req?.user?.id ?? ''),
+      tools: existingTools,
+      canUseServers: () => req?.user?.id && req?.user?.role
+        ? createMCPPermissionContext(req).canUseServers(req.user)
+        : false,
+      collection,
+      getServerConfig: (serverName, userId) =>
+        getMCPServersRegistry().getServerConfig(serverName, userId),
+      delimiter: Constants.mcp_delimiter,
+      allToolName: Constants.mcp_all,
+    });
+  } catch (error) {
+    logger.warn('[PC Bridge] Turn attachment failed closed:', error?.code || error?.name);
+  }
+  agent = { ...agent, tools: effectiveTools };
+
   if (definitionsOnly) {
     try {
       return await loadToolDefinitionsWrapper({

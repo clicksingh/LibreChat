@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
+const { registerWhenReady, publicMCPReachable } = require('./readiness');
 
 const CLAIM_WINDOW_MS = 10 * 60 * 1000;
 const ACTIVE_HEARTBEAT_WINDOW_MS = 5 * 60 * 1000;
@@ -48,6 +49,9 @@ function createSessions({
   randomBytes = crypto.randomBytes,
   randomUUID = crypto.randomUUID,
   dnsReady = publicDnsReady,
+  endpointReady = publicMCPReachable,
+  sleep,
+  activationBackoffs,
 }) {
   if (!collection || !tickets || !provider || !register || !unregister) {
     throw new TypeError('Pairing session dependencies are required');
@@ -151,15 +155,20 @@ function createSessions({
     if (!doc) return null;
     let registeredName = null;
     try {
-      if (!(await dnsReady(doc.hostname))) {
-        throw Object.assign(new Error('PC bridge hostname is not publicly resolvable yet'), {
-          code: 'CF_DNS_NOT_READY',
-        });
-      }
-      const result = await register({
-        userId: doc.userId,
-        url: doc.url + '/mcp',
-        bearerToken,
+      const result = await registerWhenReady({
+        hostname: doc.hostname,
+        endpoint: doc.url + '/mcp',
+        expiresAt: doc.expiresAt,
+        now,
+        dnsReady,
+        endpointReady,
+        ...(sleep ? { sleep } : {}),
+        ...(activationBackoffs ? { backoffs: activationBackoffs } : {}),
+        register: () => register({
+          userId: doc.userId,
+          url: doc.url + '/mcp',
+          bearerToken,
+        }),
       });
       registeredName = result?.serverName || null;
       if (!registeredName || !Array.isArray(result.tools) || !result.tools.length) {
@@ -168,7 +177,7 @@ function createSessions({
         });
       }
       const updated = await collection.updateOne(
-        { sessionId, state: 'activating' },
+        { sessionId, state: 'activating', expiresAt: { $gt: now() } },
         {
           $set: {
             state: 'active',
@@ -227,6 +236,9 @@ function createSessions({
       expiresAt: { $gt: now() },
     });
     if (!live || typeof live.serverName !== 'string' || !live.serverName) {
+      return { connected: false };
+    }
+    if (!(await isRegistered({ userId, serverName: live.serverName }))) {
       return { connected: false };
     }
     return {
