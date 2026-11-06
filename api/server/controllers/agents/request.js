@@ -1,5 +1,5 @@
 const { logger, tenantStorage } = require('@librechat/data-schemas');
-const { normalizeAgentFailure } = require('./agentFailure');
+const { normalizeAgentFailure, classifyAgentFailure, artifactRefs, persistInterruptedRunCheckpoint } = require('./agentFailure');
 const { v5: uuidv5 } = require('uuid');
 const {
   Constants,
@@ -1165,8 +1165,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         client?.run?.getHaltReason?.() === 'preempt_incomplete';
       terminalClaim = await GenerationJobManager.claimTerminalJob(
         streamId,
-        terminalWasAborted ? 'aborted' : 'complete',
-        undefined,
+        terminalWasAborted ? 'aborted' : client?.interruptionReceipt ? 'error' : 'complete',
+        client?.interruptionMessage,
         jobCreatedAt,
         { persistencePending: true },
       );
@@ -1542,6 +1542,12 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
 
         const endpoint = endpointOption.endpoint;
         response.endpoint = endpoint;
+        if (client?.interruptionReceipt) {
+          client.interruptionReceipt.artifactRefs = artifactRefs(
+            response.content, response.attachments,
+          );
+          response.metadata = { ...response.metadata, interruption: client.interruptionReceipt };
+        }
 
         const databasePromise = response.databasePromise;
         delete response.databasePromise;
@@ -1612,7 +1618,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         /** BaseClient can add the id to savedMessageIds even when its model-layer
          * save resolved falsy. Re-save the terminal row idempotently and require
          * the returned durable row before publishing the normal FINAL. */
-        const responseIsUnfinished = terminalWasAborted || preemptIncomplete;
+        const responseIsUnfinished = terminalWasAborted || preemptIncomplete || Boolean(client?.interruptionReceipt);
         const savedResponseMessage = await saveMessage(
           reqCtx,
           {
@@ -1687,7 +1693,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
             finalEvent,
           );
           let terminalOutcome = 'completed_without_delta';
-          if (publication.persistenceFailed) {
+          if (publication.persistenceFailed || client?.interruptionReceipt) {
             terminalOutcome = 'error';
           } else if (terminalWasAborted) {
             terminalOutcome = 'aborted';
@@ -1800,8 +1806,37 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
           startupTelemetry?.end('aborted');
           // abortJob already handled emitDone and completeJob
         } else {
-          logger.error(`[ResumableAgentController] Generation error for ${streamId}:`, error);
+          logger.error('[ResumableAgentController] Generation failed', {
+            streamId,
+            failureClass: classifyAgentFailure(error),
+          });
           const generationError = normalizeAgentFailure(error);
+          if (!terminalClaim) {
+            try {
+              await persistInterruptedRunCheckpoint({
+                manager: GenerationJobManager,
+                saveMessage,
+                streamId,
+                generationCreatedAt: jobCreatedAt,
+                reqContext: {
+                  userId,
+                  isTemporary: req?.body?.isTemporary,
+                  interfaceConfig: req?.config?.interfaceConfig,
+                },
+                userId,
+                conversationId,
+                model: responseModel,
+                provider: client?.options?.agent?.provider ?? endpointOption?.endpoint,
+                client,
+                error,
+              });
+            } catch (checkpointError) {
+              logger.warn('[ResumableAgentController] Failed to persist interruption checkpoint', {
+                streamId,
+                failureClass: classifyAgentFailure(checkpointError),
+              });
+            }
+          }
           try {
             // completeJob first wins running -> error and atomically parks
             // steers, then publishes. A competing abort/pause emits nothing.
@@ -1829,9 +1864,10 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
 
     // Start generation and handle any unhandled errors
     startGeneration().catch(async (err) => {
-      logger.error(
-        `[ResumableAgentController] Unhandled error in background generation: ${err.message}`,
-      );
+      logger.error('[ResumableAgentController] Background generation failed', {
+        streamId,
+        failureClass: classifyAgentFailure(err),
+      });
       startupTelemetry?.end('error', err);
       if (!pausePersistenceFailed) {
         await GenerationJobManager.completeJob(
@@ -1852,7 +1888,10 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       }
     });
   } catch (error) {
-    logger.error('[ResumableAgentController] Initialization error:', error);
+    logger.error('[ResumableAgentController] Initialization failed', {
+      streamId,
+      failureClass: classifyAgentFailure(error),
+    });
     const resourceRecoveryFailure = getResourceRecoveryFailure(error);
     try {
       if (!res.headersSent) {
@@ -1929,6 +1968,32 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
     // and the concurrency slot leaks — so swallow its error. (A failed completeJob did not
     // finalize anything, so releasing afterward can't let it abort a later replacement.)
     if (jobCreatedAt != null) {
+      if (!resourceRecoveryFailure && error?.code !== 'GENERATION_PREDECESSOR_MISMATCH') {
+        try {
+          await persistInterruptedRunCheckpoint({
+            manager: GenerationJobManager,
+            saveMessage,
+            streamId,
+            generationCreatedAt: jobCreatedAt,
+            reqContext: {
+              userId,
+              isTemporary: req?.body?.isTemporary,
+              interfaceConfig: req?.config?.interfaceConfig,
+            },
+            userId,
+            conversationId,
+            model: getAgentResponseModel(req, endpointOption),
+            provider: endpointOption?.endpoint,
+            client,
+            error,
+          });
+        } catch (checkpointError) {
+          logger.warn('[ResumableAgentController] Initialization checkpoint unavailable', {
+            streamId,
+            failureClass: classifyAgentFailure(checkpointError),
+          });
+        }
+      }
       const initializationError = resourceRecoveryFailure
         ? JSON.stringify(resourceRecoveryFailure)
         : normalizeAgentFailure(error);

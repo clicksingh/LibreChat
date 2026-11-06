@@ -1,6 +1,6 @@
 require('events').EventEmitter.defaultMaxListeners = 100;
 const { logger } = require('@librechat/data-schemas');
-const { normalizeAgentFailure } = require('./agentFailure');
+const { normalizeAgentFailure, classifyAgentFailure, buildRecoveryReceipt, formatRecoveryContext } = require('./agentFailure');
 const { getBufferString, HumanMessage } = require('@librechat/agents/langchain/messages');
 const {
   createRun,
@@ -2008,6 +2008,31 @@ class AgentClient extends BaseClient {
     }
   }
 
+  /**
+   * Captures confirmed-only tool history; it cannot execute or replay tools.
+   * The assistant text is part of the saved history for the next "Continue" turn.
+   */
+  captureInterruption(error) {
+    const receipt = buildRecoveryReceipt({
+      error,
+      conversationId: this.conversationId,
+      runId: this.responseMessageId,
+      model: this.model,
+      provider: this.options.agent?.provider,
+      startedAt: this.jobCreatedAt,
+      contentParts: this.contentParts,
+      runSteps: [...(this.stepMap?.values() ?? [])],
+      attachments: this.options.attachments,
+    });
+    this.interruptionReceipt = receipt;
+    this.interruptionMessage = normalizeAgentFailure(error);
+    this.contentParts.push({
+      type: ContentTypes.TEXT,
+      [ContentTypes.TEXT]: formatRecoveryContext(receipt),
+    });
+    return receipt;
+  }
+
   /** @type {sendCompletion} */
   async sendCompletion(payload, opts = {}) {
     await this.chatCompletion({
@@ -2093,6 +2118,7 @@ class AgentClient extends BaseClient {
     if (usage) {
       metadata.usage = usage;
     }
+    if (this.interruptionReceipt) metadata.interruption = this.interruptionReceipt;
     return Object.keys(metadata).length > 0 ? metadata : undefined;
   }
 
@@ -3088,15 +3114,17 @@ class AgentClient extends BaseClient {
           { conversationId: this.conversationId, name: err?.name, code: err?.code },
         );
       } else {
-        logger.error(
-          '[api/server/controllers/agents/client.js #sendCompletion] Unhandled error type',
-          err,
-        );
+        logger.error('[AgentInterruption] Model run failed', {
+          failureClass: classifyAgentFailure(err),
+          conversationId: this.conversationId,
+          runId: this.responseMessageId,
+        });
         const videoError = resolveGoogleVideoError({
           error: err,
           provider: this.options.agent?.provider,
           hasYouTubeVideo: this.injectedYouTubeVideo,
         });
+        this.captureInterruption(err);
         this.contentParts.push({
           type: ContentTypes.ERROR,
           [ContentTypes.ERROR]: videoError ?? normalizeAgentFailure(err),
@@ -3418,10 +3446,12 @@ class AgentClient extends BaseClient {
           },
         );
       } else {
-        logger.error(
-          '[api/server/controllers/agents/client.js #resumeCompletion] Unhandled error',
-          err,
-        );
+        logger.error('[AgentInterruption] Resumed model run failed', {
+          failureClass: classifyAgentFailure(err),
+          conversationId: this.conversationId,
+          runId: this.responseMessageId,
+        });
+        this.captureInterruption(err);
         this.contentParts.push({
           type: ContentTypes.ERROR,
           [ContentTypes.ERROR]: normalizeAgentFailure(err),
