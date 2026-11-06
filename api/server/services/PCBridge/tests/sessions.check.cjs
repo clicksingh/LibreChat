@@ -104,6 +104,10 @@ function fixture({ failUnregisterOnce = false, dnsReady = async () => true } = {
         throw new Error('Temporary MCP cleanup outage');
       }
     },
+    refresh: async ({ userId, serverName }) => {
+      events.push(['refresh', userId, serverName]);
+      return ['read_file'];
+    },
     isRegistered: async () => fixtureRegistered,
   });
   return {
@@ -141,6 +145,59 @@ test('activate requires the matching secret and registers tools once', async () 
   assert.equal(events.filter((x) => x[0] === 'register').length, 1);
 });
 
+test('authenticated status reports only this user active PC, never session secrets', async () => {
+  const { service, advance } = fixture();
+  assert.deepEqual(await service.getUserStatus(USER), { connected: false });
+  const pair = await service.claim({ code: 'valid', port: 8845 });
+  assert.deepEqual(await service.getUserStatus(USER), { connected: false });
+  await service.activate({
+    sessionId: pair.sessionId,
+    sessionSecret: pair.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  });
+  const status = await service.getUserStatus(USER);
+  assert.deepEqual(status, { connected: true, serverName: 'cbhr_pc', toolRevision: 1 });
+  assert.ok(!JSON.stringify(status).includes(pair.sessionSecret));
+  assert.deepEqual(await service.getUserStatus('111111111111111111111111'), { connected: false });
+  advance(ACTIVE_HEARTBEAT_WINDOW_MS + 1);
+  assert.deepEqual(await service.getUserStatus(USER), { connected: false });
+});
+test('live tool refresh requires the real PC secret and increments active catalog revision', async () => {
+  const { service, events } = fixture();
+  const pair = await service.claim({ code: 'valid', port: 8845 });
+  const params = {
+    sessionId: pair.sessionId,
+    sessionSecret: pair.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  };
+  assert.equal(
+    await service.refreshTools({ sessionId: pair.sessionId, sessionSecret: 'invalid-secret' }),
+    null,
+  );
+  assert.equal(events.filter((e) => e[0] === 'refresh').length, 0);
+  await service.activate(params);
+  assert.deepEqual(await service.getUserStatus(USER), {
+    connected: true,
+    serverName: 'cbhr_pc',
+    toolRevision: 1,
+  });
+  const updated = await service.refreshTools({
+    sessionId: pair.sessionId,
+    sessionSecret: pair.sessionSecret,
+  });
+  assert.deepEqual(updated, { refreshed: true, toolRevision: 2, tools: ['read_file'] });
+  assert.deepEqual(await service.getUserStatus(USER), {
+    connected: true,
+    serverName: 'cbhr_pc',
+    toolRevision: 2,
+  });
+  assert.equal(events.filter((e) => e[0] === 'refresh').length, 1);
+  await service.disconnect({ sessionId: pair.sessionId, sessionSecret: pair.sessionSecret });
+  assert.equal(
+    await service.refreshTools({ sessionId: pair.sessionId, sessionSecret: pair.sessionSecret }),
+    null,
+  );
+});
 test('activation rejects unresolved DNS without publishing MCP tools', async () => {
   const { service, collection, events } = fixture({ dnsReady: async () => false });
   const session = await service.claim({ code: 'valid', port: 8845 });

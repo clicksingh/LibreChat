@@ -40,6 +40,9 @@ function createSessions({
   provider,
   register,
   unregister,
+  refresh = async () => {
+    throw new Error('PC tool refresh is unavailable');
+  },
   isRegistered = async () => true,
   now = () => new Date(),
   randomBytes = crypto.randomBytes,
@@ -170,6 +173,7 @@ function createSessions({
           $set: {
             state: 'active',
             serverName: registeredName,
+            toolRevision: 1,
             lastSeenAt: now(),
             expiresAt: new Date(now().getTime() + ACTIVE_HEARTBEAT_WINDOW_MS),
             purgeAfter: new Date(now().getTime() + PURGE_MS),
@@ -194,6 +198,7 @@ function createSessions({
               $set: {
                 state: 'cleanup_pending',
                 serverName: registeredName,
+                toolRevision: 1,
                 expiresAt: now(),
                 purgeAfter: new Date(now().getTime() + PURGE_MS),
               },
@@ -210,6 +215,52 @@ function createSessions({
     }
   }
 
+  // Authenticated browser-visible presence signal. No pairing or tunnel secret
+  // is exposed; use only the signed-in user's own active session.
+  async function getUserStatus(userId) {
+    if (typeof userId !== 'string' || !/^[0-9a-f]{24}$/i.test(userId)) {
+      return { connected: false };
+    }
+    const live = await collection.findOne({
+      userId,
+      state: 'active',
+      expiresAt: { $gt: now() },
+    });
+    if (!live || typeof live.serverName !== 'string' || !live.serverName) {
+      return { connected: false };
+    }
+    return {
+      connected: true,
+      serverName: live.serverName,
+      toolRevision: Number.isInteger(live.toolRevision) ? live.toolRevision : 1,
+    };
+  }
+  // Re-read the already registered PC's live MCP tools after the employee
+  // revokes a local capability. Server authorization stays local at call time.
+  // The revision only tells open browser chats to re-fetch their tool catalog.
+  async function refreshTools({ sessionId, sessionSecret }) {
+    const auth = authQuery(sessionId, sessionSecret);
+    if (!auth) return null;
+    const live = await collection.findOne({
+      ...auth,
+      state: 'active',
+      expiresAt: { $gt: now() },
+    });
+    if (!live || !live.serverName) return null;
+    const tools = await refresh({ userId: live.userId, serverName: live.serverName });
+    if (!Array.isArray(tools)) throw new Error('PC tool refresh returned no catalog');
+    const previous = Number.isInteger(live.toolRevision) ? live.toolRevision : 1;
+    const result = await collection.updateOne(
+      {
+        ...auth,
+        state: 'active',
+        toolRevision: live.toolRevision,
+      },
+      { $set: { toolRevision: previous + 1 } },
+    );
+    if (result.modifiedCount !== 1) return null;
+    return { refreshed: true, toolRevision: previous + 1, tools };
+  }
   async function heartbeat({ sessionId, sessionSecret }) {
     const auth = authQuery(sessionId, sessionSecret);
     if (!auth) return false;
@@ -326,7 +377,16 @@ function createSessions({
     return cleaned;
   }
 
-  return { ensureIndexes, claim, activate, heartbeat, disconnect, reap };
+  return {
+    ensureIndexes,
+    claim,
+    activate,
+    getUserStatus,
+    refreshTools,
+    heartbeat,
+    disconnect,
+    reap,
+  };
 }
 
 module.exports = { createSessions, hashSecret, CLAIM_WINDOW_MS, ACTIVE_HEARTBEAT_WINDOW_MS };

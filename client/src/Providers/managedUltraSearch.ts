@@ -7,3 +7,10 @@ export function hasManagedUltraSearch(
       serverName === 'ultrasearch' && (effectivePermissions & 1) !== 0,
   );
 }
+
+/** The regular managed chat keeps UltraSearch and attaches its connected PC hot. */
+export function managedMCPSelection(ultraAvailable: boolean, pcServerName?: string): string[] {
+  const result = ultraAvailable ? ['ultrasearch'] : [];
+  if (pcServerName && !result.includes(pcServerName)) result.push(pcServerName);
+  return result;
+}

@@ -1,10 +1,11 @@
 import { useCallback, useState, useMemo, useRef, useEffect } from 'react';
 import { useAtom } from 'jotai';
 import { useToastContext } from '@librechat/client';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Constants,
   dataService,
+  request,
   QueryKeys,
   MCPOptions,
   Permissions,
@@ -34,7 +35,13 @@ import {
   isTerminalMCPOAuthPollingError,
   shouldUseMCPConnectionStatus,
 } from './polling';
-import { useLocalize, useHasAccess, useMCPSelect, useMCPConnectionStatus } from '~/hooks';
+import {
+  useLocalize,
+  useHasAccess,
+  useMCPSelect,
+  useMCPConnectionStatus,
+  useAuthContext,
+} from '~/hooks';
 import { useGetStartupConfig, useMCPServersQuery } from '~/data-provider';
 import { mcpServerInitStatesAtom, getServerInitState } from '~/store/mcp';
 import { getMCPReinitializeErrorMessage } from './errors';
@@ -47,6 +54,11 @@ export interface MCPServerDefinition {
   consumeOnly?: boolean;
 }
 
+interface PCBridgeStatus {
+  connected: boolean;
+  serverName?: string;
+  toolRevision?: number;
+}
 // Poll intervals are kept local since they're timer references that can't be serialized
 // The init states (isInitializing, isCancellable, etc.) are stored in the global Jotai atom
 type PollIntervals = Record<string, NodeJS.Timeout | null>;
@@ -54,10 +66,16 @@ type PollIntervals = Record<string, NodeJS.Timeout | null>;
 export function useMCPServerManager({
   conversationId,
   storageContextKey,
-}: { conversationId?: string | null; storageContextKey?: string } = {}) {
+  autoAttachPCBridge = false,
+}: {
+  conversationId?: string | null;
+  storageContextKey?: string;
+  autoAttachPCBridge?: boolean;
+} = {}) {
   const localize = useLocalize();
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
+  const { user } = useAuthContext();
   /** Retained for `interface.mcpServers.placeholder` used by `placeholderText` below */
   const { data: startupConfig } = useGetStartupConfig();
   const canUseMcp = useHasAccess({
@@ -66,6 +84,21 @@ export function useMCPServerManager({
   });
 
   const { data: loadedServers, isLoading } = useMCPServersQuery({ enabled: canUseMcp });
+  // The chat can be open before its PC is paired. Poll the signed-in user's
+  // lightweight presence endpoint and update the existing conversation,
+  // rather than requiring a new chat after activation.
+  const isChatScope = autoAttachPCBridge;
+  const { data: pcBridgeStatus, dataUpdatedAt: pcBridgeStatusUpdatedAt } = useQuery<PCBridgeStatus>(
+    {
+      queryKey: ['cbhr-pc-bridge-status', user?.id],
+      queryFn: async () => (await request.get('/api/mcp/pc-bridge/pair/status')) as PCBridgeStatus,
+      enabled: canUseMcp && isChatScope && Boolean(user?.id),
+      refetchInterval: 3_000,
+      refetchIntervalInBackground: false,
+      refetchOnWindowFocus: true,
+      retry: false,
+    },
+  );
 
   // Fetch effective permissions for all MCP servers
   const { data: permissionsMap } = useGetAllEffectivePermissionsQuery(ResourceType.MCPSERVER, {
@@ -116,6 +149,48 @@ export function useMCPServerManager({
     mcpValuesRef.current = mcpValues;
   }, [mcpValues]);
 
+  const pcBridgeConnected = pcBridgeStatus?.connected;
+  const pcBridgeName = pcBridgeStatus?.serverName;
+  const pcBridgeRevision = pcBridgeStatus?.toolRevision;
+  const observedPCStatus = useRef<{ name: string | null; revision: number } | null>(null);
+  useEffect(() => {
+    if (pcBridgeConnected == null || !isChatScope) return;
+    const name = pcBridgeConnected ? (pcBridgeName ?? null) : null;
+    const revision = name && Number.isInteger(pcBridgeRevision) ? pcBridgeRevision! : 0;
+    const previous = observedPCStatus.current;
+    if (previous && previous.name === name && previous.revision === revision) return;
+    const oldName = previous?.name ?? null;
+    let cancelled = false;
+    void (async () => {
+      await Promise.all([
+        queryClient.invalidateQueries([QueryKeys.mcpServers]),
+        queryClient.invalidateQueries([QueryKeys.mcpTools]),
+        queryClient.invalidateQueries([QueryKeys.mcpConnectionStatus]),
+      ]);
+      if (cancelled) return;
+      const current = mcpValuesRef.current ?? [];
+      const updated =
+        oldName && oldName !== name ? current.filter((value) => value !== oldName) : [...current];
+      if (name && !updated.includes(name)) updated.push(name);
+      if (updated.length !== current.length || updated.some((value, i) => value !== current[i])) {
+        setMCPValues(updated);
+      }
+      observedPCStatus.current = { name, revision };
+    })().catch(() => {
+      /* Keep previous marker so the next status poll can retry. */
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pcBridgeConnected,
+    pcBridgeName,
+    pcBridgeRevision,
+    pcBridgeStatusUpdatedAt,
+    isChatScope,
+    queryClient,
+    setMCPValues,
+  ]);
   // Check if specific permission bit is set
   const checkEffectivePermission = useCallback(
     (effectivePermissions: number, permissionBit: number): boolean => {
@@ -774,6 +849,7 @@ export function useMCPServerManager({
 
   return {
     availableMCPServers,
+    pcBridgeStatus,
     /** MCP servers filtered for chat menu selection (chatMenu !== false && !consumeOnly) */
     selectableServers,
     availableMCPServersMap: loadedServers,

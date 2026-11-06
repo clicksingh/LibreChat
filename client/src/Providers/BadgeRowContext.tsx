@@ -15,7 +15,7 @@ import {
   useToolToggle,
   useAuthContext,
 } from '~/hooks';
-import { hasManagedUltraSearch } from './managedUltraSearch';
+import { hasManagedUltraSearch, managedMCPSelection } from './managedUltraSearch';
 import { getTimestampedValue } from '~/utils/timestamps';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
@@ -86,8 +86,19 @@ export default function BadgeRowProvider({
   const storageSuffix = isNewConvo && storageContextKey ? storageContextKey : key;
 
   const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(key));
-  const mcpServerManager = useMCPServerManager({ conversationId, storageContextKey });
+  const mcpServerManager = useMCPServerManager({
+    conversationId,
+    storageContextKey,
+    autoAttachPCBridge: true,
+  });
   const hasAvailableUltraSearch = hasManagedUltraSearch(mcpServerManager.availableMCPServers);
+  const connectedPCName = mcpServerManager.pcBridgeStatus?.connected
+    ? mcpServerManager.pcBridgeStatus.serverName
+    : undefined;
+  const managedMCPServers = useMemo(
+    () => managedMCPSelection(hasAvailableUltraSearch, connectedPCName),
+    [hasAvailableUltraSearch, connectedPCName],
+  );
 
   /**
    * CBHR managed-user baseline.
@@ -97,6 +108,8 @@ export default function BadgeRowProvider({
    * existing conversations that may carry stale browser-local preferences.
    * Authorization still remains server-side; this only expresses intent.
    *
+   * An active PC Bridge is selected automatically in the current chat.
+   * Its removal updates that chat without a restart.
    * Native web_search stays off because UltraSearch is the canonical web path.
    * The special E2E_NOCODE role is deliberately excluded from this policy so
    * the server-side RUN_CODE authorization ceiling remains continuously tested.
@@ -110,9 +123,8 @@ export default function BadgeRowProvider({
       const current = prev ?? {};
       const mcpIsManaged =
         Array.isArray(current.mcp) &&
-        (hasAvailableUltraSearch
-          ? current.mcp.length === 1 && current.mcp[0] === 'ultrasearch'
-          : current.mcp.length === 0);
+        current.mcp.length === managedMCPServers.length &&
+        current.mcp.every((value, index) => value === managedMCPServers[index]);
 
       if (
         current[Tools.execute_code] === true &&
@@ -132,10 +144,10 @@ export default function BadgeRowProvider({
         [Tools.web_search]: false,
         [AgentCapabilities.skills]: true,
         [AgentCapabilities.artifacts]: 'default',
-        mcp: hasAvailableUltraSearch ? ['ultrasearch'] : [],
+        mcp: managedMCPServers,
       };
     });
-  }, [hasAvailableUltraSearch, isManagedUser, isSubmitting, key, setEphemeralAgent]);
+  }, [managedMCPServers, isManagedUser, isSubmitting, key, setEphemeralAgent]);
 
   /** Initialize ephemeralAgent from localStorage on mount and when conversation/spec changes.
    *  Skipped when a spec is active — applyModelSpecEphemeralAgent handles both new conversations
