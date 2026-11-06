@@ -2181,3 +2181,61 @@ describe('ToolService - Action Capability Gating', () => {
     });
   });
 });
+
+describe('PM-E unknown bash name authorization boundary', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockLoadToolsUtil.mockResolvedValue({ loadedTools: [], toolContextMap: {} });
+  });
+
+  it('provides a bash_tool hint only after current code authorization succeeds', async () => {
+    const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+    const req = createMockReq(capabilities);
+    mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+    const result = await loadToolsForExecution({
+      req,
+      res: {},
+      agent: { id: 'agent_with_code', tools: [Tools.execute_code] },
+      toolNames: ['bash_terminal'],
+      actionsEnabled: false,
+    });
+    expect(result.configurable.correctiveToolNames).toEqual([AgentConstants.BASH_TOOL]);
+    expect(result.loadedTools).toEqual([]);
+    expect(mockCreateBashExecutionTool).not.toHaveBeenCalled();
+    expect(mockLoadToolsUtil).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: ['bash_terminal'] }),
+    );
+  });
+
+  it('does not advertise bash_tool if RUN_CODE.USE has been revoked', async () => {
+    const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+    const req = createMockReq(capabilities);
+    mockGetRoleByName.mockResolvedValue({ permissions: { [PermissionTypes.RUN_CODE]: {} } });
+    mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+    const result = await loadToolsForExecution({
+      req,
+      res: {},
+      agent: { id: 'agent_with_code', tools: [Tools.execute_code] },
+      toolNames: ['bash_terminal'],
+      actionsEnabled: false,
+    });
+    expect(result.configurable.correctiveToolNames).toBeUndefined();
+    expect(result.loadedTools).toEqual([]);
+    expect(mockCreateBashExecutionTool).not.toHaveBeenCalled();
+  });
+
+  it('does not advertise bash_tool for an agent without code execution', async () => {
+    const capabilities = [AgentCapabilities.tools, AgentCapabilities.execute_code];
+    const req = createMockReq(capabilities);
+    mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
+    const result = await loadToolsForExecution({
+      req,
+      res: {},
+      agent: { id: 'agent_without_code', tools: [] },
+      toolNames: ['bash'],
+      actionsEnabled: false,
+    });
+    expect(result.configurable.correctiveToolNames).toBeUndefined();
+    expect(result.loadedTools).toEqual([]);
+  });
+});

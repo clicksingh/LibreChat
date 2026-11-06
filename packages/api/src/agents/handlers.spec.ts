@@ -3741,3 +3741,53 @@ describe('per-call onResult reporting', () => {
     expect(results[0].status).toBe('success');
   });
 });
+
+describe('invalid tool name runtime correction', () => {
+  it('rejects bash_terminal without replaying a real bash_tool', async () => {
+    const captured: Record<string, unknown>[] = [];
+    const bash = createMockTool('bash_tool', captured);
+    const loadTools: ToolExecuteOptions['loadTools'] = jest.fn(async () => ({
+      loadedTools: [bash] as never[],
+      configurable: { correctiveToolNames: ['bash_tool'] },
+    }));
+    const results = await invokeHandler(createToolExecuteHandler({ loadTools }), [
+      { id: 'wrong', name: 'bash_terminal', args: { command: 'echo unexpected' } },
+      { id: 'valid', name: 'bash_tool', args: { command: 'echo expected' } },
+    ]);
+    expect(results.find((result) => result.toolCallId === 'wrong')).toMatchObject({
+      status: 'error',
+      errorMessage: expect.stringContaining('"bash_tool"'),
+    });
+    expect(results.find((result) => result.toolCallId === 'wrong')?.errorMessage).toContain(
+      '"bash_terminal"',
+    );
+    expect(results.find((result) => result.toolCallId === 'valid')?.status).toBe('success');
+    expect(bash.invoke).toHaveBeenCalledTimes(1);
+    expect(captured).toHaveLength(1);
+  });
+
+  it('does not disclose unavailable names when the tool is not authorized', async () => {
+    const loadTools: ToolExecuteOptions['loadTools'] = jest.fn(async () => ({
+      loadedTools: [],
+      configurable: {},
+    }));
+    const [result] = await invokeHandler(createToolExecuteHandler({ loadTools }), [
+      { id: 'denied', name: 'bash_terminal', args: {} },
+    ]);
+    expect(result.status).toBe('error');
+    expect(result.errorMessage).toContain('"bash_terminal"');
+    expect(result.errorMessage).not.toContain('"bash_tool"');
+  });
+
+  it('never trusts model-supplied configurable values as available tool names', async () => {
+    const loadTools: ToolExecuteOptions['loadTools'] = jest.fn(async () => ({ loadedTools: [] }));
+    const [result] = await invokeHandlerWithConfig(
+      createToolExecuteHandler({ loadTools }),
+      [{ id: 'forged', name: 'bash_terminal', args: {} }],
+      { correctiveToolNames: ['bash_tool', 'internal_admin_tool'] },
+    );
+    expect(result.status).toBe('error');
+    expect(result.errorMessage).not.toContain('bash_tool');
+    expect(result.errorMessage).not.toContain('internal_admin_tool');
+  });
+});

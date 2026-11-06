@@ -1735,9 +1735,19 @@ async function loadToolsForExecution({
     isBashToolRequested ||
     isLegacyExecuteCodeRequested ||
     toolNames.includes(Tools.document_visual_qa);
+  // Guessed tool names are never executed as aliases. Authorization is
+  // resolved only to decide whether a corrective bash_tool hint is safe.
+  const isUnknownBashNameRequested = toolNames.some(
+    (name) => name === 'bash' || (name.startsWith('bash_') && name !== AgentConstants.BASH_TOOL),
+  );
 
   let enabledCapabilities;
-  if (actionsEnabled === undefined || isPTCRequested || isCodeExecutionToolRequested) {
+  if (
+    actionsEnabled === undefined ||
+    isPTCRequested ||
+    isCodeExecutionToolRequested ||
+    isUnknownBashNameRequested
+  ) {
     enabledCapabilities = await resolveAgentCapabilities(req, appConfig, agent?.id);
   }
   if (actionsEnabled === undefined) {
@@ -1746,6 +1756,10 @@ async function loadToolsForExecution({
   const codeExecutionEnabled =
     enabledCapabilities?.has(AgentCapabilities.execute_code) === true &&
     agent?.tools?.includes(Tools.execute_code) === true;
+  if (isUnknownBashNameRequested && codeExecutionEnabled) {
+    // Rechecked against current capability, agent opt-in, and RUN_CODE.USE.
+    configurable.correctiveToolNames = [AgentConstants.BASH_TOOL];
+  }
 
   /**
    * Opt bash_tool into the hedged stateful-session description. Gated on code

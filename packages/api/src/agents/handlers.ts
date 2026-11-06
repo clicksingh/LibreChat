@@ -50,6 +50,7 @@ import { parseFrontmatter } from '../skills/import';
 import { cleanCodeToolOutput } from './cleanup';
 import { primeSkillFiles } from './skillFiles';
 import { markSandboxReady } from './prewarm';
+import { buildUnknownToolError } from './unknownToolFeedback';
 
 export interface ToolEndCallbackData {
   output: {
@@ -3743,6 +3744,14 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
               sourceConfigurable,
               loadedConfigurable,
             );
+            // Only server-loaded, currently authorized names may be suggested.
+            // Model-supplied configurable values cannot invent tool availability.
+            const correctiveNames = Array.isArray(loadedConfigurable?.correctiveToolNames)
+              ? (loadedConfigurable.correctiveToolNames as string[]).filter(
+                  (name) => typeof name === 'string',
+                )
+              : [];
+            const availableForCorrection = [...toolMap.keys(), ...correctiveNames];
             const authoringQueues = new Map<string, Promise<void>>();
             const sandboxAuthoringContexts = new Map<string, SandboxSessionContext>();
 
@@ -3795,7 +3804,7 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
                   toolCallId: tc.id,
                   status: 'error' as const,
                   content: '',
-                  errorMessage: `Tool ${tc.name} not found`,
+                  errorMessage: buildUnknownToolError(tc.name, availableForCorrection),
                 };
               }
               const isCodeCall = isCodeSessionAwareToolCall(tc.name, mergedConfigurable);
@@ -4174,7 +4183,10 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
                           sandboxContext,
                         );
                       } else {
-                        handlerResult = errorResult(tc, `Tool ${tc.name} not found`);
+                        handlerResult = errorResult(
+                          tc,
+                          buildUnknownToolError(tc.name, availableForCorrection),
+                        );
                       }
                     } catch (toolError) {
                       const { message, logContext } = getSafeToolError(toolError);
@@ -4242,13 +4254,13 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
 
                   if (!tool) {
                     logger.warn(
-                      `[ON_TOOL_EXECUTE] Tool "${tc.name}" not found. Available: ${[...toolMap.keys()].map((k) => `"${k}"`).join(', ')}`,
+                      `[ON_TOOL_EXECUTE] Unknown tool ${JSON.stringify(tc.name)} rejected`,
                     );
                     return {
                       toolCallId: tc.id,
                       status: 'error' as const,
                       content: '',
-                      errorMessage: `Tool ${tc.name} not found`,
+                      errorMessage: buildUnknownToolError(tc.name, availableForCorrection),
                     };
                   }
 

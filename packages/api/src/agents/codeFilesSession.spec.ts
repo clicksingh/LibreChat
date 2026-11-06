@@ -328,3 +328,47 @@ describe('buildInitialToolSessions', () => {
     expect(entry.files!.map((f) => f.name).sort()).toEqual(['shared.csv', 'top.csv']);
   });
 });
+
+describe('PM-E first-call resource contract', () => {
+  it('preserves sanitized names and CodeAPI identity for generated and skill files', () => {
+    const generated = {
+      ...file('generated-output', 'output-session', 'reports 2026/final_q4.csv'),
+      resource_id: 'user-authority',
+      kind: 'user' as const,
+    };
+    const skill = {
+      ...file('cached-skill', 'skill-session', 'skill/custom guide.md'),
+      resource_id: 'shared-skill-authority',
+      kind: 'skill' as const,
+      version: 7,
+    };
+    const initial = buildInitialToolSessions({
+      agents: [{ primedCodeFiles: [generated, skill] }],
+    });
+    const code = initial?.get(Constants.EXECUTE_CODE) as CodeSessionContext;
+    expect(code.session_id).toBe('output-session');
+    expect(code.files).toEqual([generated, skill]);
+    expect(code.files?.map((f) => f.name)).toEqual([
+      'reports 2026/final_q4.csv',
+      'skill/custom guide.md',
+    ]);
+  });
+
+  it('keeps a valid ref when shared across agents and preserves a distinct same-name upload', () => {
+    const original = {
+      ...file('file-shared', 'session-1', 'legal review/contract 1.pdf'),
+      resource_id: 'user-owner',
+    };
+    const distinct = {
+      ...file('file-other', 'session-2', 'legal review/contract 1.pdf'),
+      resource_id: 'user-owner',
+    };
+    const sessions = buildInitialToolSessions({
+      agents: [{ primedCodeFiles: [original] }, { primedCodeFiles: [original, distinct] }],
+    });
+    const code = sessions?.get(Constants.EXECUTE_CODE) as CodeSessionContext;
+    expect(code.files).toHaveLength(2);
+    expect(code.files).toContainEqual(original);
+    expect(code.files).toContainEqual(distinct);
+  });
+});
