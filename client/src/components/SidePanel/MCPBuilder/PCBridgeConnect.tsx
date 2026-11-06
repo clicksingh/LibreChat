@@ -49,7 +49,7 @@ export default function PCBridgeConnect() {
       const url = window.URL.createObjectURL(response.data);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'CBHR-PC-Bridge-1.0.0.exe';
+      anchor.download = 'CBHR-PC-Bridge-Desktop-1.1.1.exe';
       document.body.appendChild(anchor);
       try {
         anchor.click();
@@ -129,7 +129,7 @@ export default function PCBridgeConnect() {
                 onClick={() => void downloadWindowsBridge()}
                 disabled={downloading}
               >
-                {downloading ? 'Downloading PC Bridge…' : 'Download PC Bridge v1.0.0'}
+                {downloading ? 'Downloading PC Bridge…' : 'Download PC Bridge v1.1.1'}
               </Button>
               <Button
                 type="button"
