@@ -49,7 +49,7 @@ export default function PCBridgeConnect() {
       const url = window.URL.createObjectURL(response.data);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'CBHR-PC-Bridge-Desktop-1.1.1.exe';
+      anchor.download = 'CB-Bridge-1.2.1-x64.msi';
       document.body.appendChild(anchor);
       try {
         anchor.click();
@@ -58,7 +58,7 @@ export default function PCBridgeConnect() {
         window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
       }
     } catch {
-      setError('PC Bridge download failed. Please refresh the page and try again.');
+      setError('CB Bridge download failed. Please refresh the page and try again.');
     } finally {
       setDownloading(false);
     }
@@ -129,7 +129,7 @@ export default function PCBridgeConnect() {
                 onClick={() => void downloadWindowsBridge()}
                 disabled={downloading}
               >
-                {downloading ? 'Downloading PC Bridge…' : 'Download PC Bridge v1.1.1'}
+                {downloading ? 'Downloading CB Bridge…' : 'Download CB Bridge v1.2.1'}
               </Button>
               <Button
                 type="button"

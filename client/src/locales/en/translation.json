@@ -763,7 +763,7 @@
   "com_ui_add_mcp_server": "Add MCP Server",
   "com_ui_connect_pc": "Connect PC",
   "com_ui_connect_your_computer": "Connect your computer",
-  "com_ui_open_pc_bridge_enter_code": "Open CBHR PC Bridge on your computer and enter this one-time code.",
+  "com_ui_open_pc_bridge_enter_code": "Open CB Bridge on your computer and enter this one-time code.",
   "com_ui_creating_pc_connection_code": "Creating your connection code...",
   "com_ui_pc_pairing_code": "PC pairing code",
   "com_ui_pc_pairing_code_validity": "Valid for three minutes and usable only once. Keep this window open while you connect.",
