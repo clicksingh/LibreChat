@@ -35,7 +35,13 @@ import {
   isTerminalMCPOAuthPollingError,
   shouldUseMCPConnectionStatus,
 } from './polling';
-import { useLocalize, useHasAccess, useMCPSelect, useMCPConnectionStatus } from '~/hooks';
+import {
+  useLocalize,
+  useHasAccess,
+  useMCPSelect,
+  useMCPConnectionStatus,
+  useAuthContext,
+} from '~/hooks';
 import { useGetStartupConfig, useMCPServersQuery } from '~/data-provider';
 import { mcpServerInitStatesAtom, getServerInitState } from '~/store/mcp';
 import { getMCPReinitializeErrorMessage } from './errors';
@@ -69,6 +75,7 @@ export function useMCPServerManager({
   const localize = useLocalize();
   const queryClient = useQueryClient();
   const { showToast } = useToastContext();
+  const { user } = useAuthContext();
   /** Retained for `interface.mcpServers.placeholder` used by `placeholderText` below */
   const { data: startupConfig } = useGetStartupConfig();
   const canUseMcp = useHasAccess({
@@ -83,9 +90,9 @@ export function useMCPServerManager({
   const isChatScope = autoAttachPCBridge;
   const { data: pcBridgeStatus, dataUpdatedAt: pcBridgeStatusUpdatedAt } = useQuery<PCBridgeStatus>(
     {
-      queryKey: ['cbhr-pc-bridge-status'],
+      queryKey: ['cbhr-pc-bridge-status', user?.id],
       queryFn: async () => (await request.get('/api/mcp/pc-bridge/pair/status')) as PCBridgeStatus,
-      enabled: canUseMcp && isChatScope,
+      enabled: canUseMcp && isChatScope && Boolean(user?.id),
       refetchInterval: 3_000,
       refetchIntervalInBackground: false,
       refetchOnWindowFocus: true,
