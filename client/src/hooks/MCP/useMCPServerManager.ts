@@ -142,12 +142,14 @@ export function useMCPServerManager({
     mcpValuesRef.current = mcpValues;
   }, [mcpValues]);
 
+  const pcBridgeConnected = pcBridgeStatus?.connected;
+  const pcBridgeName = pcBridgeStatus?.serverName;
+  const pcBridgeRevision = pcBridgeStatus?.toolRevision;
   const observedPCStatus = useRef<{ name: string | null; revision: number } | null>(null);
   useEffect(() => {
-    if (!pcBridgeStatus || !isChatScope) return;
-    const name = pcBridgeStatus.connected ? (pcBridgeStatus.serverName ?? null) : null;
-    const revision =
-      name && Number.isInteger(pcBridgeStatus.toolRevision) ? pcBridgeStatus.toolRevision! : 0;
+    if (pcBridgeConnected == null || !isChatScope) return;
+    const name = pcBridgeConnected ? (pcBridgeName ?? null) : null;
+    const revision = name && Number.isInteger(pcBridgeRevision) ? pcBridgeRevision! : 0;
     const previous = observedPCStatus.current;
     if (previous && previous.name === name && previous.revision === revision) return;
     const oldName = previous?.name ?? null;
@@ -174,9 +176,9 @@ export function useMCPServerManager({
       cancelled = true;
     };
   }, [
-    pcBridgeStatus?.connected,
-    pcBridgeStatus?.serverName,
-    pcBridgeStatus?.toolRevision,
+    pcBridgeConnected,
+    pcBridgeName,
+    pcBridgeRevision,
     pcBridgeStatusUpdatedAt,
     isChatScope,
     queryClient,

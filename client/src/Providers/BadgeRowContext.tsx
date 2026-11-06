@@ -95,7 +95,10 @@ export default function BadgeRowProvider({
   const connectedPCName = mcpServerManager.pcBridgeStatus?.connected
     ? mcpServerManager.pcBridgeStatus.serverName
     : undefined;
-  const managedMCPServers = managedMCPSelection(hasAvailableUltraSearch, connectedPCName);
+  const managedMCPServers = useMemo(
+    () => managedMCPSelection(hasAvailableUltraSearch, connectedPCName),
+    [hasAvailableUltraSearch, connectedPCName],
+  );
 
   /**
    * CBHR managed-user baseline.
@@ -144,14 +147,7 @@ export default function BadgeRowProvider({
         mcp: managedMCPServers,
       };
     });
-  }, [
-    hasAvailableUltraSearch,
-    connectedPCName,
-    isManagedUser,
-    isSubmitting,
-    key,
-    setEphemeralAgent,
-  ]);
+  }, [managedMCPServers, isManagedUser, isSubmitting, key, setEphemeralAgent]);
 
   /** Initialize ephemeralAgent from localStorage on mount and when conversation/spec changes.
    *  Skipped when a spec is active — applyModelSpecEphemeralAgent handles both new conversations
