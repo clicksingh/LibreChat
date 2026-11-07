@@ -60,7 +60,9 @@ describe('deterministic interruption receipts', () => {
     });
     expect(receipt.completedTools).toEqual([]);
     expect(receipt.uncertainTools[0]).toMatchObject({
-      id: 'write-1', status: 'uncertain', replay: 'side_effecting',
+      id: 'write-1',
+      status: 'uncertain',
+      replay: 'side_effecting',
     });
   });
 
@@ -73,12 +75,25 @@ describe('deterministic interruption receipts', () => {
   });
 
   it('never classifies shell, database, install or unknown actions as read-only', () => {
-    for (const name of ['PowerShell', 'execute_code', 'database_query',
-      'run_command', 'deploy_release', 'delete_file', 'unknown_plugin_tool']) {
+    for (const name of [
+      'PowerShell',
+      'execute_code',
+      'database_query',
+      'run_command',
+      'deploy_release',
+      'delete_file',
+      'unknown_plugin_tool',
+    ]) {
       expect(classifyToolReplay(name)).not.toBe('read_only');
     }
-    for (const name of ['read_file', 'list_directory', 'search_files', 'screenshot',
-      'read_process_output', 'list_processes']) {
+    for (const name of [
+      'read_file',
+      'list_directory',
+      'search_files',
+      'screenshot',
+      'read_process_output',
+      'list_processes',
+    ]) {
       expect(classifyToolReplay(name)).toBe('read_only');
     }
   });
@@ -86,9 +101,11 @@ describe('deterministic interruption receipts', () => {
   it('retains observed generated file IDs without leaking file contents', () => {
     const receipt = buildRecoveryReceipt({
       ...base,
-      contentParts: [call('file-tool', 'create_file', true, {
-        artifact: { files: [{ id: 'file-1', name: 'private-staff-details.txt' }] },
-      })],
+      contentParts: [
+        call('file-tool', 'create_file', true, {
+          artifact: { files: [{ id: 'file-1', name: 'private-staff-details.txt' }] },
+        }),
+      ],
     });
     expect(receipt.artifactRefs).toEqual(['file-1']);
     expect(JSON.stringify(receipt)).not.toContain('private-staff-details');
@@ -99,9 +116,12 @@ describe('deterministic interruption receipts', () => {
       ...base,
       error: { status: 401, message: 'api_key=provider-secret-X' },
       model: 'model?key=private',
-      contentParts: [call('call-1', 'edit_file', true, {
-        args: 'Authorization: Bearer private-token', output: 'password=value',
-      })],
+      contentParts: [
+        call('call-1', 'edit_file', true, {
+          args: 'Authorization: Bearer private-token',
+          output: 'password=value',
+        }),
+      ],
     });
     const json = JSON.stringify(receipt);
     expect(receipt.failureClass).toBe('provider_auth');
@@ -140,10 +160,14 @@ describe('durable failure fallback', () => {
     };
     const args = {
       ...base,
-      manager, saveMessage, streamId: 'convo-1',
+      manager,
+      saveMessage,
+      streamId: 'convo-1',
       generationCreatedAt: 1794000000000,
-      reqContext: { userId: 'user-1' }, userId: 'user-1',
-      conversationId: 'convo-1', responseMessageId: 'assistant-1',
+      reqContext: { userId: 'user-1' },
+      userId: 'user-1',
+      conversationId: 'convo-1',
+      responseMessageId: 'assistant-1',
     };
     return { args, rows, saveMessage, manager };
   }
@@ -168,7 +192,9 @@ describe('durable failure fallback', () => {
     await persistInterruptedRunCheckpoint(args);
     const saved = rows.get('assistant-1');
     expect(saved.metadata.interruption.completedTools[0].replay).toBe('side_effecting');
-    expect(saved.content.some((part) => part.text?.includes('Do not automatically repeat'))).toBe(true);
+    expect(saved.content.some((part) => part.text?.includes('Do not automatically repeat'))).toBe(
+      true,
+    );
     // A new turn reads the checkpoint, not an executable queued tool command.
     const continued = structuredClone(saved.metadata.interruption);
     expect(continued.sideEffectsAutoReplayed).toBe(false);

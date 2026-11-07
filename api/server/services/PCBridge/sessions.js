@@ -164,11 +164,12 @@ function createSessions({
         endpointReady,
         ...(sleep ? { sleep } : {}),
         ...(activationBackoffs ? { backoffs: activationBackoffs } : {}),
-        register: () => register({
-          userId: doc.userId,
-          url: doc.url + '/mcp',
-          bearerToken,
-        }),
+        register: () =>
+          register({
+            userId: doc.userId,
+            url: doc.url + '/mcp',
+            bearerToken,
+          }),
       });
       registeredName = result?.serverName || null;
       if (!registeredName || !Array.isArray(result.tools) || !result.tools.length) {

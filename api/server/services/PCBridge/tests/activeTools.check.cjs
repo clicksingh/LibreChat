@@ -9,29 +9,51 @@ const NAME = 'cbhr_pc_00000000-0000-4000-8000-000000000222';
 const DELIMITER = '_mcp_';
 const PC = 'mcp_all' + DELIMITER + NAME;
 const SEARCH = 'mcp_all_mcp_UltraSearch';
-const config = { title: 'CBHR PC', type: 'streamable-http',
-  url: 'https://pc-test.kelownarealestate.com/mcp' };
+const config = {
+  title: 'CBHR PC',
+  type: 'streamable-http',
+  url: 'https://pc-test.kelownarealestate.com/mcp',
+};
 
-function fixture({ owner = A, state = 'active', expired = false, allowed = true,
-  publishedConfig = config } = {}) {
+function fixture({
+  owner = A,
+  state = 'active',
+  expired = false,
+  allowed = true,
+  publishedConfig = config,
+} = {}) {
   const queries = [];
   const configs = [];
-  const row = { userId: owner, state, serverName: NAME,
-    expiresAt: new Date(expired ? '2026-11-01' : '2026-11-08') };
-  const collection = { async findOne(query) {
-    queries.push(query);
-    return row.userId === query.userId && row.state === query.state &&
-      row.expiresAt > query.expiresAt.$gt ? row : null;
-  } };
-  const resolve = (userId = A, tools = [SEARCH]) => resolveEffectivePCTools({
-    userId, tools, canUseServers: allowed, collection,
-    getServerConfig: async (name, id) => {
-      configs.push({ name, id });
-      return name === NAME && id === owner ? publishedConfig : null;
+  const row = {
+    userId: owner,
+    state,
+    serverName: NAME,
+    expiresAt: new Date(expired ? '2026-11-01' : '2026-11-08'),
+  };
+  const collection = {
+    async findOne(query) {
+      queries.push(query);
+      return row.userId === query.userId &&
+        row.state === query.state &&
+        row.expiresAt > query.expiresAt.$gt
+        ? row
+        : null;
     },
-    delimiter: DELIMITER, allToolName: 'mcp_all',
-    now: () => new Date('2026-11-06'),
-  });
+  };
+  const resolve = (userId = A, tools = [SEARCH]) =>
+    resolveEffectivePCTools({
+      userId,
+      tools,
+      canUseServers: allowed,
+      collection,
+      getServerConfig: async (name, id) => {
+        configs.push({ name, id });
+        return name === NAME && id === owner ? publishedConfig : null;
+      },
+      delimiter: DELIMITER,
+      allToolName: 'mcp_all',
+      now: () => new Date('2026-11-06'),
+    });
   return { resolve, queries, configs, row };
 }
 
@@ -71,7 +93,10 @@ test('MCP use denial strips stale PC and keeps managed tools', async () => {
 });
 test('unregistered or mismatched server config never attaches', async () => {
   assert.deepEqual(await fixture({ publishedConfig: null }).resolve(A, []), []);
-  assert.deepEqual(await fixture({ publishedConfig: { ...config, title: 'Other' } }).resolve(A, []), []);
+  assert.deepEqual(
+    await fixture({ publishedConfig: { ...config, title: 'Other' } }).resolve(A, []),
+    [],
+  );
 });
 test('an invalid principal fails closed and strips old PC keys', async () => {
   const f = fixture();

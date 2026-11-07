@@ -12,10 +12,16 @@ function isTrustedPCConfig(config) {
   if (config?.title !== 'CBHR PC' || config.type !== 'streamable-http') return false;
   try {
     const url = new URL(config.url);
-    return url.protocol === 'https:' && !url.port &&
+    return (
+      url.protocol === 'https:' &&
+      !url.port &&
       url.hostname.endsWith('.kelownarealestate.com') &&
       url.pathname.replace(/\/+$/, '') === '/mcp' &&
-      !url.username && !url.password && !url.search && !url.hash;
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
   } catch {
     return false;
   }
@@ -34,8 +40,12 @@ async function resolveEffectivePCTools({
 }) {
   const selected = Array.isArray(tools) ? tools : [];
   const withoutPC = selected.filter((name) => !isPCToolKey(name, delimiter));
-  if (!collection || typeof getServerConfig !== 'function' ||
-      typeof userId !== 'string' || !/^[a-f0-9]{24}$/i.test(userId)) {
+  if (
+    !collection ||
+    typeof getServerConfig !== 'function' ||
+    typeof userId !== 'string' ||
+    !/^[a-f0-9]{24}$/i.test(userId)
+  ) {
     return withoutPC;
   }
   const live = await collection.findOne({

@@ -1283,9 +1283,10 @@ async function loadAgentTools({
     effectiveTools = await resolveEffectivePCTools({
       userId: String(req?.user?.id ?? ''),
       tools: existingTools,
-      canUseServers: () => req?.user?.id && req?.user?.role
-        ? createMCPPermissionContext(req).canUseServers(req.user)
-        : false,
+      canUseServers: () =>
+        req?.user?.id && req?.user?.role
+          ? createMCPPermissionContext(req).canUseServers(req.user)
+          : false,
       collection,
       getServerConfig: (serverName, userId) =>
         getMCPServersRegistry().getServerConfig(serverName, userId),

@@ -60,8 +60,13 @@ function db() {
     },
   };
 }
-function fixture({ failUnregisterOnce = false, dnsReady = async () => true, endpointReady = async () => true,
-  registerFailures = 0, refreshFailure = false } = {}) {
+function fixture({
+  failUnregisterOnce = false,
+  dnsReady = async () => true,
+  endpointReady = async () => true,
+  registerFailures = 0,
+  refreshFailure = false,
+} = {}) {
   const collection = db();
   let fixtureRegistered = true;
   let unregisterFailuresRemaining = failUnregisterOnce ? 1 : 0;
@@ -314,7 +319,7 @@ test('browser deletion is detected at next heartbeat and tears tunnel down', asy
 
 test('an abandoned activating session expires and the tunnel is reaped', async () => {
   const { service, collection, advance, events } = fixture();
-  const session = await service.claim({ code: 'valid', port: 8845 });
+  await service.claim({ code: 'valid', port: 8845 });
   collection.rows[0].state = 'activating';
   advance(CLAIM_WINDOW_MS + 1);
   assert.equal(await service.reap(), 1);
@@ -393,8 +398,11 @@ test('heartbeat extends TTL retention so a live session cannot be purged', async
 test('Cloudflare warmup registration errors retry and eventually activate', async () => {
   const { service, events } = fixture({ registerFailures: 2 });
   const s = await service.claim({ code: 'valid', port: 8845 });
-  const active = await service.activate({ sessionId: s.sessionId, sessionSecret: s.sessionSecret,
-    bearerToken: 'x'.repeat(48) });
+  const active = await service.activate({
+    sessionId: s.sessionId,
+    sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  });
   assert.equal(active.serverName, 'cbhr_pc');
   assert.equal(events.filter((event) => event[0] === 'register').length, 3);
   assert.equal((await service.getUserStatus(USER)).connected, true);
@@ -403,9 +411,14 @@ test('Cloudflare warmup registration errors retry and eventually activate', asyn
 test('permanent MCP initialize failure leaves no active or orphan registration', async () => {
   const { service, collection, events } = fixture({ registerFailures: 20 });
   const s = await service.claim({ code: 'valid', port: 8845 });
-  await assert.rejects(service.activate({ sessionId: s.sessionId,
-    sessionSecret: s.sessionSecret, bearerToken: 'x'.repeat(48) }),
-  { code: 'PC_MCP_NOT_READY' });
+  await assert.rejects(
+    service.activate({
+      sessionId: s.sessionId,
+      sessionSecret: s.sessionSecret,
+      bearerToken: 'x'.repeat(48),
+    }),
+    { code: 'PC_MCP_NOT_READY' },
+  );
   assert.equal(collection.rows[0].state, 'claimed');
   assert.equal(collection.rows[0].serverName, null);
   assert.deepEqual(await service.getUserStatus(USER), { connected: false });
@@ -415,18 +428,26 @@ test('permanent MCP initialize failure leaves no active or orphan registration',
 test('failed local tool rediscovery does not increment revision', async () => {
   const { service } = fixture({ refreshFailure: true });
   const s = await service.claim({ code: 'valid', port: 8845 });
-  await service.activate({ sessionId: s.sessionId, sessionSecret: s.sessionSecret,
-    bearerToken: 'x'.repeat(48) });
-  await assert.rejects(service.refreshTools({ sessionId: s.sessionId,
-    sessionSecret: s.sessionSecret }), /Tool discovery failed/);
+  await service.activate({
+    sessionId: s.sessionId,
+    sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  });
+  await assert.rejects(
+    service.refreshTools({ sessionId: s.sessionId, sessionSecret: s.sessionSecret }),
+    /Tool discovery failed/,
+  );
   assert.equal((await service.getUserStatus(USER)).toolRevision, 1);
 });
 
 test('browser status never reports Connected after registered MCP removal', async () => {
   const { service, removeInPlatform } = fixture();
   const s = await service.claim({ code: 'valid', port: 8845 });
-  await service.activate({ sessionId: s.sessionId, sessionSecret: s.sessionSecret,
-    bearerToken: 'x'.repeat(48) });
+  await service.activate({
+    sessionId: s.sessionId,
+    sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  });
   assert.equal((await service.getUserStatus(USER)).connected, true);
   removeInPlatform();
   assert.deepEqual(await service.getUserStatus(USER), { connected: false });

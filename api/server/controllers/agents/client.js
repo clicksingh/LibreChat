@@ -1,6 +1,11 @@
 require('events').EventEmitter.defaultMaxListeners = 100;
 const { logger } = require('@librechat/data-schemas');
-const { normalizeAgentFailure, classifyAgentFailure, buildRecoveryReceipt, formatRecoveryContext } = require('./agentFailure');
+const {
+  normalizeAgentFailure,
+  classifyAgentFailure,
+  buildRecoveryReceipt,
+  formatRecoveryContext,
+} = require('./agentFailure');
 const { getBufferString, HumanMessage } = require('@librechat/agents/langchain/messages');
 const {
   createRun,

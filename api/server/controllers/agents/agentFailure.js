@@ -18,10 +18,19 @@ function classifyAgentFailure(error) {
   const message = String(error?.message ?? error?.response?.data?.error?.message ?? '');
   if (code === 'agent_expected_mcp_tools_unavailable') return 'tool_configuration';
   if (
-    ['context_length_exceeded', 'context_window_exceeded', 'prompt_too_long',
-      'max_tokens_exceeded', 'context_overflow'].includes(code) ||
-    (status === 400 && /context (?:length|window|limit)|maximum context|prompt (?:is )?too long|too many (?:input )?tokens|exceed(?:s|ed)? (?:the )?model.*(?:token|context)/i.test(message))
-  ) return 'context_limit';
+    [
+      'context_length_exceeded',
+      'context_window_exceeded',
+      'prompt_too_long',
+      'max_tokens_exceeded',
+      'context_overflow',
+    ].includes(code) ||
+    (status === 400 &&
+      /context (?:length|window|limit)|maximum context|prompt (?:is )?too long|too many (?:input )?tokens|exceed(?:s|ed)? (?:the )?model.*(?:token|context)/i.test(
+        message,
+      ))
+  )
+    return 'context_limit';
   if (status === 429) return 'provider_rate_limit';
   if (status === 402 || code === 'insufficient_balance') return 'provider_credit';
   if (status === 401 || status === 403) return 'provider_auth';
@@ -32,8 +41,7 @@ function classifyAgentFailure(error) {
   if (status === 502 || status === 503 || status === 504) return 'gateway_network';
   if (code === 'client_disconnected' || code === 'sse_disconnected') return 'client_disconnect';
   if (/proxy|sse|stream.*closed/i.test(code)) return 'proxy_stream';
-  if (name === 'aborterror' || code === 'abort_err' || code === 'aborted')
-    return 'provider_abort';
+  if (name === 'aborterror' || code === 'abort_err' || code === 'aborted') return 'provider_abort';
   if (status >= 500) return 'provider_http';
   return 'agent_exception';
 }
@@ -55,15 +63,37 @@ function normalizeAgentFailure(error) {
 function classifyToolReplay(name) {
   const toolName = safeId(name);
   if (!toolName) return 'unknown';
-  const base = toolName.split(/__|[./:]/).pop().toLowerCase();
+  const base = toolName
+    .split(/__|[./:]/)
+    .pop()
+    .toLowerCase();
   const readOnlyNames = new Set([
-    'read_file', 'read_multiple_files', 'list_directory', 'get_file_info', 'get_config',
-    'read_process_output', 'list_processes', 'list_sessions', 'list_searches',
-    'get_more_search_results', 'get_status', 'status', 'screenshot', 'search_files',
-    'search_content', 'fetch_file', 'inspect_file', 'find_file', 'discover_tools',
+    'read_file',
+    'read_multiple_files',
+    'list_directory',
+    'get_file_info',
+    'get_config',
+    'read_process_output',
+    'list_processes',
+    'list_sessions',
+    'list_searches',
+    'get_more_search_results',
+    'get_status',
+    'status',
+    'screenshot',
+    'search_files',
+    'search_content',
+    'fetch_file',
+    'inspect_file',
+    'find_file',
+    'discover_tools',
   ]);
   if (readOnlyNames.has(base)) return 'read_only';
-  if (/shell|powershell|terminal|process|exec|code|script|sql|query|http|request|command|run|batch|invoke|install|deploy|publish|send|delete|remove|write|edit|update|create|patch|move|rename|set|upload|download|approve|restart|start|stop|kill|mutate|submit/.test(base))
+  if (
+    /shell|powershell|terminal|process|exec|code|script|sql|query|http|request|command|run|batch|invoke|install|deploy|publish|send|delete|remove|write|edit|update|create|patch|move|rename|set|upload|download|approve|restart|start|stop|kill|mutate|submit/.test(
+      base,
+    )
+  )
     return 'side_effecting';
   return 'unknown';
 }
@@ -77,7 +107,9 @@ function toolCallsFromContent(contentParts = [], runSteps = []) {
     const name = safeId(call?.name) ?? prior?.name ?? null;
     const replay = classifyToolReplay(name);
     calls.set(id, {
-      id, name, replay,
+      id,
+      name,
+      replay,
       status: completed || prior?.status === 'completed' ? 'completed' : 'uncertain',
       ...(replay !== 'read_only' && { effectOutcome: 'not_verified' }),
     });
@@ -110,8 +142,16 @@ function artifactRefs(contentParts = [], attachments = []) {
 
 /** Receipts describe past confirmations, never grant execution permission. */
 function buildRecoveryReceipt({
-  error, conversationId, runId, model, provider, startedAt, failedAt = Date.now(),
-  contentParts = [], runSteps = [], attachments = [],
+  error,
+  conversationId,
+  runId,
+  model,
+  provider,
+  startedAt,
+  failedAt = Date.now(),
+  contentParts = [],
+  runSteps = [],
+  attachments = [],
 }) {
   const calls = toolCallsFromContent(contentParts, runSteps);
   const completed = calls.filter((call) => call.status === 'completed');
@@ -129,10 +169,12 @@ function buildRecoveryReceipt({
     startedAt: safeTime(startedAt),
     failedAt: safeTime(failedAt),
     failureClass: classifyAgentFailure(error),
-    upstreamStatus: Number.isInteger(Number(error?.status ?? error?.response?.status))
-      && Number(error?.status ?? error?.response?.status) >= 100
-      && Number(error?.status ?? error?.response?.status) <= 599
-      ? Number(error?.status ?? error?.response?.status) : null,
+    upstreamStatus:
+      Number.isInteger(Number(error?.status ?? error?.response?.status)) &&
+      Number(error?.status ?? error?.response?.status) >= 100 &&
+      Number(error?.status ?? error?.response?.status) <= 599
+        ? Number(error?.status ?? error?.response?.status)
+        : null,
     interruptedTool: uncertain[uncertain.length - 1] ?? null,
     lastConfirmed: last ? { type: 'tool', toolCallId: last.id, toolName: last.name } : null,
     lastObservedTextIndex: lastTextIndex >= 0 ? lastTextIndex : null,
@@ -145,14 +187,17 @@ function buildRecoveryReceipt({
 
 function formatRecoveryContext(receipt) {
   const done = receipt.completedTools.map((call) =>
-    [call.name ?? 'unknown tool', call.id, call.replay].join(' / '));
+    [call.name ?? 'unknown tool', call.id, call.replay].join(' / '),
+  );
   const uncertain = receipt.uncertainTools.map((call) =>
-    [call.name ?? 'unknown tool', call.id, call.replay].join(' / '));
+    [call.name ?? 'unknown tool', call.id, call.replay].join(' / '),
+  );
   return [
     'Recovery checkpoint (server confirmed):',
     'Completed tool calls: ' + (done.join('; ') || 'none'),
     'Uncertain/in-flight tool calls: ' + (uncertain.join('; ') || 'none'),
-    'Observed artifact IDs (verify saved state): ' + (receipt.artifactRefs.join(', ') || 'none recorded'),
+    'Observed artifact IDs (verify saved state): ' +
+      (receipt.artifactRefs.join(', ') || 'none recorded'),
     'Continue from the last confirmed step. Verify uncertain external effects first.',
     'Do not automatically repeat completed or uncertain writes, edits, deletes, sends, publishes, shell commands or other side effects.',
     'Only explicitly classified read-only calls may be retried after checking the current state.',
@@ -175,25 +220,48 @@ async function persistAgentFailure(manager, streamId, error, onPublishError = ()
 }
 
 module.exports = {
-  normalizeAgentFailure, classifyAgentFailure, classifyToolReplay, buildRecoveryReceipt,
-  formatRecoveryContext, artifactRefs, persistAgentFailure, persistInterruptedRunCheckpoint,
+  normalizeAgentFailure,
+  classifyAgentFailure,
+  classifyToolReplay,
+  buildRecoveryReceipt,
+  formatRecoveryContext,
+  artifactRefs,
+  persistAgentFailure,
+  persistInterruptedRunCheckpoint,
 };
 /**
  * Initialization can fail before BaseClient writes the assistant row. Persist
  * an unfinished checkpoint through the existing message model. No replay.
  */
 async function persistInterruptedRunCheckpoint({
-  manager, saveMessage, streamId, generationCreatedAt, reqContext, userId,
-  conversationId, responseMessageId, model, provider, client, error,
+  manager,
+  saveMessage,
+  streamId,
+  generationCreatedAt,
+  reqContext,
+  userId,
+  conversationId,
+  responseMessageId,
+  model,
+  provider,
+  client,
+  error,
 }) {
   if (!generationCreatedAt || reqContext?.isTemporary) return null;
   const state = await manager.getResumeState(streamId, generationCreatedAt);
   if (!state?.userMessage?.messageId) return null;
-  const parts = client?.contentParts?.length ? client.contentParts : state.aggregatedContent ?? [];
+  const parts = client?.contentParts?.length
+    ? client.contentParts
+    : (state.aggregatedContent ?? []);
   const receipt = buildRecoveryReceipt({
-    error, conversationId, runId: state.responseMessageId ?? responseMessageId,
-    model: state.model ?? model, provider, startedAt: generationCreatedAt,
-    contentParts: parts, runSteps: state.runSteps ?? [],
+    error,
+    conversationId,
+    runId: state.responseMessageId ?? responseMessageId,
+    model: state.model ?? model,
+    provider,
+    startedAt: generationCreatedAt,
+    contentParts: parts,
+    runSteps: state.runSteps ?? [],
     attachments: client?.options?.attachments,
   });
   const ctx = { ...reqContext, userId };
@@ -203,7 +271,7 @@ async function persistInterruptedRunCheckpoint({
   });
   if (!persistedUser) throw new Error('Interrupted user checkpoint could not be persisted');
   const response = {
-    messageId: state.responseMessageId ?? responseMessageId ?? (user.messageId + '_'),
+    messageId: state.responseMessageId ?? responseMessageId ?? user.messageId + '_',
     conversationId,
     parentMessageId: user.messageId,
     user: userId,
@@ -223,6 +291,7 @@ async function persistInterruptedRunCheckpoint({
   const persistedResponse = await saveMessage(ctx, response, {
     context: 'api/server/controllers/agents/agentFailure.js - interrupted assistant checkpoint',
   });
-  if (!persistedResponse) throw new Error('Interrupted assistant checkpoint could not be persisted');
+  if (!persistedResponse)
+    throw new Error('Interrupted assistant checkpoint could not be persisted');
   return receipt;
 }

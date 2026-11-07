@@ -10,9 +10,16 @@ async function publicMCPReachable(url, fetcher = fetch) {
       headers: { Accept: 'application/json, text/event-stream' },
       signal: AbortSignal.timeout(4000),
     });
-    try { await response.body?.cancel?.(); } catch { /* Status remains authoritative. */ }
-    return response.status >= 200 && response.status < 500 &&
-      ![403, 404, 407, 408, 429].includes(response.status);
+    try {
+      await response.body?.cancel?.();
+    } catch {
+      /* Status remains authoritative. */
+    }
+    return (
+      response.status >= 200 &&
+      response.status < 500 &&
+      ![403, 404, 407, 408, 429].includes(response.status)
+    );
   } catch {
     return false;
   }

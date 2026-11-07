@@ -1,5 +1,10 @@
 const { logger, tenantStorage } = require('@librechat/data-schemas');
-const { normalizeAgentFailure, classifyAgentFailure, artifactRefs, persistInterruptedRunCheckpoint } = require('./agentFailure');
+const {
+  normalizeAgentFailure,
+  classifyAgentFailure,
+  artifactRefs,
+  persistInterruptedRunCheckpoint,
+} = require('./agentFailure');
 const { v5: uuidv5 } = require('uuid');
 const {
   Constants,
@@ -1163,9 +1168,15 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       preemptIncomplete =
         (preemptStats?.emptyBoundaries ?? 0) > 0 ||
         client?.run?.getHaltReason?.() === 'preempt_incomplete';
+      let terminalState = 'complete';
+      if (terminalWasAborted) {
+        terminalState = 'aborted';
+      } else if (client?.interruptionReceipt) {
+        terminalState = 'error';
+      }
       terminalClaim = await GenerationJobManager.claimTerminalJob(
         streamId,
-        terminalWasAborted ? 'aborted' : client?.interruptionReceipt ? 'error' : 'complete',
+        terminalState,
         client?.interruptionMessage,
         jobCreatedAt,
         { persistencePending: true },
@@ -1544,7 +1555,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         response.endpoint = endpoint;
         if (client?.interruptionReceipt) {
           client.interruptionReceipt.artifactRefs = artifactRefs(
-            response.content, response.attachments,
+            response.content,
+            response.attachments,
           );
           response.metadata = { ...response.metadata, interruption: client.interruptionReceipt };
         }
@@ -1618,7 +1630,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         /** BaseClient can add the id to savedMessageIds even when its model-layer
          * save resolved falsy. Re-save the terminal row idempotently and require
          * the returned durable row before publishing the normal FINAL. */
-        const responseIsUnfinished = terminalWasAborted || preemptIncomplete || Boolean(client?.interruptionReceipt);
+        const responseIsUnfinished =
+          terminalWasAborted || preemptIncomplete || Boolean(client?.interruptionReceipt);
         const savedResponseMessage = await saveMessage(
           reqCtx,
           {
