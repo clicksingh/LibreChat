@@ -6,7 +6,8 @@ import { Constants } from 'librechat-data-provider';
  * chat requests). Only currently exposed model-tool definitions are evidence
  * of Bridge access; never infer active sessions or permissions here.
  */
-const BRIDGE_SERVER_PATTERN = /^cbhr-pc-[a-z0-9]+(?:-[a-z0-9]+)*$/i;
+const BRIDGE_SERVER_PATTERN =
+  /^(?:cbhr_pc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|cbhr-pc-[a-z0-9]+(?:-[a-z0-9]+)*)$/i;
 
 export function isCBBridgeToolName(name: string): boolean {
   const separator = Constants.mcp_delimiter;

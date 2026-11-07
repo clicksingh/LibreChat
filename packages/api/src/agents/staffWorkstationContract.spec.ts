@@ -2,6 +2,7 @@ import { buildStaffWorkstationContract, isCBBridgeToolName } from './staffWorkst
 
 const BRIDGE_READ = 'read_file_mcp_cbhr-pc-pc-abcdef12-aabbccddee';
 const BRIDGE_SCREEN = 'screenshot_mcp_cbhr-pc-pc-abcdef12-aabbccddee';
+const CANONICAL_BRIDGE_READ = 'read_file_mcp_cbhr_pc_11111111-1111-4111-8111-111111111111';
 
 describe('CBHR AI staff workstation prompt', () => {
   test('managed chat receives requested-output publication contract with authorized tools', () => {
@@ -49,6 +50,8 @@ describe('CBHR AI staff workstation prompt', () => {
 
   test('identifies only well-formed Bridge MCP tool names from actual definitions', () => {
     expect(isCBBridgeToolName(BRIDGE_READ)).toBe(true);
+    expect(isCBBridgeToolName(CANONICAL_BRIDGE_READ)).toBe(true);
+    expect(isCBBridgeToolName('read_file_mcp_cbhr_pc_not-a-uuid')).toBe(false);
     expect(isCBBridgeToolName(BRIDGE_SCREEN)).toBe(true);
     expect(isCBBridgeToolName('read_file_mcp_cbhr-pc-2')).toBe(true);
     expect(isCBBridgeToolName('read_file')).toBe(false);
@@ -56,6 +59,16 @@ describe('CBHR AI staff workstation prompt', () => {
     expect(isCBBridgeToolName('read_file_mcp_other-server')).toBe(false);
     expect(isCBBridgeToolName('read_file_mcp_cbhr-pc-')).toBe(false);
     expect(isCBBridgeToolName('_mcp_cbhr-pc-2')).toBe(false);
+  });
+
+  test('real registered cbhr_pc UUID tools activate workstation intelligence', () => {
+    const prompt = buildStaffWorkstationContract({
+      endpoint: 'CBHR AI',
+      toolNames: [CANONICAL_BRIDGE_READ],
+    });
+    expect(prompt).toContain('CB Bridge tools are exposed for this turn');
+    expect(prompt).not.toContain('No CB Bridge tool is exposed');
+    expect(prompt).not.toContain('cbhr_pc_11111111');
   });
 
   test('Bridge-only turns receive correct physical-PC policy without claiming sandbox tools', () => {
