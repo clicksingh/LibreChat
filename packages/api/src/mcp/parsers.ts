@@ -59,6 +59,7 @@ const RECOGNIZED_PROVIDERS = new Set([
   'anthropic',
   'openai',
   'azureopenai',
+  'custom',
   'openrouter',
   'xai',
   'deepseek',

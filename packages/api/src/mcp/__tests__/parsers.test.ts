@@ -49,6 +49,7 @@ describe('formatToolContent', () => {
       'anthropic',
       'openai',
       'azureopenai',
+      'custom',
       'openrouter',
       'xai',
       'deepseek',
@@ -111,6 +112,36 @@ describe('formatToolContent', () => {
         return;
       }
       process.env.MCP_IMAGE_DATA_MAX_BYTES = originalMaxImageBytes;
+    });
+
+    it('should preserve a native capture_screen image as a vision artifact for custom endpoints', () => {
+      const screenshot = Buffer.alloc(216 * 1024, 0x42).toString('base64');
+      const metadata = JSON.stringify({
+        path: null,
+        mimeType: 'image/png',
+        size: 216 * 1024,
+        width: 1920,
+        height: 1080,
+      });
+      const result: t.MCPToolCallResponse = {
+        content: [
+          { type: 'text', text: metadata },
+          { type: 'image', data: screenshot, mimeType: 'image/png' },
+        ],
+      };
+
+      const [content, artifacts] = formatToolContent(result, 'custom');
+
+      expect(content).toBe(metadata);
+      expect(content).not.toContain(screenshot.slice(0, 128));
+      expect(artifacts).toEqual({
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: `data:image/png;base64,${screenshot}` },
+          },
+        ],
+      });
     });
 
     it('should handle images with http URLs', () => {
