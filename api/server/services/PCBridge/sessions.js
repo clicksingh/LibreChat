@@ -35,6 +35,18 @@ function hashSecret(secret) {
     .digest('hex');
 }
 
+function normalizeDeviceName(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw Object.assign(new Error('PC name is invalid'), { code: 'PC_DEVICE_NAME_INVALID' });
+  }
+  const deviceName = value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(deviceName)) {
+    throw Object.assign(new Error('PC name is invalid'), { code: 'PC_DEVICE_NAME_INVALID' });
+  }
+  return deviceName;
+}
+
 function createSessions({
   collection,
   tickets,
@@ -74,10 +86,11 @@ function createSessions({
     await collection.createIndex({ state: 1, expiresAt: 1 }, { name: 'pc_session_stale' });
   }
 
-  async function claim({ code, port }) {
+  async function claim({ code, port, deviceName }) {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
       throw Object.assign(new Error('Port is invalid'), { code: 'PC_PORT_INVALID' });
     }
+    const normalizedDeviceName = normalizeDeviceName(deviceName);
     const ticket = await tickets.claim({ code });
     if (!ticket) return null;
     const existing = await collection.countDocuments({
@@ -99,6 +112,7 @@ function createSessions({
         secretDigest: hashSecret(sessionSecret),
         userId: ticket.userId,
         state: 'claimed',
+        deviceName: normalizedDeviceName,
         tunnelId: resource.tunnelId,
         dnsRecordId: resource.dnsRecordId,
         hostname: resource.hostname,
@@ -242,11 +256,15 @@ function createSessions({
     if (!(await isRegistered({ userId, serverName: live.serverName }))) {
       return { connected: false };
     }
-    return {
+    const status = {
       connected: true,
       serverName: live.serverName,
       toolRevision: Number.isInteger(live.toolRevision) ? live.toolRevision : 1,
     };
+    if (typeof live.deviceName === 'string' && live.deviceName) {
+      status.deviceName = live.deviceName;
+    }
+    return status;
   }
   // Re-read the already registered PC's live MCP tools after the employee
   // revokes a local capability. Server authorization stays local at call time.
@@ -361,6 +379,19 @@ function createSessions({
     return doc ? closeDoc(doc) : false;
   }
 
+  async function disconnectUser(userId) {
+    if (typeof userId !== 'string' || !/^[0-9a-f]{24}$/i.test(userId)) return false;
+    const doc = await collection.findOneAndUpdate(
+      {
+        userId,
+        state: { $in: ['claimed', 'activating', 'active', 'cleanup_pending'] },
+      },
+      { $set: { state: 'disconnecting' } },
+      { returnDocument: 'after' },
+    );
+    return doc ? closeDoc(doc) : false;
+  }
+
   async function reap({ limit = 20 } = {}) {
     const stale = await collection
       .find({
@@ -398,8 +429,15 @@ function createSessions({
     refreshTools,
     heartbeat,
     disconnect,
+    disconnectUser,
     reap,
   };
 }
 
-module.exports = { createSessions, hashSecret, CLAIM_WINDOW_MS, ACTIVE_HEARTBEAT_WINDOW_MS };
+module.exports = {
+  createSessions,
+  hashSecret,
+  normalizeDeviceName,
+  CLAIM_WINDOW_MS,
+  ACTIVE_HEARTBEAT_WINDOW_MS,
+};

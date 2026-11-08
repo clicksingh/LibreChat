@@ -140,11 +140,12 @@ function fixture({
 test('claim creates a single scoped tunnel and stores only a secret digest', async () => {
   const { service, collection, events } = fixture();
   assert.equal(await service.claim({ code: 'invalid', port: 8845 }), null);
-  const result = await service.claim({ code: 'valid', port: 8845 });
+  const result = await service.claim({ code: 'valid', port: 8845, deviceName: 'TECH' });
   assert.equal(result.hostname, 'pc-test.kelownarealestate.com');
   assert.equal(result.expiresInSeconds, CLAIM_WINDOW_MS / 1000);
   assert.deepEqual(events[0], ['provision', USER, 8845]);
   assert.equal(collection.rows[0].secretDigest, hashSecret(result.sessionSecret));
+  assert.equal(collection.rows[0].deviceName, 'TECH');
   assert.ok(!JSON.stringify(collection.rows).includes(result.sessionSecret));
   assert.ok(!JSON.stringify(collection.rows).includes(result.connectorToken));
 });
@@ -162,7 +163,7 @@ test('activate requires the matching secret and registers tools once', async () 
 test('authenticated status reports only this user active PC, never session secrets', async () => {
   const { service, advance } = fixture();
   assert.deepEqual(await service.getUserStatus(USER), { connected: false });
-  const pair = await service.claim({ code: 'valid', port: 8845 });
+  const pair = await service.claim({ code: 'valid', port: 8845, deviceName: 'TECH' });
   assert.deepEqual(await service.getUserStatus(USER), { connected: false });
   await service.activate({
     sessionId: pair.sessionId,
@@ -170,7 +171,12 @@ test('authenticated status reports only this user active PC, never session secre
     bearerToken: 'x'.repeat(48),
   });
   const status = await service.getUserStatus(USER);
-  assert.deepEqual(status, { connected: true, serverName: 'cbhr_pc', toolRevision: 1 });
+  assert.deepEqual(status, {
+    connected: true,
+    deviceName: 'TECH',
+    serverName: 'cbhr_pc',
+    toolRevision: 1,
+  });
   assert.ok(!JSON.stringify(status).includes(pair.sessionSecret));
   assert.deepEqual(await service.getUserStatus('111111111111111111111111'), { connected: false });
   advance(ACTIVE_HEARTBEAT_WINDOW_MS + 1);
@@ -260,6 +266,24 @@ test('heartbeat and disconnect enforce the session secret, unregister then destr
     ['unregister', 'destroy'],
   );
 });
+test('authenticated browser disconnect removes only that user session', async () => {
+  const { service, events } = fixture();
+  const s = await service.claim({ code: 'valid', port: 8845, deviceName: 'TECH' });
+  await service.activate({
+    sessionId: s.sessionId,
+    sessionSecret: s.sessionSecret,
+    bearerToken: 'x'.repeat(48),
+  });
+  assert.equal(await service.disconnectUser('111111111111111111111111'), false);
+  assert.equal((await service.getUserStatus(USER)).connected, true);
+  assert.equal(await service.disconnectUser(USER), true);
+  assert.deepEqual(await service.getUserStatus(USER), { connected: false });
+  assert.deepEqual(
+    events.slice(-2).map((x) => x[0]),
+    ['unregister', 'destroy'],
+  );
+});
+
 test('stale claimed session is reaped and cannot be activated', async () => {
   const { service, events, advance } = fixture();
   const s = await service.claim({ code: 'valid', port: 8845 });
@@ -292,9 +316,12 @@ test('active expiry is extended on heartbeat and later reaped', async () => {
   assert.equal(await service.reap(), 1);
   assert.ok(events.some((x) => x[0] === 'unregister'));
 });
-test('invalid port fails before consuming a code', async () => {
+test('invalid port and device name fail before consuming a code', async () => {
   const { service, events } = fixture();
   await assert.rejects(service.claim({ code: 'valid', port: 443 }), { code: 'PC_PORT_INVALID' });
+  await assert.rejects(service.claim({ code: 'valid', port: 8845, deviceName: '<script>' }), {
+    code: 'PC_DEVICE_NAME_INVALID',
+  });
   assert.equal(events.length, 0);
 });
 

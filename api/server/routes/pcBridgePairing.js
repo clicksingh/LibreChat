@@ -169,7 +169,7 @@ function fail(res, error) {
   if (code === 'PAIRING_PENDING_LIMIT' || code === 'PC_SESSION_EXISTS') {
     return res.status(409).json({ message: error.message });
   }
-  if (code === 'PC_PORT_INVALID' || code === 'PC_BEARER_INVALID') {
+  if (['PC_PORT_INVALID', 'PC_BEARER_INVALID', 'PC_DEVICE_NAME_INVALID'].includes(code)) {
     return res.status(400).json({ message: 'Invalid PC connection parameters' });
   }
   if (code === 'CF_NOT_CONFIGURED')
@@ -230,7 +230,11 @@ router.post('/start', requireJwtAuth, checkMCPUse, async (req, res) => {
 router.post('/claim', limitUntrusted, async (req, res) => {
   try {
     const { sessions } = await getServices();
-    const result = await sessions.claim({ code: req.body?.code, port: req.body?.port });
+    const result = await sessions.claim({
+      code: req.body?.code,
+      port: req.body?.port,
+      deviceName: req.body?.deviceName,
+    });
     if (!result) return res.status(401).json({ message: 'Invalid or expired pairing code' });
     return res.status(201).json(result);
   } catch (error) {
@@ -264,6 +268,17 @@ router.post('/heartbeat', limitHeartbeat, async (req, res) => {
     const { sessions } = await getServices();
     const ok = await sessions.heartbeat(req.body || {});
     return res.status(ok ? 200 : 401).json({ connected: ok });
+  } catch (error) {
+    return fail(res, error);
+  }
+});
+
+router.post('/disconnect/browser', requireJwtAuth, checkMCPUse, async (req, res) => {
+  if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
+  try {
+    const { sessions } = await getServices();
+    const ok = await sessions.disconnectUser(String(req.user.id));
+    return res.status(ok ? 200 : 404).json({ disconnected: ok });
   } catch (error) {
     return fail(res, error);
   }
