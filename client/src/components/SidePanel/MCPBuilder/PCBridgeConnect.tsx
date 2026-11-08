@@ -109,7 +109,7 @@ export default function PCBridgeConnect() {
       const url = window.URL.createObjectURL(response.data);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'CB-Bridge-1.2.1-x64.msi';
+      anchor.download = 'CB-Bridge-1.2.2-x64.msi';
       document.body.appendChild(anchor);
       try {
         anchor.click();
@@ -217,7 +217,7 @@ export default function PCBridgeConnect() {
                     onClick={() => void downloadWindowsBridge()}
                     disabled={downloading}
                   >
-                    {downloading ? 'Downloading CB Bridge…' : 'Download CB Bridge v1.2.1'}
+                    {downloading ? 'Downloading CB Bridge…' : 'Download CB Bridge v1.2.2'}
                   </Button>
                   <Button
                     type="button"
