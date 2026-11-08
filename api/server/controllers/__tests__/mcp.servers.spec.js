@@ -548,6 +548,72 @@ describe('CBHR PC bridge native registration', () => {
     expect(JSON.stringify(payload)).not.toContain(bearerToken);
   });
 
+  it('registers a separately scoped staging hostname through native MCP inspection', async () => {
+    const previous = {
+      domain: process.env.CBHR_PC_CF_DOMAIN,
+      account: process.env.CBHR_PC_CF_ACCOUNT_ID,
+      zone: process.env.CBHR_PC_CF_ZONE_ID,
+    };
+    try {
+      process.env.CBHR_PC_CF_DOMAIN = 'stage.example.ca';
+      process.env.CBHR_PC_CF_ACCOUNT_ID = 'b'.repeat(32);
+      process.env.CBHR_PC_CF_ZONE_ID = 'a'.repeat(32);
+      const user = await createUser();
+      const stageUrl = 'https://pc-test.stage.example.ca/mcp';
+      mockRegistryInstance.addServer.mockResolvedValue({
+        serverName: 'cbhr_pc',
+        config: { ...pcConfig, url: stageUrl },
+      });
+      const res = createRes();
+      await createPCBridgeMCPServerController({ user, body: { url: stageUrl, bearerToken } }, res);
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(mockRegistryInstance.addServer).toHaveBeenCalledTimes(1);
+      expect(mockRegistryInstance.addServer.mock.calls[0][1].url).toBe(stageUrl);
+      const payload = res.json.mock.calls[0][0];
+      expect(payload.tools).toEqual(['read_file', 'list_directory']);
+      expect(JSON.stringify(payload)).not.toContain(bearerToken);
+    } finally {
+      for (const [k, v] of Object.entries({
+        CBHR_PC_CF_DOMAIN: previous.domain,
+        CBHR_PC_CF_ACCOUNT_ID: previous.account,
+        CBHR_PC_CF_ZONE_ID: previous.zone,
+      })) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it('rejects production URL before registry admission when staging is selected', async () => {
+    const previous = {
+      domain: process.env.CBHR_PC_CF_DOMAIN,
+      account: process.env.CBHR_PC_CF_ACCOUNT_ID,
+      zone: process.env.CBHR_PC_CF_ZONE_ID,
+    };
+    try {
+      process.env.CBHR_PC_CF_DOMAIN = 'stage.example.ca';
+      process.env.CBHR_PC_CF_ACCOUNT_ID = 'b'.repeat(32);
+      process.env.CBHR_PC_CF_ZONE_ID = 'a'.repeat(32);
+      const user = await createUser();
+      const res = createRes();
+      await createPCBridgeMCPServerController(
+        { user, body: { url: pcConfig.url, bearerToken } },
+        res,
+      );
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mockRegistryInstance.addServer).not.toHaveBeenCalled();
+    } finally {
+      for (const [k, v] of Object.entries({
+        CBHR_PC_CF_DOMAIN: previous.domain,
+        CBHR_PC_CF_ACCOUNT_ID: previous.account,
+        CBHR_PC_CF_ZONE_ID: previous.zone,
+      })) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it('does not depend on the mutable user tool cache after native inspection succeeds', async () => {
     const user = await createUser();
     mockRegistryInstance.addServer.mockResolvedValue({

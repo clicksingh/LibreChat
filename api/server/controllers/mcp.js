@@ -505,47 +505,9 @@ const createMCPServerController = async (req, res) => {
 };
 
 const PC_BRIDGE_TITLE = 'CBHR PC';
-const PC_BRIDGE_DOMAIN_SUFFIX = '.kelownarealestate.com';
-
-function normalizePCBridgeUrl(value) {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error('PC bridge URL is required');
-  }
-
-  let url;
-  try {
-    url = new URL(value.trim());
-  } catch {
-    throw new Error('PC bridge URL is invalid');
-  }
-
-  const isLocalCi =
-    process.env.NODE_ENV === 'CI' &&
-    url.protocol === 'http:' &&
-    url.hostname === '127.0.0.1' &&
-    url.port === '8847';
-
-  const hostname = url.hostname.toLowerCase();
-  const isManagedProduction =
-    url.protocol === 'https:' &&
-    url.port === '' &&
-    hostname.endsWith(PC_BRIDGE_DOMAIN_SUFFIX) &&
-    hostname !== PC_BRIDGE_DOMAIN_SUFFIX.slice(1);
-
-  if (!isLocalCi && !isManagedProduction) {
-    throw new Error('PC bridge URL must use a managed CBHR tunnel hostname');
-  }
-  if (url.username || url.password || url.search || url.hash) {
-    throw new Error('PC bridge URL must not contain credentials, query parameters, or fragments');
-  }
-
-  const pathname = url.pathname.replace(/\/+$/, '') || '/';
-  if (pathname !== '/mcp') {
-    throw new Error('PC bridge URL must end with /mcp');
-  }
-  url.pathname = '/mcp';
-  return url.toString();
-}
+const {
+  normalizeManagedPCBridgeUrl: normalizePCBridgeUrl,
+} = require('../services/PCBridge/managedDomain');
 
 function isPCBridgeConfig(config) {
   if (!config || config.title !== PC_BRIDGE_TITLE || config.type !== 'streamable-http') {

@@ -7,10 +7,14 @@
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const {
+  resolveManagedDomain,
+  PRODUCTION_ACCOUNT_ID,
+  PRODUCTION_ZONE_ID,
+} = require('./managedDomain');
 
-const DEFAULT_ACCOUNT = '0102f078f366b9361dde6122005cd1a9';
-const DEFAULT_ZONE = '56a80216044a1ba2063982351e7aeb6b';
-const DOMAIN = 'kelownarealestate.com';
+const DEFAULT_ACCOUNT = PRODUCTION_ACCOUNT_ID;
+const DEFAULT_ZONE = PRODUCTION_ZONE_ID;
 const DNS_READY_TIMEOUT_MS = 30000;
 const PROTECTED_TUNNELS = new Set([
   '75ed544f-1ab6-49c6-b6b2-3d01ea0863ef',
@@ -25,6 +29,7 @@ function createCloudflareServer({
       : ''),
   accountId = process.env.CBHR_PC_CF_ACCOUNT_ID || DEFAULT_ACCOUNT,
   zoneId = process.env.CBHR_PC_CF_ZONE_ID || DEFAULT_ZONE,
+  domain = process.env.CBHR_PC_CF_DOMAIN,
   fetcher = fetch,
 } = {}) {
   if (!token || token.length < 20) {
@@ -32,6 +37,7 @@ function createCloudflareServer({
     err.code = 'CF_NOT_CONFIGURED';
     throw err;
   }
+  const tunnelDomain = resolveManagedDomain({ domain, zoneId, accountId });
   async function api(path, method = 'GET', body) {
     let response;
     try {
@@ -98,7 +104,7 @@ function createCloudflareServer({
     }
     const label =
       'pc-' + userId.slice(-8).toLowerCase() + '-' + crypto.randomBytes(5).toString('hex');
-    const hostname = label + '.' + DOMAIN;
+    const hostname = label + '.' + tunnelDomain;
     const name = 'cbhr-pc-' + label;
     const result = await api('/accounts/' + accountId + '/cfd_tunnel', 'POST', {
       name,
