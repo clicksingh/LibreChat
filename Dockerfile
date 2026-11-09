@@ -56,10 +56,12 @@ RUN \
 COPY --chown=node:node . .
 
 RUN set -eu; \
+    node scripts/patch-cbhr-custom-image-artifacts.cjs; \
     NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run frontend; \
     test -s /app/client/dist/index.html; \
     test -d /app/client/dist/assets; \
     npm prune --production; \
+    node scripts/patch-cbhr-custom-image-artifacts.cjs --verify; \
     npm cache clean --force
 
 # Optional build metadata surfaced in Settings -> About for support triage.
