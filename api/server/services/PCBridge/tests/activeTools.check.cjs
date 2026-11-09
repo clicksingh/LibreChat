@@ -104,7 +104,6 @@ test('an invalid principal fails closed and strips old PC keys', async () => {
   assert.equal(f.queries.length, 0);
 });
 
-
 const FIXED_ALIAS = 'cbhr-pc';
 const FIXED_WILDCARD = 'mcp_all' + DELIMITER + FIXED_ALIAS;
 function fixedAliasFixture({ owner = A, publishedConfig = config, serverName = FIXED_ALIAS } = {}) {

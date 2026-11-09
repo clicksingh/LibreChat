@@ -64,7 +64,10 @@ describe('CBHR AI staff workstation prompt', () => {
   });
 
   test('live fixed-alias CBHR PC tools activate workstation intelligence', () => {
-    const prompt = buildStaffWorkstationContract({ endpoint: 'CBHR AI', toolNames: ['read_file_mcp_cbhr-pc'] });
+    const prompt = buildStaffWorkstationContract({
+      endpoint: 'CBHR AI',
+      toolNames: ['read_file_mcp_cbhr-pc'],
+    });
     expect(prompt).toContain('CB Bridge tools are exposed for this turn');
     expect(prompt).not.toContain('No CB Bridge tool is exposed');
   });
