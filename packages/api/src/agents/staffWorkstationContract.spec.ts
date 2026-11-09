@@ -54,11 +54,22 @@ describe('CBHR AI staff workstation prompt', () => {
     expect(isCBBridgeToolName('read_file_mcp_cbhr_pc_not-a-uuid')).toBe(false);
     expect(isCBBridgeToolName(BRIDGE_SCREEN)).toBe(true);
     expect(isCBBridgeToolName('read_file_mcp_cbhr-pc-2')).toBe(true);
+    expect(isCBBridgeToolName('read_file_mcp_cbhr-pc')).toBe(true);
+    expect(isCBBridgeToolName('capture_screen_mcp_cbhr-pc')).toBe(true);
     expect(isCBBridgeToolName('read_file')).toBe(false);
     expect(isCBBridgeToolName('bash_tool')).toBe(false);
     expect(isCBBridgeToolName('read_file_mcp_other-server')).toBe(false);
     expect(isCBBridgeToolName('read_file_mcp_cbhr-pc-')).toBe(false);
     expect(isCBBridgeToolName('_mcp_cbhr-pc-2')).toBe(false);
+  });
+
+  test('live fixed-alias CBHR PC tools activate workstation intelligence', () => {
+    const prompt = buildStaffWorkstationContract({
+      endpoint: 'CBHR AI',
+      toolNames: ['read_file_mcp_cbhr-pc'],
+    });
+    expect(prompt).toContain('CB Bridge tools are exposed for this turn');
+    expect(prompt).not.toContain('No CB Bridge tool is exposed');
   });
 
   test('real registered cbhr_pc UUID tools activate workstation intelligence', () => {
