@@ -1,11 +1,17 @@
 'use strict';
 
-const PC_SERVER_NAME = /^cbhr_pc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Historical production registrations use "cbhr-pc" or dashed aliases. New registrations
+// use an owner-scoped UUID name. Both require the user's live session and its
+// separately verified MCP configuration before attachment.
+const PC_SERVER_NAME =
+  /^(?:cbhr-pc(?:-[a-z0-9]+)*|cbhr_pc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const PC_TOOL_PREFIX = /^cbhr_pc_/i;
+const LEGACY_PC_TOOL_NAME = /^cbhr-pc(?:-[a-z0-9]+)*$/i;
 
 function isPCToolKey(name, delimiter) {
   if (typeof name !== 'string' || !name.includes(delimiter)) return false;
   const suffix = name.slice(name.lastIndexOf(delimiter) + delimiter.length);
-  return suffix.startsWith('cbhr_pc_');
+  return PC_TOOL_PREFIX.test(suffix) || LEGACY_PC_TOOL_NAME.test(suffix);
 }
 
 function isTrustedPCConfig(config) {
