@@ -45,6 +45,31 @@ describe('safe application validation errors', () => {
   });
 });
 
+describe('B1 file-provenance failures are not reported as provider interruptions', () => {
+  test.each([
+    'CODEAPI_EXECUTION_INPUT_SCOPE_UNVERIFIED',
+    'CODEAPI_EXECUTION_INPUT_DUPLICATE',
+    'CODEAPI_EXECUTION_FILES_DB_UNAVAILABLE',
+    'CODEAPI_EXECUTION_HASH_SOURCE_UNAVAILABLE',
+    'CODEAPI_EXECUTION_INPUT_CHANGED_DURING_GRANT',
+  ])('offers an actionable, non-replaying file error for %s', (message) => {
+    const normalized = normalizeAgentFailure({ message });
+    expect(normalized).toMatch(/^CODE_FILE_VALIDATION/);
+    expect(normalized).not.toContain(message);
+    expect(normalized).not.toContain('Continue in this chat');
+    expect(normalized).toContain('Saved artifacts');
+    expect(normalized).toContain('No tool actions were automatically replayed');
+  });
+
+  it('does not reclassify provider failures by loose text matching', () => {
+    const result = normalizeAgentFailure({
+      status: 503,
+      message: 'provider returned an unrelated file error',
+    });
+    expect(result).toMatch(/^MODEL_REQUEST_INTERRUPTED/);
+  });
+});
+
 describe('live error lifecycle: save error even when SSE transport is unavailable', () => {
   const forced400 = {
     status: 400,
