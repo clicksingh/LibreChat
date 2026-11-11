@@ -40,11 +40,13 @@ failure and certify user-visible recovery.
 
 ## Reproduction and canary evidence (2026-11-11)
 
-- **Baseline RED:** the 13-case B1 contract suite against the deployed `8b527a53` validator fails its two generated-CSV continuation cases: **11 PASS, 2 FAIL**, both `CODEAPI_EXECUTION_INPUT_SCOPE_UNVERIFIED`.
-- **Patched GREEN:** the identical suite against the branch validator passes **13/13**, including forged ref, cross-owner/tenant/session, unsupported executable extension, oversized file, duplicate and bad digest negatives.
+- **Baseline RED:** the 14-case B1 contract suite against the deployed `8b527a53` validator fails its two generated-CSV continuation cases: **12 PASS, 2 FAIL**, both `CODEAPI_EXECUTION_INPUT_SCOPE_UNVERIFIED`.
+- **Patched GREEN:** the identical suite against the branch validator passes **14/14**, including forged ref, cross-owner/tenant/session, unsupported executable extension, oversized file, duplicate and bad digest negatives.
+- **Actual byte-stream attestation:** the hashing helper computes the correct SHA-256 for a synthetic two-chunk CSV, and rejects both shorter and longer declared source sizes. **PASS**. No production files were opened.
 - **Production-data metadata canary:** read-only records for the completed turn were streamed directly from Mongo into an isolated canary process; nothing was written to Mongo or logged beyond file types and pass/fail. Patched B1 validation: **CSV, CSV, XLSX all PASS**.
 - **Full B1 scoped grant resolver in canary:** those three exact metadata records produced three authorized grants and three synthetic hash attestations, with owner-bound database query verification. **PASS**. Hashing was deliberately mocked; this did **not** read or assert the physical file contents.
 - **Canary runtime:** production image `sha256:ad3c414b14d3d14b9be3f17165267fdc0474d28986e10ca01abab125c1974210`, bound read-only patched modules, isolated staging Mongo, loopback-only port 33312. `/readyz` returned **200**; the original `LibreChat` container remained running at the same image digest.
+- **Separate HTTP fake-model canary:** same production image plus read-only patch mounts, isolated staging Mongo and no live model/tool credentials. `/readyz` returned 200 and unauthenticated `/api/agents` correctly returned 401. An authenticated synthetic account could not be established in this run, so no claim is made about a second-turn HTTP completion. This canary was stopped and its mounted files removed. Its staging DB contains zero users, messages, conversations, agents, and files; auto-created schema records remain.
 - **Synthetic conversation history integration:** `b1Continuation.spec.js` traverses stored parent ancestry, collects assistant-generated attachments, excludes an unrelated sibling, seeds execute-code session, authorizes both CSVs and XLSX, and verifies the same grants survive turn three. **PASS** in GitHub backend shard 2/3.
 - **Diagnostics:** standalone privacy tests and CI `agentStartupDiagnostics.spec.js` and `client.test.js` passed. A local B1 classification smoke verified the new `CODE_FILE_VALIDATION` error and lack of unsafe replay messaging.
 
@@ -81,7 +83,7 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 | G0 source/evidence | PASS: exact deployed image/source; live container unchanged |
 | G1 diagnostics | PARTIAL: privacy/unit tests PASS; no live thrown canary event yet |
 | G2 reproduction | PARTIAL: exact metadata rejects 2 CSVs on deployed validator; no full HTTP replay |
-| G3 regression | PASS: baseline 11/13, patched 13/13; security negatives preserved |
+| G3 regression | PASS: baseline 12/14, patched 14/14; security negatives preserved |
 | G4 contract | PASS: local B1 classified distinctly; no raw error/user data logged |
 | G5 integration | PARTIAL: two-/three-turn synthetic lineage test PASS; no full provider backed replay |
 | G6 deployment | HOLD: production image/DB/chat unchanged; promotion not authorized or executed |
@@ -89,11 +91,11 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 ## Current status
 
 - CSV allowlist and local B1 failure classification: implemented and verified at their contract boundaries.
-- Same tests baseline RED **11/13**, patch GREEN **13/13**.
-- Real-metadata isolated canary and full B1 resolver: **3/3 PASS**; file bytes not accessed.
+- Same tests baseline RED **12/14**, patch GREEN **14/14**.
+- Real-metadata isolated canary and full B1 resolver: **3/3 PASS** with mocked file hashes; separate synthetic streamed CSV byte hashing **PASS**.
 - Two-/three-turn synthetic-history integration, client diagnostics Jest, syntax, privacy smoke: **PASS**.
 - Relevant GitHub jobs: Static Checks, Docker Build Smoke, scoped conversation issuer, workspace ABC, and Bombadil completed **PASS** on the earlier diagnostic/CSV build. The backend aggregate remains red in unrelated unmodified test areas (disconnect persistence, MCP missing-tool text expectation, and TypeScript provider enum). These need their own baseline validation or explicit release waiver, not hidden test edits.
-- Full authenticated HTTP second-turn recovery and provider-backed integration: **not yet certified**.
+- Full authenticated HTTP second-turn recovery and provider-backed integration: **not yet certified**. A separate private HTTP canary passed readiness and unauthenticated authorization enforcement, but synthetic login setup was blocked.
 - Production deployment and live conversation changes: **not performed**.
 
 Do not describe the user-visible production chat as fixed until G2/G5/G6 are evidenced and production is promoted through the normal release boundary.

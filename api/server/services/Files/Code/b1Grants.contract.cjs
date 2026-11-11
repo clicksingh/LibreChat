@@ -262,3 +262,43 @@ test('unhashable, altered, or invalid-digest file source never becomes a signed 
     );
   }
 });
+
+test('B1 attests actual streamed CSV bytes and detects source-size changes', async () => {
+  const Module = require('node:module');
+  const { Readable } = require('node:stream');
+  const { createHash } = require('node:crypto');
+  const { hashFileWithStorage } = require('./b1Grants');
+  const chunks = [Buffer.from('account,code\n'), Buffer.from('Cash,1001\n')];
+  const full = Buffer.concat(chunks);
+  const file = {
+    filename: 'account-index.csv',
+    source: 'synthetic',
+    filepath: '/isolated/csv',
+    bytes: full.length,
+  };
+  const originalLoad = Module._load;
+  Module._load = function (...args) {
+    if (args[0] === '~/server/services/Files/strategies') {
+      return {
+        getStrategyFunctions: () => ({
+          getDownloadStream: async () => Readable.from(chunks),
+        }),
+      };
+    }
+    return Reflect.apply(originalLoad, this, args);
+  };
+  try {
+    const digest = await hashFileWithStorage(req(), file);
+    assert.equal(digest, createHash('sha256').update(full).digest('hex'));
+    await assert.rejects(
+      hashFileWithStorage(req(), { ...file, bytes: full.length - 1 }),
+      /CODEAPI_EXECUTION_INPUT_CHANGED_DURING_GRANT/,
+    );
+    await assert.rejects(
+      hashFileWithStorage(req(), { ...file, bytes: full.length + 1 }),
+      /CODEAPI_EXECUTION_INPUT_CHANGED_DURING_GRANT/,
+    );
+  } finally {
+    Module._load = originalLoad;
+  }
+});
