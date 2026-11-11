@@ -46,6 +46,24 @@ test('Personal DOCX PDF XLSX grants are exact DB provenance matches', () => {
     'session_id',
   ]);
 });
+test('generated CSV register remains available with XLSX across conversation turns', () => {
+  const csv1 = file('mapping.csv', 'f-csv-1');
+  const csv2 = file('reverse-index.csv', 'f-csv-2');
+  const got = grants([csv1, csv2, c]);
+  assert.deepEqual(
+    got.map((g) => g.name),
+    ['mapping.csv', 'reverse-index.csv', 'budget.xlsx'],
+  );
+  assert.equal(got.every((g) => g.kind === 'user' && g.owner === owner), true);
+  const otherTenant = { ...csv1, tenantId: 'foreign-tenant' };
+  assert.throws(
+    () => authorizedFileGrants({
+      req: req(), sessionFiles: [ref(csv1)], dbFiles: [otherTenant],
+    }),
+    /UNVERIFIED/,
+  );
+});
+
 test('authorized Project attached PDF requires bound project context and attachment marker', () => {
   const reqProject = req();
   reqProject.workspaceContext = { kind: 'project', workspaceId: 'project-ok' };
@@ -118,8 +136,10 @@ test('reject model forged ref, missing DB, conflicting records and bad extension
       }),
     /UNVERIFIED/,
   );
-  const csv = file('other.csv', 'f-csv');
-  assert.throws(() => grants([csv]), /UNVERIFIED/);
+  for (const ext of ['js', 'sh', 'exe', 'py', 'xlsm']) {
+    const executable = file(`unsafe.${ext}`, `f-${ext}`);
+    assert.throws(() => grants([executable]), /UNVERIFIED/);
+  }
 });
 test('oversized, zero-byte and too-many inputs cannot be signed', () => {
   assert.throws(() => grants([{ ...a, bytes: 0 }]), /UNVERIFIED/);
@@ -150,6 +170,32 @@ test('backend helper performs read-only bounded per-ref query and verifies resul
   assert.equal(out.length, 1);
   assert.equal(out[0].sha256, 'a'.repeat(64));
 });
+test('CSV output grants verify source bytes and exact DB identity', async () => {
+  const csv = file('generated-register.csv', 'f-generated-csv');
+  const session = { get: () => ({ files: [ref(csv), ref(c)] }) };
+  const queried = [];
+  const hashed = [];
+  const out = await resolveAuthorizedFileGrants({
+    req: req(),
+    initialSessions: session,
+    getFiles: async (query) => {
+      queried.push(query);
+      return [csv, c];
+    },
+    hashFile: async (_request, record) => {
+      hashed.push(record.filename);
+      return 'c'.repeat(64);
+    },
+  });
+  assert.deepEqual(queried[0], {
+    user: owner,
+    'metadata.codeEnvRef.file_id': { $in: ['f-generated-csv', 'f-xlsx'] },
+  });
+  assert.deepEqual(hashed, ['generated-register.csv', 'budget.xlsx']);
+  assert.equal(out.length, 2);
+  assert.equal(out.every((grant) => grant.sha256 === 'c'.repeat(64)), true);
+});
+
 test('hash source cannot select colliding records from another owner or tenant', async () => {
   const session = { get: () => ({ files: [ref(a)] }) };
   // Deliberately put the colliding but unauthorized storage identities first.
