@@ -6,6 +6,7 @@ const {
   buildRecoveryReceipt,
   formatRecoveryContext,
 } = require('./agentFailure');
+const { getAgentStartupFailureDiagnostic } = require('./agentStartupDiagnostics');
 const { getBufferString, HumanMessage } = require('@librechat/agents/langchain/messages');
 const {
   createRun,
@@ -2585,6 +2586,8 @@ class AgentClient extends BaseClient {
     let run;
     /** @type {Promise<(TAttachment | null)[] | undefined>} */
     let memoryPromise;
+    let startupStage = 'initialization';
+    let streamEntered = false;
     const appConfig = this.options.req.config;
     const balanceConfig = getBalanceConfig(appConfig);
     const transactionsConfig = getTransactionsConfig(appConfig);
@@ -2597,6 +2600,7 @@ class AgentClient extends BaseClient {
        *  parallel with generation so the first execute_code/bash call lands
        *  on a warm VM. No-op unless a reachable agent resolved
        *  `statefulCodeSessions`. */
+      startupStage = 'prewarm';
       maybePrewarmCodeSandbox({
         req: this.options.req,
         conversationId: this.conversationId,
@@ -2606,6 +2610,7 @@ class AgentClient extends BaseClient {
       /** @type {AppConfig['endpoints']['agents']} */
       const agentsEConfig = appConfig.endpoints?.[EModelEndpoint.agents];
 
+      startupStage = 'run_config';
       config = {
         runName: 'AgentRun',
         configurable: {
@@ -2635,6 +2640,7 @@ class AgentClient extends BaseClient {
       const tokenCounter = createTokenCounter(this.getEncoding());
 
       /** Pre-resolve invoked skill bodies + re-prime files before formatting messages */
+      startupStage = 'skill_prime';
       const skillPrimeResult = this.options.primeInvokedSkills
         ? await this.options.primeInvokedSkills(payload)
         : undefined;
@@ -2646,6 +2652,7 @@ class AgentClient extends BaseClient {
        * run-wide semantics live in `buildInitialToolSessions`; see that
        * helper's doc for why this is intentionally NOT per-agent.
        */
+      startupStage = 'session_seed';
       let initialSessions = buildInitialToolSessions({
         skillSessions: skillPrimeResult?.initialSessions,
         agents: [this.options.agent, ...(this.agentConfigs ? this.agentConfigs.values() : [])],
@@ -2654,6 +2661,7 @@ class AgentClient extends BaseClient {
       // Rollout gate: legacy chats still use their original execution sessions
       // until migration ownership and CodeAPI filesystem enforcement qualify.
       if (process.env.CBHR_CONVERSATION_EXECUTION_SESSIONS === '1') {
+        startupStage = 'execution_conversation';
         const req = this.options.req;
         const userId = req?.user?.id;
         if (!userId || !this.conversationId || this.conversationId === 'new') {
@@ -2680,6 +2688,7 @@ class AgentClient extends BaseClient {
         });
         if (scoped) {
           const workspace = req.workspaceContext;
+          startupStage = 'execution_session';
           const sessionId = await resolveExecutionSession(
             mongoose.connection.collection('code_execution_sessions'),
             {
@@ -2695,6 +2704,7 @@ class AgentClient extends BaseClient {
           // this request, so bind the immutable authorization context only
           // AFTER the durable registry and DB-backed file provenance checks.
           // No req.body or agent-proposed ref is allowed to become JWT authority.
+          startupStage = 'file_grants';
           const fileGrants = await resolveAuthorizedFileGrants({
             req,
             initialSessions,
@@ -2720,6 +2730,7 @@ class AgentClient extends BaseClient {
        * Walks subagents too — the opted-in endpoint may appear only as a
        * nested subagent, not the primary or a top-level handoff agent.
        */
+      startupStage = 'history_format';
       const needsReasoningContentFormat = anyAgentReplaysReasoningContent([
         this.options.agent,
         ...(this.agentConfigs ? Array.from(this.agentConfigs.values()) : []),
@@ -2783,6 +2794,7 @@ class AgentClient extends BaseClient {
        * (used to build `freshSkillPrimeNames` for dedupe against historical
        * skill reconstruction).
        */
+      startupStage = 'skill_injection';
       if (
         (manualSkillPrimes && manualSkillPrimes.length > 0) ||
         (alwaysApplySkillPrimes && alwaysApplySkillPrimes.length > 0)
@@ -2819,12 +2831,14 @@ class AgentClient extends BaseClient {
           `[AgentClient] Token map after format: [${perMsg.join(', ')}] (payload=${payload.length}, formatted=${initialMessages.length})`,
         );
       }
+      startupStage = 'token_hydration';
       indexTokenCountMap = hydrateMissingIndexTokenCounts({
         messages: initialMessages,
         indexTokenCountMap,
         tokenCounter,
       });
 
+      startupStage = 'memory_history_format';
       const memoryMessages =
         this.processMemory && this.memoryPayload
           ? formatAgentMessages(
@@ -2909,6 +2923,7 @@ class AgentClient extends BaseClient {
         const shouldPruneCheckpoint =
           streamId &&
           (isHITLEnabled(agentsEConfig?.toolApproval) || agents.some(agentRequestsAskUserQuestion));
+        startupStage = 'run_create_or_checkpoint';
         let checkpointPrunePromise = Promise.resolve();
         if (shouldPruneCheckpoint && this.checkpointNamespace !== '') {
           checkpointPrunePromise = deleteAgentCheckpoint(
@@ -3011,9 +3026,11 @@ class AgentClient extends BaseClient {
           checkpointPrunePromise,
         ]);
         if (createRunResult.status === 'rejected') {
+          startupStage = 'run_create';
           throw createRunResult.reason;
         }
         if (checkpointPruneResult.status === 'rejected') {
+          startupStage = 'checkpoint_prune';
           throw checkpointPruneResult.reason;
         }
         run = createRunResult.value;
@@ -3035,6 +3052,7 @@ class AgentClient extends BaseClient {
         /** @deprecated Agent Chain */
         config.configurable.last_agent_id = agents[agents.length - 1].id;
 
+        startupStage = 'stream_start';
         this.options.startupTelemetry?.mark('stream_processing_started');
         /** Flag durable BEFORE the run can claim a label: gap reconciliation
          *  is gated on it, and ordering it here (one settled-on-failure
@@ -3043,6 +3061,8 @@ class AgentClient extends BaseClient {
         if (this.activityLabelsMarkedPromise != null) {
           await this.activityLabelsMarkedPromise;
         }
+        startupStage = 'stream_processing';
+        streamEntered = true;
         await run.processStream({ messages }, config, {
           callbacks: {
             [Callback.TOOL_ERROR]: logToolError,
@@ -3100,6 +3120,7 @@ class AgentClient extends BaseClient {
        * are the same promises the finalization settle would wait on, and
        * that later call then sees an empty pending list.
        */
+      startupStage = 'completion_finalize';
       await this.settleActivityLabels();
 
       const contentBeforeReshape = [...this.contentParts];
@@ -3119,11 +3140,18 @@ class AgentClient extends BaseClient {
           { conversationId: this.conversationId, name: err?.name, code: err?.code },
         );
       } else {
-        logger.error('[AgentInterruption] Model run failed', {
-          failureClass: classifyAgentFailure(err),
+        const diagnostic = getAgentStartupFailureDiagnostic(err, {
+          stage: startupStage,
           conversationId: this.conversationId,
           runId: this.responseMessageId,
+          streamEntered,
         });
+        // Production log transports can discard structured metadata fields.
+        // Only bounded, server-authored fields go into the message itself.
+        logger.error(`[AgentInterruption] ${JSON.stringify({
+          failureClass: classifyAgentFailure(err),
+          ...diagnostic,
+        })}`);
         const videoError = resolveGoogleVideoError({
           error: err,
           provider: this.options.agent?.provider,
