@@ -6,7 +6,10 @@
  * Cross-conversation reuse requires a matching, user-owned Mongo file record.
  */
 const { createHash } = require('crypto');
-const DOC = /\.(?:docx|pdf|xlsx)$/i;
+/** The CodeAPI priming path legitimately replays generated CSV registers.
+ * Keep this restricted to non-executable data formats; file identity, owner,
+ * tenant, scope, size and source SHA are checked separately below. */
+const SAFE_DATA_FILE = /\.(?:docx|pdf|xlsx|csv)$/i;
 const SAFE = /^[A-Za-z0-9._-]{1,200}$/;
 const NAME = /^[A-Za-z0-9_. -]{1,180}$/;
 const LIMIT = 20;
@@ -38,7 +41,7 @@ function authorizedFileGrants({ req, sessionFiles, dbFiles }) {
       !SAFE.test(ref.storage_session_id) ||
       !SAFE.test(ref.id) ||
       !NAME.test(name) ||
-      !DOC.test(name) ||
+      !SAFE_DATA_FILE.test(name) ||
       (ref.kind === 'user' && ref.resource_id !== userId) ||
       (ref.kind === 'project' && (!projectId || projectId !== ref.resource_id))
     ) {
