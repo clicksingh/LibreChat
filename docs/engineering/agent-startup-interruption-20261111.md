@@ -1,9 +1,9 @@
-# Agent startup interruption: diagnostic and canary runbook (2026-11-11)
+# Agent startup interruption: B1 CSV grant fix and canary runbook (2026-11-11)
 
 ## Scope and authority
 
 This branch is based on the deployed source commit `8b527a53b40823630397d12d55017f6b5fc54757`.
-It adds **diagnostics only**, not retry policy, provider changes, side-effect replay, database edits, or deployment.
+It fixes a narrowly demonstrated B1 CSV file-grant mismatch and adds bounded diagnostics. It does not change provider routing, retries, side-effect replay, database content, or deployment.
 The incident's conversation, user, host address, artifact IDs, and business content are intentionally absent from this public repository.
 
 ## Observed incident (redacted)
@@ -18,7 +18,25 @@ The incident's conversation, user, host address, artifact IDs, and business cont
 - Conversation-scoped CodeAPI execution session ownership is consistent with generated file provenance.
 - `buildMessages()` completes before `chatCompletion()` catches the exception.
 
-**Do not diagnose by hypothesis alone:** the exact throwing operation and exception were absent from existing production logs.
+## Validated contract mismatch
+
+The prior completed turn emitted two CSV output files and one XLSX with owner-bound `codeEnvRef` metadata.
+The initialize/prime path collects output `attachments` from the conversation's parent chain and
+seeds `execute_code` sessions with those references on subsequent turns. The B1 scoped grant
+validator previously allowed only DOCX, PDF and XLSX and rejected every CSV, including
+**legitimately generated output registers**. A read-only production metadata probe
+through `authorizedFileGrants` reproduced two
+`CODEAPI_EXECUTION_INPUT_SCOPE_UNVERIFIED` failures (CSV) and one pass (XLSX).
+
+The patch permits **CSV data files only** in addition to the existing three types. It
+does not admit scripts, executables or macros. The original owner/tenant/resource
+identity, session, filename, size, duplicate handling and storage SHA attestation
+remain mandatory. Contract tests now cover mixed CSV + XLSX outputs, rejection of
+executables, and SHA verification with exact DB-backed records.
+
+This explains the timing and class of the five startup failures. The complete
+conversation canary is still required to distinguish this cause from any concurrent
+failure and certify user-visible recovery.
 
 ## New diagnostic contract
 
@@ -51,16 +69,17 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 | G0 source/evidence | Exact deployed SHA and no production mutation |
 | G1 diagnostics | Sanitized phase + fingerprint + code-site in canary logs |
 | G2 reproduction | Exact second-turn failure isolated without real tools |
-| G3 regression | Test fails before fix and passes after |
+| G3 regression | CSV rejected by old policy; accepted by patched policy, with provenance/negative tests |
 | G4 contract | Local vs provider failure distinguishable; no sensitive logging |
 | G5 integration | Second and third turns complete; artifacts and tool history survive reload |
 | G6 deployment | Canary accepted; production rollout explicitly authorized and reversible |
 
 ## Current status
 
-- Diagnostic branch and tests: prepared.
-- JavaScript syntax and standalone diagnostic privacy smoke: passed on an isolated checkout.
-- Full repository Jest and canary conversation replay: **not yet verified**.
-- Functional root-cause patch and production deployment: **not performed**.
+- B1 CSV allowlist correction and exact provenance regression: implemented.
+- B1 Node contract: 13/13 pass (including mixed CSV/XLSX and executable rejection).
+- JavaScript syntax and standalone diagnostic privacy smoke: pass.
+- Complete repository CI and end-to-end conversation canary: pending/under review.
+- Production deployment and live conversation changes: **not performed**.
 
 Do not describe this incident as fixed until G2 through G6 are evidenced.
