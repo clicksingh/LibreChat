@@ -17,6 +17,17 @@ function classifyAgentFailure(error) {
   const name = String(error?.name ?? '').toLowerCase();
   const message = String(error?.message ?? error?.response?.data?.error?.message ?? '');
   if (code === 'agent_expected_mcp_tools_unavailable') return 'tool_configuration';
+  // B1 grants are local authorization/provenance failures, not provider interruptions.
+  // The normalized message must not suggest retrying an unresumable file context.
+  if (
+    /^(?:CODEAPI_EXECUTION_INPUT_SCOPE_UNVERIFIED|CODEAPI_EXECUTION_INPUT_DUPLICATE|CODEAPI_EXECUTION_FILES_DB_UNAVAILABLE|CODEAPI_EXECUTION_HASH_SOURCE_UNAVAILABLE|CODEAPI_EXECUTION_INPUT_CHANGED_DURING_GRANT)$/.test(
+      message,
+    ) ||
+    /^(?:codeapi_execution_input_scope_unverified|codeapi_execution_input_duplicate|codeapi_execution_files_db_unavailable|codeapi_execution_hash_source_unavailable|codeapi_execution_input_changed_during_grant)$/.test(
+      code,
+    )
+  )
+    return 'file_scope_validation';
   if (
     [
       'context_length_exceeded',
@@ -50,6 +61,8 @@ function normalizeAgentFailure(error) {
   const cause = classifyAgentFailure(error);
   if (cause === 'tool_configuration')
     return 'AGENT_TOOL_CONFIGURATION: This agent is configured to use MCP tools, but none are available. Verify that the MCP server is connected and this agent can access its selected tools, then try again.';
+  if (cause === 'file_scope_validation')
+    return 'CODE_FILE_VALIDATION: A file referenced by this conversation could not pass code-execution validation. Saved artifacts remain available, but this turn cannot proceed until file access is repaired. No tool actions were automatically replayed.';
   if (cause === 'context_limit')
     return 'MODEL_CONTEXT_LIMIT: The model could not fit this turn into its context window. No tool actions were automatically replayed. Previously saved files remain available. Continue in this chat and ask me to summarize the existing work before proceeding.';
   if (cause === 'provider_rate_limit')
