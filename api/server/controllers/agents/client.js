@@ -3148,10 +3148,12 @@ class AgentClient extends BaseClient {
         });
         // Production log transports can discard structured metadata fields.
         // Only bounded, server-authored fields go into the message itself.
-        logger.error(`[AgentInterruption] ${JSON.stringify({
-          failureClass: classifyAgentFailure(err),
-          ...diagnostic,
-        })}`);
+        logger.error(
+          `[AgentInterruption] ${JSON.stringify({
+            failureClass: classifyAgentFailure(err),
+            ...diagnostic,
+          })}`,
+        );
         const videoError = resolveGoogleVideoError({
           error: err,
           provider: this.options.agent?.provider,

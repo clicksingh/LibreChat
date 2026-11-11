@@ -54,12 +54,18 @@ test('generated CSV register remains available with XLSX across conversation tur
     got.map((g) => g.name),
     ['mapping.csv', 'reverse-index.csv', 'budget.xlsx'],
   );
-  assert.equal(got.every((g) => g.kind === 'user' && g.owner === owner), true);
+  assert.equal(
+    got.every((g) => g.kind === 'user' && g.owner === owner),
+    true,
+  );
   const otherTenant = { ...csv1, tenantId: 'foreign-tenant' };
   assert.throws(
-    () => authorizedFileGrants({
-      req: req(), sessionFiles: [ref(csv1)], dbFiles: [otherTenant],
-    }),
+    () =>
+      authorizedFileGrants({
+        req: req(),
+        sessionFiles: [ref(csv1)],
+        dbFiles: [otherTenant],
+      }),
     /UNVERIFIED/,
   );
 });
@@ -193,7 +199,10 @@ test('CSV output grants verify source bytes and exact DB identity', async () => 
   });
   assert.deepEqual(hashed, ['generated-register.csv', 'budget.xlsx']);
   assert.equal(out.length, 2);
-  assert.equal(out.every((grant) => grant.sha256 === 'c'.repeat(64)), true);
+  assert.equal(
+    out.every((grant) => grant.sha256 === 'c'.repeat(64)),
+    true,
+  );
 });
 
 test('hash source cannot select colliding records from another owner or tenant', async () => {

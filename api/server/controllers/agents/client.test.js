@@ -294,9 +294,11 @@ describe('AgentClient - startup telemetry', () => {
     client.recordCollectedUsage = jest.fn().mockResolvedValue();
     await client.chatCompletion({ payload: [] });
 
-    const diagnostic = errorLog.mock.calls.map(([message]) => message).find(
-      (message) => typeof message === 'string' && message.startsWith('[AgentInterruption] {'),
-    );
+    const diagnostic = errorLog.mock.calls
+      .map(([message]) => message)
+      .find(
+        (message) => typeof message === 'string' && message.startsWith('[AgentInterruption] {'),
+      );
     expect(diagnostic).toContain('"failureStage":"run_create"');
     expect(diagnostic).toContain('"streamEntered":false');
     expect(diagnostic).toContain('"failureClass":"agent_exception"');
