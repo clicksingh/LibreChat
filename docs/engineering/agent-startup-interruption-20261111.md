@@ -38,6 +38,18 @@ This explains the timing and class of the five startup failures. The complete
 conversation canary is still required to distinguish this cause from any concurrent
 failure and certify user-visible recovery.
 
+## Reproduction and canary evidence (2026-11-11)
+
+- **Baseline RED:** the 13-case B1 contract suite against the deployed `8b527a53` validator fails its two generated-CSV continuation cases: **11 PASS, 2 FAIL**, both `CODEAPI_EXECUTION_INPUT_SCOPE_UNVERIFIED`.
+- **Patched GREEN:** the identical suite against the branch validator passes **13/13**, including forged ref, cross-owner/tenant/session, unsupported executable extension, oversized file, duplicate and bad digest negatives.
+- **Production-data metadata canary:** read-only records for the completed turn were streamed directly from Mongo into an isolated canary process; nothing was written to Mongo or logged beyond file types and pass/fail. Patched B1 validation: **CSV, CSV, XLSX all PASS**.
+- **Full B1 scoped grant resolver in canary:** those three exact metadata records produced three authorized grants and three synthetic hash attestations, with owner-bound database query verification. **PASS**. Hashing was deliberately mocked; this did **not** read or assert the physical file contents.
+- **Canary runtime:** production image `sha256:ad3c414b14d3d14b9be3f17165267fdc0474d28986e10ca01abab125c1974210`, bound read-only patched modules, isolated staging Mongo, loopback-only port 33312. `/readyz` returned **200**; the original `LibreChat` container remained running at the same image digest.
+- **Synthetic conversation history integration:** `b1Continuation.spec.js` traverses stored parent ancestry, collects assistant-generated attachments, excludes an unrelated sibling, seeds execute-code session, authorizes both CSVs and XLSX, and verifies the same grants survive turn three. **PASS** in GitHub backend shard 2/3.
+- **Diagnostics:** standalone privacy tests and CI `agentStartupDiagnostics.spec.js` and `client.test.js` passed. A local B1 classification smoke verified the new `CODE_FILE_VALIDATION` error and lack of unsafe replay messaging.
+
+The isolated canary did **not** exercise a fully authenticated, model-backed second-turn HTTP request. Therefore it validates the proven B1 failure boundary, not complete user-visible chat recovery.
+
 ## New diagnostic contract
 
 The `chatCompletion` catch now prints one bounded structured JSON string to the server error log:
@@ -53,10 +65,10 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 ## Execution sequence
 
 1. Establish exact image/source parity with the deployed SHA; record commit and image digest. Confirm worktree and branch are clean.
-2. Build this branch into a **nonproduction** image. Keep the original production container intact.
+2. Use the exact production image with read-only patched-module bind mounts in a private, loopback-only container, or build an equivalent immutable image. Keep the original production container intact.
 3. Copy only the minimum necessary authorized conversation state into a private canary store. Keep PII, credentials, file content, and generated artifacts out of Git and general logs. Do not point canary at production tool endpoints.
 4. In the canary, simulate the first user continuation following the last healthy assistant message. Do not authorize any tool to write, send, rename, or execute on live endpoints.
-5. Capture the bounded `[AgentInterruption]` JSON event. Identify `failureStage` plus safe `stackSite` and `errorShape` before changing runtime logic.
+5. Capture bounded startup diagnostics if any additional failure survives the B1 CSV fix. Identify `failureStage` plus safe `stackSite` and `errorShape` before altering another runtime invariant.
 6. Add a failing regression reproducing that precise invariant, patch only that invariant, and prove the second turn reaches the LLM. Also test third turn after DB roundtrip/restart.
 7. Repeat with memory on/off, B1 sessions, generated artifacts, 100+ tools, missing historical tools, HITL on/off, and `hide_sequential_outputs` modes.
 8. Promote only after these tests plus normal build, security and endpoint gates pass. Keep a rollback image/commit.
@@ -66,20 +78,22 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 
 | Gate | Required result |
 | --- | --- |
-| G0 source/evidence | Exact deployed SHA and no production mutation |
-| G1 diagnostics | Sanitized phase + fingerprint + code-site in canary logs |
-| G2 reproduction | Exact second-turn failure isolated without real tools |
-| G3 regression | CSV rejected by old policy; accepted by patched policy, with provenance/negative tests |
-| G4 contract | Local vs provider failure distinguishable; no sensitive logging |
-| G5 integration | Second and third turns complete; artifacts and tool history survive reload |
-| G6 deployment | Canary accepted; production rollout explicitly authorized and reversible |
+| G0 source/evidence | PASS: exact deployed image/source; live container unchanged |
+| G1 diagnostics | PARTIAL: privacy/unit tests PASS; no live thrown canary event yet |
+| G2 reproduction | PARTIAL: exact metadata rejects 2 CSVs on deployed validator; no full HTTP replay |
+| G3 regression | PASS: baseline 11/13, patched 13/13; security negatives preserved |
+| G4 contract | PASS: local B1 classified distinctly; no raw error/user data logged |
+| G5 integration | PARTIAL: two-/three-turn synthetic lineage test PASS; no full provider backed replay |
+| G6 deployment | HOLD: production image/DB/chat unchanged; promotion not authorized or executed |
 
 ## Current status
 
-- B1 CSV allowlist correction and exact provenance regression: implemented.
-- B1 Node contract: 13/13 pass (including mixed CSV/XLSX and executable rejection).
-- JavaScript syntax and standalone diagnostic privacy smoke: pass.
-- Complete repository CI and end-to-end conversation canary: pending/under review.
+- CSV allowlist and local B1 failure classification: implemented and verified at their contract boundaries.
+- Same tests baseline RED **11/13**, patch GREEN **13/13**.
+- Real-metadata isolated canary and full B1 resolver: **3/3 PASS**; file bytes not accessed.
+- Two-/three-turn synthetic-history integration, client diagnostics Jest, syntax, privacy smoke: **PASS**.
+- Relevant GitHub jobs: Static Checks, Docker Build Smoke, scoped conversation issuer, workspace ABC, and Bombadil completed **PASS** on the earlier diagnostic/CSV build. The backend aggregate remains red in unrelated unmodified test areas (disconnect persistence, MCP missing-tool text expectation, and TypeScript provider enum). These need their own baseline validation or explicit release waiver, not hidden test edits.
+- Full authenticated HTTP second-turn recovery and provider-backed integration: **not yet certified**.
 - Production deployment and live conversation changes: **not performed**.
 
-Do not describe this incident as fixed until G2 through G6 are evidenced.
+Do not describe the user-visible production chat as fixed until G2/G5/G6 are evidenced and production is promoted through the normal release boundary.
