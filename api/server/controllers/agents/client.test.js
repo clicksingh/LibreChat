@@ -263,6 +263,54 @@ describe('AgentClient - startup telemetry', () => {
     jest.restoreAllMocks();
   });
 
+  it('logs the exact failed pre-stream stage without exposing exception details', async () => {
+    jest.clearAllMocks();
+    mockCreateRun.mockReset();
+    mockIsHITLEnabled.mockReturnValue(false);
+    const { logger } = require('@librechat/data-schemas');
+    const errorLog = jest.spyOn(logger, 'error').mockImplementation(() => {});
+    const error = new Error('PRIVATE: account data and /uploads/private.xlsx');
+    mockCreateRun.mockRejectedValueOnce(error);
+    const client = new AgentClient({
+      req: {
+        user: { id: 'user-123' },
+        body: {},
+        config: { endpoints: { [EModelEndpoint.agents]: {} } },
+      },
+      res: {},
+      agent: {
+        id: 'agent-123',
+        endpoint: EModelEndpoint.openAI,
+        provider: EModelEndpoint.openAI,
+        model_parameters: { model: 'gpt-4' },
+        hide_sequential_outputs: false,
+      },
+      contentParts: [],
+      collectedUsage: [],
+      artifactPromises: [],
+    });
+    client.conversationId = 'conversation-123';
+    client.responseMessageId = 'response-123';
+    client.recordCollectedUsage = jest.fn().mockResolvedValue();
+    await client.chatCompletion({ payload: [] });
+
+    const diagnostic = errorLog.mock.calls.map(([message]) => message).find(
+      (message) => typeof message === 'string' && message.startsWith('[AgentInterruption] {'),
+    );
+    expect(diagnostic).toContain('"failureStage":"run_create"');
+    expect(diagnostic).toContain('"streamEntered":false');
+    expect(diagnostic).toContain('"failureClass":"agent_exception"');
+    expect(diagnostic).not.toContain('PRIVATE');
+    expect(diagnostic).not.toContain('/uploads/private.xlsx');
+    expect(client.contentParts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          [ContentTypes.ERROR]: expect.stringContaining('MODEL_REQUEST_INTERRUPTED'),
+        }),
+      ]),
+    );
+  });
+
   it('overlaps run creation with checkpoint pruning and joins both before stream processing', async () => {
     let releaseCheckpoint;
     let checkpointStarted;
