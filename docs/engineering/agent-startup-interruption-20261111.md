@@ -50,7 +50,18 @@ failure and certify user-visible recovery.
 - **Synthetic conversation history integration:** `b1Continuation.spec.js` traverses stored parent ancestry, collects assistant-generated attachments, excludes an unrelated sibling, seeds execute-code session, authorizes both CSVs and XLSX, and verifies the same grants survive turn three. **PASS** in GitHub backend shard 2/3.
 - **Diagnostics:** standalone privacy tests and CI `agentStartupDiagnostics.spec.js` and `client.test.js` passed. A local B1 classification smoke verified the new `CODE_FILE_VALIDATION` error and lack of unsafe replay messaging.
 
-The isolated canary did **not** exercise a fully authenticated, model-backed second-turn HTTP request. Therefore it validates the proven B1 failure boundary, not complete user-visible chat recovery.
+The original production-image canary did not perform an authenticated second-turn HTTP completion. A separate authenticated synthetic Playwright continuation now passes with the patch and fails with the deployed validator. Real-provider production recovery remains unverified.
+
+## Authenticated synthetic HTTP red/green (2026-11-11)
+
+- Candidate source: `ad21cf199` on isolated TECH, exact lockfile install and successful full frontend/API build. The test is `e2e/specs/mock/pam-generated-continuation.spec.ts`.
+- Setup: separate loopback server and disposable Mongo database, authenticated synthetic E2E user authorized for an `execute_code` agent, persisted prior assistant turn with two CSV and one XLSX attachments and physical synthetic bytes, fake CodeAPI session-freshness endpoint, and injected fake model. B1 conversation-session and cutover flags were enabled in both comparisons.
+- **Patched GREEN:** Playwright **1 passed (49.8 seconds)**. Continuation reached the fake model, displayed the expected reply, and found a persisted `code_execution_sessions` record and zero failed assistant messages. One CodeAPI freshness lookup is correct because all files share one session and priming caches by session.
+- **Deployed-validator RED:** the same test with only `b1Grants.js` temporarily replaced from deployed commit `8b527a53` produced **1 expected failure**. The bounded startup diagnostic shows `failureStage=file_grants`, `failureClass=file_scope_validation`, stack site `b1Grants.js:47:13`, and `streamEntered=false`. The unfinished assistant record contains `CODE_FILE_VALIDATION`. No model execution occurred.
+- After the negative control, patched validator restored **byte-identically**, SHA-256 `435248fcfc2f2df1bdda5fb5ae76e1700682703f609e3dcb188fd6473ba0992b`. The B1 contract suite passed **14/14** after restoration; E2E fixture passed Prettier and ESLint.
+- This proves the authenticated startup regression, not real CodeAPI sandbox copying, production provider invocation, production user login, or accounting tool execution. The fake CodeAPI supplies only session freshness. No production files/credentials were opened and no side effects replayed.
+- This test is deliberately **opt-in**: `PAM_CSV_CONTINUATION_E2E=1` is required. Normal Playwright suites skip it, because it additionally requires a loopback Mongo, fake CodeAPI, `LIBRECHAT_CODE_BASEURL`, `CBHR_CONVERSATION_EXECUTION_SESSIONS=1`, B1 cutover, and the repository fake-model hook. Use the focused Playwright config with `--retries=0` in the isolated fixture environment.
+- Baseline also exposes an `unfinished:true` placeholder with error content after B1 refusal. That is a distinct error-finalization issue, not part of the narrow CSV grant fix, and should receive separate scoped triage.
 
 ## New diagnostic contract
 
@@ -81,11 +92,11 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 | Gate | Required result |
 | --- | --- |
 | G0 source/evidence | PASS: exact deployed image/source; live container unchanged |
-| G1 diagnostics | PARTIAL: privacy/unit tests PASS; no live thrown canary event yet |
-| G2 reproduction | PARTIAL: exact metadata rejects 2 CSVs on deployed validator; no full HTTP replay |
+| G1 diagnostics | PASS in isolated HTTP negative control: safe file_grants diagnostic emitted; privacy tests PASS. No live production thrown canary |
+| G2 reproduction | PASS: production metadata red on both CSVs; authenticated synthetic HTTP baseline RED versus patch GREEN |
 | G3 regression | PASS: baseline 12/14, patched 14/14; security negatives preserved |
 | G4 contract | PASS: local B1 classified distinctly; no raw error/user data logged |
-| G5 integration | PARTIAL: two-/three-turn synthetic lineage test PASS; no full provider backed replay |
+| G5 integration | PASS for isolated authenticated fake-model continuation and 2-/3-turn lineage; real-provider/production replay remains untested |
 | G6 deployment | HOLD: production image/DB/chat unchanged; promotion not authorized or executed |
 
 ## Current status
@@ -95,7 +106,7 @@ The `chatCompletion` catch now prints one bounded structured JSON string to the 
 - Real-metadata isolated canary and full B1 resolver: **3/3 PASS** with mocked file hashes; separate synthetic streamed CSV byte hashing **PASS**.
 - Two-/three-turn synthetic-history integration, client diagnostics Jest, syntax, privacy smoke: **PASS**.
 - Relevant GitHub jobs: Static Checks, Docker Build Smoke, scoped conversation issuer, workspace ABC, and Bombadil completed **PASS** on the earlier diagnostic/CSV build. The backend aggregate remains red in unrelated unmodified test areas (disconnect persistence, MCP missing-tool text expectation, and TypeScript provider enum). These need their own baseline validation or explicit release waiver, not hidden test edits.
-- Full authenticated HTTP second-turn recovery and provider-backed integration: **not yet certified**. A separate private HTTP canary passed readiness and unauthenticated authorization enforcement, but synthetic login setup was blocked.
+- Authenticated synthetic HTTP second-turn regression: **PASS patched, expected FAIL deployed baseline**. Real-provider and production-context recovery remain untested; the earlier production-image HTTP canary did not reach authenticated login.
 - Production deployment and live conversation changes: **not performed**.
 
-Do not describe the user-visible production chat as fixed until G2/G5/G6 are evidenced and production is promoted through the normal release boundary.
+Do not describe the user-visible production chat as fixed until the production release boundary is authorized, the fix is promoted, and post-release recovery is verified without replaying completed accounting work.
